@@ -9,5 +9,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/RenoTrack.Api.Tests/RenoTrack.Api.Tests.csproj" />
     <Project Path="tests/RenoTrack.Application.Tests/RenoTrack.Application.Tests.csproj" />
+    <Project Path="tests/RenoTrack.Domain.Tests/RenoTrack.Domain.Tests.csproj" />
   </Folder>
 </Solution>
