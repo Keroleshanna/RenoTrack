@@ -4,6 +4,7 @@
     <Project Path="src/RenoTrack.Application/RenoTrack.Application.csproj" />
     <Project Path="src/RenoTrack.Domain/RenoTrack.Domain.csproj" />
     <Project Path="src/RenoTrack.Infrastructure/RenoTrack.Infrastructure.csproj" />
+    <Project Path="src/RenoTrack.Website/RenoTrack.Website.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/RenoTrack.Api.Tests/RenoTrack.Api.Tests.csproj" />
