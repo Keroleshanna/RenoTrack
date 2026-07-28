@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RenoTrack.Application\RenoTrack.Application.csproj" />
+    <ProjectReference Include="..\RenoTrack.Domain\RenoTrack.Domain.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
