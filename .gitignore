@@ -1,0 +1,49 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.userosscache
+*.sln.docstates
+
+## Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+## EF Core
+*.db
+*.db-shm
+*.db-wal
+
+## Secrets / local config (never commit real values)
+appsettings.Development.json
+appsettings.Local.json
+*.env
+.env
+.env.*
+
+## Node / Angular (Dashboard, future phases)
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+
+## Website build output (future phases)
+wwwroot/dist/
+
+## Local file storage (inspection photos / generated PDFs in dev)
+storage/
+
+## IDE
+.idea/
+*.swp
+
+## Claude Code local settings (machine-specific, not project config)
+.claude/settings.local.json
+
+## OS
+.DS_Store
+Thumbs.db

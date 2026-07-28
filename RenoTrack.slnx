@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RenoTrack.Api/RenoTrack.Api.csproj" />
+    <Project Path="src/RenoTrack.Application/RenoTrack.Application.csproj" />
+    <Project Path="src/RenoTrack.Domain/RenoTrack.Domain.csproj" />
+    <Project Path="src/RenoTrack.Infrastructure/RenoTrack.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RenoTrack.Api.Tests/RenoTrack.Api.Tests.csproj" />
+    <Project Path="tests/RenoTrack.Application.Tests/RenoTrack.Application.Tests.csproj" />
+  </Folder>
+</Solution>
