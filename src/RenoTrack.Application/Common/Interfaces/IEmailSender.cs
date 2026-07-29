@@ -19,4 +19,7 @@ public interface IEmailSender
 
     /// <summary>SRS FR-9.2: notify Admin when an Inspector submits an Angebot for review. Sequence Diagram §5.</summary>
     Task SendAngebotSubmittedForReviewNotificationAsync(AngebotSubmittedForReviewNotification notification, CancellationToken cancellationToken);
+
+    /// <summary>Sequence Diagram §5: notify the owning Inspector when Admin requests changes.</summary>
+    Task SendAngebotChangesRequestedNotificationAsync(AngebotChangesRequestedNotification notification, CancellationToken cancellationToken);
 }
