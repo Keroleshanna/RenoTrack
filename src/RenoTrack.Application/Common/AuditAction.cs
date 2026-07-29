@@ -14,4 +14,5 @@ public enum AuditAction
 {
     LeadCreated,
     InspectionScheduled,
+    InspectionDone,
 }
