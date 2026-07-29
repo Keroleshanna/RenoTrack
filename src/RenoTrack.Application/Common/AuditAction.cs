@@ -17,4 +17,5 @@ public enum AuditAction
     InspectionDone,
     AngebotCreated,
     AngebotSubmittedForReview,
+    AngebotApproved,
 }
