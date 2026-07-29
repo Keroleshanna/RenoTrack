@@ -19,4 +19,8 @@ public interface IOwnershipValidator
     /// <summary>PermissionMatrix.md §3: an Inspector may only create/edit an Angebot for a Lead assigned to them.</summary>
     /// <exception cref="Exceptions.ForbiddenException">Thrown if <paramref name="inspectorId"/> is not this Lead's AssignedInspectorId.</exception>
     void EnsureLeadOwnership(Lead lead, int inspectorId);
+
+    /// <summary>PermissionMatrix.md §3: only the owning Inspector may add/remove Sections & Items on an Angebot.</summary>
+    /// <exception cref="Exceptions.ForbiddenException">Thrown if <paramref name="inspectorId"/> is not this Angebot's CreatedByInspectorId.</exception>
+    void EnsureAngebotOwnership(Angebot angebot, int inspectorId);
 }

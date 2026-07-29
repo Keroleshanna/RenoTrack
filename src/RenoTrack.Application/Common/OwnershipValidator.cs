@@ -30,4 +30,12 @@ public sealed class OwnershipValidator : IOwnershipValidator
             throw new ForbiddenException($"Inspector {inspectorId} is not assigned to Lead {lead.Id}.");
         }
     }
+
+    public void EnsureAngebotOwnership(Angebot angebot, int inspectorId)
+    {
+        if (angebot.CreatedByInspectorId != inspectorId)
+        {
+            throw new ForbiddenException($"Inspector {inspectorId} does not own Angebot {angebot.Id}.");
+        }
+    }
 }
