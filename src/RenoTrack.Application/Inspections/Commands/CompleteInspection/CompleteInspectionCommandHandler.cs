@@ -25,7 +25,8 @@ public sealed class CompleteInspectionCommandHandler(
     IInspectionRepository inspectionRepository,
     ILeadRepository leadRepository,
     IUnitOfWork unitOfWork,
-    IAuditService auditService) : ICommandHandler<CompleteInspectionCommand, InspectionDto>
+    IAuditService auditService,
+    IOwnershipValidator ownershipValidator) : ICommandHandler<CompleteInspectionCommand, InspectionDto>
 {
     public async Task<InspectionDto> HandleAsync(CompleteInspectionCommand command, CancellationToken cancellationToken)
     {
@@ -34,11 +35,7 @@ public sealed class CompleteInspectionCommandHandler(
         var inspection = await inspectionRepository.GetByIdAsync(command.InspectionId, cancellationToken)
             ?? throw new NotFoundException(nameof(Inspection), command.InspectionId);
 
-        if (inspection.InspectorId != command.CompletedByInspectorId)
-        {
-            throw new ForbiddenException(
-                $"Inspector {command.CompletedByInspectorId} is not assigned to Inspection {inspection.Id}.");
-        }
+        ownershipValidator.EnsureInspectionOwnership(inspection, command.CompletedByInspectorId);
 
         var lead = await leadRepository.GetByIdAsync(inspection.LeadId, cancellationToken)
             ?? throw new NotFoundException(nameof(Lead), inspection.LeadId);

@@ -26,7 +26,8 @@ public class CompleteInspectionCommandHandlerTests
             _inspectionRepository,
             _leadRepository,
             _unitOfWork,
-            _auditService);
+            _auditService,
+            new OwnershipValidator()); // real instance — no I/O, nothing to fake
     }
 
     /// <summary>Seeds a Lead already at InspectionScheduled with a matching, seeded Inspection — the normal precondition for CompleteInspectionCommand.</summary>

@@ -1,4 +1,5 @@
 using FluentValidation;
+using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Tests.Fakes;
@@ -23,7 +24,8 @@ public class UploadInspectionPhotoCommandHandlerTests
             new UploadInspectionPhotoCommandValidator(),
             _inspectionRepository,
             _fileStorage,
-            _unitOfWork);
+            _unitOfWork,
+            new OwnershipValidator());
     }
 
     private Inspection SeedInspection() =>

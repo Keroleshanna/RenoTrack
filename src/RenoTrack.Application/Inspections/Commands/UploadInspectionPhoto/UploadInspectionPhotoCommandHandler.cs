@@ -21,7 +21,8 @@ public sealed class UploadInspectionPhotoCommandHandler(
     IValidator<UploadInspectionPhotoCommand> validator,
     IInspectionRepository inspectionRepository,
     IFileStorage fileStorage,
-    IUnitOfWork unitOfWork) : ICommandHandler<UploadInspectionPhotoCommand, PhotoDto>
+    IUnitOfWork unitOfWork,
+    IOwnershipValidator ownershipValidator) : ICommandHandler<UploadInspectionPhotoCommand, PhotoDto>
 {
     public async Task<PhotoDto> HandleAsync(UploadInspectionPhotoCommand command, CancellationToken cancellationToken)
     {
@@ -30,11 +31,7 @@ public sealed class UploadInspectionPhotoCommandHandler(
         var inspection = await inspectionRepository.GetByIdAsync(command.InspectionId, cancellationToken)
             ?? throw new NotFoundException(nameof(Inspection), command.InspectionId);
 
-        if (inspection.InspectorId != command.UploadedByInspectorId)
-        {
-            throw new ForbiddenException(
-                $"Inspector {command.UploadedByInspectorId} is not assigned to Inspection {inspection.Id}.");
-        }
+        ownershipValidator.EnsureInspectionOwnership(inspection, command.UploadedByInspectorId);
 
         var fileUrl = $"inspections/{inspection.Id}/{Guid.NewGuid()}{Path.GetExtension(command.FileName)}";
 
