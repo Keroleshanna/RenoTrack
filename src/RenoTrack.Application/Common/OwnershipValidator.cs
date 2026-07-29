@@ -22,4 +22,12 @@ public sealed class OwnershipValidator : IOwnershipValidator
             throw new ForbiddenException($"Inspector {inspectorId} is not assigned to Inspection {inspection.Id}.");
         }
     }
+
+    public void EnsureLeadOwnership(Lead lead, int inspectorId)
+    {
+        if (lead.AssignedInspectorId != inspectorId)
+        {
+            throw new ForbiddenException($"Inspector {inspectorId} is not assigned to Lead {lead.Id}.");
+        }
+    }
 }
