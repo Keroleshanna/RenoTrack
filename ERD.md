@@ -113,6 +113,7 @@ erDiagram
         string DefaultUnit
         decimal SuggestedUnitPrice
         int CreatedFromAngebotItemId FK "nullable"
+        bool IsRetired "default false (BR-12)"
         datetime CreatedAt
     }
 
@@ -231,7 +232,7 @@ erDiagram
 | AngebotReviewComments | Id | AngebotId → Angebote, AdminUserId → Users | — | Append-only log of the review loop (SRS FR-5.4) |
 | AngebotSections | Id | AngebotId → Angebote | — | Subtotal is cached, recalculated whenever a child item changes |
 | AngebotItems | Id | SectionId → AngebotSections, CatalogItemId → CatalogItems (nullable) | — | CatalogItemId is a **trace link only** — never joined live for display (BR-8) |
-| CatalogItems | Id | CreatedFromAngebotItemId → AngebotItems (nullable) | — | Grows either via Admin curation or Inspector "save as catalog item" (SRS FR-4.10) |
+| CatalogItems | Id | CreatedFromAngebotItemId → AngebotItems (nullable) | — | Grows either via Admin curation or Inspector "save as catalog item" (SRS FR-4.10). Never hard-deleted — PermissionMatrix.md §6's "Delete/retire" action sets `IsRetired = true` instead, preserving the `CatalogItemId` traceability link on any AngebotItem created from it (BR-8, BR-12) |
 | Customers | Id | LeadId → Leads | LeadId | One Customer per Lead — created at Project-conversion time |
 | Projects | Id | CustomerId → Customers, AngebotId → Angebote | AngebotId | AgreedTotal is a snapshot of Angebot.GrossTotal at conversion time (doesn't move if the Angebot were ever re-opened, which the workflow doesn't currently allow) |
 | Invoices | Id | ProjectId → Projects | InvoiceNumber | Never deleted — Void is a status, not a row removal (BR-9) |
