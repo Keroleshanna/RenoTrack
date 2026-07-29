@@ -13,4 +13,5 @@ namespace RenoTrack.Application.Common;
 public enum AuditAction
 {
     LeadCreated,
+    InspectionScheduled,
 }

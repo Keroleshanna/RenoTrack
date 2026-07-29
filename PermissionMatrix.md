@@ -18,7 +18,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Create Lead manually (phone/email) | F | — | FR-2.1 — Admin-only per SRS |
 | Edit Lead contact details | F | S | Inspector may correct details on their own assigned Lead (e.g. wrong phone number found on-site) |
 | Change Lead status directly | F | — | Status changes happen as side effects of other actions (BR-7), not a free-standing edit — neither role edits status directly except via the defined transitions |
-| Assign/reassign Inspector to a Lead | F | — | Admin decision |
+| Assign/reassign Inspector to a Lead | F | — | Admin decision. Happens automatically whenever an Inspection is scheduled (BR-13) — this row covers standing this assignment up or changing it independently of scheduling a new Inspection |
 | Delete a Lead | — | — | Not supported in v1 — Leads are never hard-deleted (matches BR-9's spirit for Invoices; nothing legal requires it for Leads, but it keeps the audit trail intact) |
 | View Lead activity/audit timeline | F | S | Same scoping as the Lead itself |
 

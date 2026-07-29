@@ -41,7 +41,7 @@ stateDiagram-v2
 
 | From | Event | Guard | To | Side Effects |
 |---|---|---|---|---|
-| `New` | `ScheduleInspection` | Lead exists | `InspectionScheduled` | Inspection record created; AuditLog entry |
+| `New` | `ScheduleInspection` | Lead exists | `InspectionScheduled` | Inspection record created; Lead.AssignedInspectorId set to the scheduled Inspector (BR-13); AuditLog entry |
 | `InspectionScheduled` | `CompleteInspection` | Inspection belongs to this Lead | `InspectionDone` | Inspection.CompletedAt set; AuditLog entry |
 | `InspectionDone` | `CreateAngebot` | Lead has no open (non-rejected) Angebot already | `AngebotInProgress` | New Angebot in `Draft` state created |
 | `AngebotInProgress` | (internal Angebot events) | — | `AngebotInProgress` (no Lead-level change) | See Angebot state machine §2 |
