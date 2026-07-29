@@ -86,7 +86,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Create/curate Catalog item directly (not via "save as") | F | — | Admin manages the "official" library |
 | Add Catalog item via "save as Catalog item" (from an Angebot) | — | F | Organic growth path, any Inspector (FR-4.10) |
 | Edit an existing Catalog item | F | — | Admin-only, to avoid one Inspector's edit surprising others (BR-8 already protects past Angebote from this, but future *new* Angebote using that template should reflect a deliberate, reviewed change) |
-| Delete/retire a Catalog item | F | — | Admin-only |
+| Delete/retire a Catalog item | F | — | Admin-only. "Delete" means retiring the item (`IsRetired = true`), never a physical row delete — a retired item stops appearing in the Catalog picker (D2) but is kept so any AngebotItem previously created from it (BR-8) keeps a valid `CatalogItemId` trace link (BR-12) |
 
 ---
 

@@ -59,6 +59,11 @@ Each rule states: **the rule itself**, **why it exists**, and **where it's enfor
 **Rationale:** No source document specified a rounding strategy, yet different reasonable choices produce different final Euro-cent totals on a legally significant document (BR-5, §14 UStG). Rounding immediately and always summing already-rounded values guarantees every number shown on any screen or PDF adds up exactly to the numbers displayed above it — avoiding an apparent "off by one cent" discrepancy that would look like an error to a customer manually checking an Angebot or invoice.
 **Enforced by:** A single `Money` value object in `RenoTrack.Domain` that applies this rounding at construction for every derived monetary value (line totals, per-rate VAT amounts), so the rule lives in exactly one place instead of being repeated at each call site. Reused for Invoice totals (Architecture.md §6.1: "This same calculation is reused for Invoices").
 
+### BR-12 — Catalog items are retired, never deleted
+**Rule:** A Catalog item can never be physically deleted. PermissionMatrix.md §6's "Delete/retire a Catalog item" action sets an `IsRetired` flag instead; a retired item is excluded from the Catalog picker (Wireframes.md D2) but the row itself is kept.
+**Rationale:** BR-8 relies on `AngebotItem.CatalogItemId` remaining a valid traceability link back to the Catalog item an item was created from. A physical delete would leave that link dangling on every AngebotItem ever created from it, destroying the very traceability BR-8 exists to preserve. This matches the same "never truly delete a historical record" philosophy already applied elsewhere: Leads are never deleted (PermissionMatrix.md §1), Invoices are voided rather than deleted (BR-9), and a completed Inspection becomes immutable (BR-10).
+**Enforced by:** `CatalogItem.Retire()` in `RenoTrack.Domain` sets `IsRetired = true`; there is no `Delete`/`Remove` method or repository operation that removes a row. `SearchCatalogItemsQuery` (Architecture.md §5.2) filters out retired items when building the picker (Application layer, Phase 5).
+
 ---
 
 ## Financial & Legal Rules
@@ -88,3 +93,4 @@ Each rule states: **the rule itself**, **why it exists**, and **where it's enfor
 | BR-9 | Initial SRS v1.0 | Was implied in SRS.md §6 narrative ("invoice numbers never reused") but not previously numbered — formalized here |
 | BR-10 | 2026-07-28 | Requested by Product Owner during Phase 1 Domain implementation of the Inspection aggregate — completed Inspections must be immutable; a future "reopen" action is the intended fix path, not silent editing |
 | BR-11 | 2026-07-28 | Defined jointly with Product Owner during Phase 1 financial model design for the Angebot aggregate — no prior document specified a rounding strategy, so this codifies one explicitly before any financial code was written |
+| BR-12 | 2026-07-28 | Defined jointly with Product Owner during Phase 1b design for the CatalogItem aggregate — resolves a contradiction found between PermissionMatrix.md (grants a "delete" action) and ERD.md (had no field to represent it) in favor of retiring, consistent with how Leads/Invoices/Inspections already treat historical records |
