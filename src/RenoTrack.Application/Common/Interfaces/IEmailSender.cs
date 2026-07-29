@@ -16,4 +16,7 @@ public interface IEmailSender
 {
     /// <summary>SRS FR-9.2: notify Admin when a new Lead is created via the website. Sequence Diagram §1.</summary>
     Task SendNewWebsiteLeadNotificationAsync(NewWebsiteLeadNotification notification, CancellationToken cancellationToken);
+
+    /// <summary>SRS FR-9.2: notify Admin when an Inspector submits an Angebot for review. Sequence Diagram §5.</summary>
+    Task SendAngebotSubmittedForReviewNotificationAsync(AngebotSubmittedForReviewNotification notification, CancellationToken cancellationToken);
 }
