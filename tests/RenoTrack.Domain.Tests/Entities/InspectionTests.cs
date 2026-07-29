@@ -57,6 +57,18 @@ public class InspectionTests
     }
 
     [Fact]
+    public void AddPhoto_ReturnsTheCreatedPhoto()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+
+        var photo = inspection.AddPhoto("https://storage.local/inspections/1/a.jpg", "Bathroom floor");
+
+        Assert.Same(photo, inspection.Photos[0]);
+        Assert.Equal("https://storage.local/inspections/1/a.jpg", photo.FileUrl);
+        Assert.Equal("Bathroom floor", photo.Caption);
+    }
+
+    [Fact]
     public void AddPhoto_AllowsMultiplePhotos()
     {
         var inspection = Inspection.Schedule(7, ScheduledAt, 3);
