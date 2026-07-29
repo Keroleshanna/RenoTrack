@@ -6,4 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Lets Domain.Tests construct internal-constructor child entities (e.g. AngebotItem)
+         directly for isolated unit testing, without opening them up to any other assembly —
+         Application/Infrastructure/Api still cannot bypass the aggregate root. -->
+    <InternalsVisibleTo Include="RenoTrack.Domain.Tests" />
+  </ItemGroup>
+
 </Project>

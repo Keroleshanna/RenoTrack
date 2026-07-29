@@ -49,6 +49,16 @@ Each rule states: **the rule itself**, **why it exists**, and **where it's enfor
 **Rationale:** An Angebot is a historical/legal document once sent — its content must never silently change after the fact just because someone updated a template.
 **Enforced by:** `AddAngebotItemCommand` copies catalog field values into the new `AngebotItem` row rather than joining live to `CatalogItem` at read time (Architecture §6, domain model).
 
+### BR-10 — A completed Inspection is immutable
+**Rule:** Once an Inspection is marked complete, its photos and notes can no longer be changed — `AddPhoto` and `UpdateNotes` are rejected once `CompletedAt` is set. Any future need to change a completed Inspection's record requires a distinct, explicit action (e.g. a "reopen" use case), not implicit editing.
+**Rationale:** A completed Inspection is the evidentiary basis the Angebot is built from (FR-3.4). Allowing silent edits after completion would blur exactly what evidence the Angebot was based on and create audit ambiguity — the same risk BR-1's internal review gate exists to prevent for Angebote, and the same "locked after a workflow gate" pattern StateMachine.md §2.4 already applies to Angebot editing.
+**Enforced by:** Self-guard inside the `Inspection` aggregate's `AddPhoto`/`UpdateNotes` methods (Domain layer) — both require `CompletedAt == null`.
+
+### BR-11 — Monetary rounding strategy
+**Rule:** All monetary calculations round to two decimal places immediately upon computation, using `MidpointRounding.AwayFromZero`. Line totals are rounded first; section subtotals and the Angebot's net total are plain sums of already-rounded line totals (no further rounding applied to the sum itself); VAT is calculated per VAT rate from the net amount at that rate, and each rate's VAT amount is itself rounded to two decimals; the gross total is the sum of the (already-rounded) net total and the (already-rounded) per-rate VAT amounts.
+**Rationale:** No source document specified a rounding strategy, yet different reasonable choices produce different final Euro-cent totals on a legally significant document (BR-5, §14 UStG). Rounding immediately and always summing already-rounded values guarantees every number shown on any screen or PDF adds up exactly to the numbers displayed above it — avoiding an apparent "off by one cent" discrepancy that would look like an error to a customer manually checking an Angebot or invoice.
+**Enforced by:** A single `Money` value object in `RenoTrack.Domain` that applies this rounding at construction for every derived monetary value (line totals, per-rate VAT amounts), so the rule lives in exactly one place instead of being repeated at each call site. Reused for Invoice totals (Architecture.md §6.1: "This same calculation is reused for Invoices").
+
 ---
 
 ## Financial & Legal Rules
@@ -76,3 +86,5 @@ Each rule states: **the rule itself**, **why it exists**, and **where it's enfor
 |---|---|---|
 | BR-1 – BR-8 | Initial SRS v1.0 | Extracted from SRS.md §6 into this standalone document |
 | BR-9 | Initial SRS v1.0 | Was implied in SRS.md §6 narrative ("invoice numbers never reused") but not previously numbered — formalized here |
+| BR-10 | 2026-07-28 | Requested by Product Owner during Phase 1 Domain implementation of the Inspection aggregate — completed Inspections must be immutable; a future "reopen" action is the intended fix path, not silent editing |
+| BR-11 | 2026-07-28 | Defined jointly with Product Owner during Phase 1 financial model design for the Angebot aggregate — no prior document specified a rounding strategy, so this codifies one explicitly before any financial code was written |
