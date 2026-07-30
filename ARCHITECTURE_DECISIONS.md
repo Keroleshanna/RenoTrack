@@ -565,6 +565,24 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D39 — `SaveAngebotItemAsCatalogItemCommand` Deferred Out of Phase 2 (Scope Correction)
+
+**Problem:** `NEXT_STEPS.md` had characterized `SaveAngebotItemAsCatalogItemCommand` as "the one remaining piece of Phase 2," based on following the SRS/Sequence-Diagram narrative (FR-4.10 sits in the same note block as `AddAngebotItemCommand`). Before implementing it, the user asked whether it actually belonged in Phase 2's scope, rather than assuming so because it appears in the SRS.
+
+**Investigation:** Re-checked `PROJECT_ROADMAP.md` directly rather than trusting the prior framing. Phase 2's own title scopes it explicitly to "Lead/Inspection/Angebot" only; its explicit nine-command list (`CreateLeadCommand` through `ApproveAngebotCommand`) does not include `SaveAngebotItemAsCatalogItemCommand`, nor any CatalogItem command at all. (`CatalogItem`'s CRUD/Search feature, Slices 11–14, was a separate, deliberate insertion into Phase 2's branch because `AddAngebotItemCommand` — which *is* on Phase 2's list — needed it; that justification does not extend to this command, which nothing in Phase 2's actual scope depends on.) Separately, Phase 1b's own title already names "save as catalog item" as part of its concept, and Phase 1b already delivered the Domain-level requirement (`CatalogItem.Create(..., createdFromAngebotItemId)`).
+
+**A second, independent finding reinforced the deferral, not just the scope check:** implementing this command per its documented route (`POST /api/v1/angebot-items/{itemId}/save-as-catalog-item` — item id only, no `AngebotId`) would require a new Application-layer lookup capability — resolving an `AngebotItem`'s owning `Angebot`/`Section` from the item's id alone — that no other command needs and that doesn't exist today. `AngebotItem` has no back-reference by design (Phase 3 EF shadow property only); `IAngebotRepository` has only `GetByIdAsync(angebotId)`; there is no `IAngebotItemRepository`, nor should there be one (`AngebotItem` is a grandchild, not an aggregate root). Building new repository surface to serve exactly one command is the kind of premature, single-purpose architecture this project has consistently avoided (`CLAUDE.md` §4's repository-growth-on-demand discipline; see also D30's earlier rejection of a similarly premature partial implementation).
+
+**Alternatives considered:** (a) Implement it now as Phase 2's closing slice, since it was already documented as expected in `NEXT_STEPS.md`. (b) Defer it — correct `NEXT_STEPS.md`/`PROJECT_STATE.md` to reflect that it was never actually in Phase 2's roadmap-defined scope, and revisit its repository/lookup design only when a phase that actually needs it arrives.
+
+**Final decision:** (b).
+
+**Why chosen:** Two independent reasons converge on the same answer: it isn't roadmap-scoped work, and implementing it today would force a repository capability whose only justification would be this one command — exactly the "add it because we might need it" pressure this project has structurally avoided everywhere else (repository growth, DTO growth, `IOwnershipValidator`, query parameters).
+
+**Consequences:** `SaveAngebotItemAsCatalogItemCommand` remains unimplemented as Phase 2 closes. Deferred, not abandoned — flagged explicitly in `PROJECT_STATE.md`/`NEXT_STEPS.md` as a future item, to be designed (including its lookup mechanism) only once a phase that depends on it actually arrives — most naturally once Phase 3's EF Core ids exist, which would trivially resolve the lookup problem this analysis surfaced.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |

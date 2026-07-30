@@ -336,7 +336,7 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 **Tests added:** 19 (`AddAngebotItemCommandHandlerTests`) — custom-item happy path, updated-summary happy path, item added to the correct section, save-changes count, Catalog-sourced happy path (Description/Specification/Unit copied from `CatalogItem`), **explicit proof `UnitPrice` is the command's value, not the Catalog's `SuggestedUnitPrice`**, **BR-8 Application-layer snapshot proof** (mutate + retire the source `CatalogItem` after adding; created item unaffected), **BR-14 proof** (retired `CatalogItem` still a valid reference), multi-section targeting (two sections, item lands only in the targeted one), not-found ×3 (Angebot/Section/CatalogItem), ownership failure, Domain guard-failure propagation (Angebot `InReview`), validation failures (custom-path missing fields, non-positive quantity ×2, negative price, invalid VAT rate).
 
-**Final outcome:** 144 Application tests, 153 Domain tests → **297 solution-wide.** This closes out Phase 2's originally-scoped Lead/Inspection/Angebot/CatalogItem Application-layer work, except `SaveAngebotItemAsCatalogItemCommand` (see `NEXT_STEPS.md` §3 for what's left before considering Phase 2 closeable). Committed.
+**Final outcome:** 144 Application tests, 153 Domain tests → **297 solution-wide.** This closes out Phase 2's originally-scoped Lead/Inspection/Angebot Application-layer work in full — see "Phase 2 Scope Correction & Closeout" below for why `SaveAngebotItemAsCatalogItemCommand` turned out not to be part of that scope after all. Committed.
 
 ---
 
@@ -348,4 +348,20 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 **Decision:** finish the rest of the originally-planned Angebot workflow first (Slices 6–10 above), then build `CatalogItem`'s Application layer as its own dedicated feature, then return to `AddAngebotItemCommand` and implement both paths together, from the start, in one complete slice. See `NEXT_STEPS.md` for the exact recommended order once CatalogItem is done, and `ARCHITECTURE_DECISIONS.md` D30 for the full decision record.
 
-**As of this document, CatalogItem's Application layer has not yet been started — it is the immediate next task.**
+*(This paragraph is a historical record — as of Slice 15, `CatalogItem`'s Application layer and `AddAngebotItemCommand` are both complete.)*
+
+---
+
+## Phase 2 Scope Correction & Closeout
+
+**Before starting `SaveAngebotItemAsCatalogItemCommand`** (the next item `NEXT_STEPS.md` had queued up as "the one remaining piece of Phase 2"), the user asked for a design review answering one question first: does this command actually belong in Phase 2's scope, rather than assuming so because it's named in the SRS (FR-4.10) and sits in the same Sequence Diagram §4 note block as `AddAngebotItemCommand`.
+
+**Investigation, re-checking `PROJECT_ROADMAP.md` directly rather than trusting the prior framing:**
+- Phase 2's own title scopes it explicitly to "Lead/Inspection/Angebot" — not CatalogItem.
+- Phase 2's explicit nine-command list (`CreateLeadCommand` through `ApproveAngebotCommand`) does not include `SaveAngebotItemAsCatalogItemCommand`, nor any CatalogItem command. `CatalogItem`'s CRUD/Search feature (Slices 11–14) was a deliberate, justified insertion into this branch because `AddAngebotItemCommand` — which *is* on Phase 2's list — needed it; that justification does not extend to this command.
+- Phase 1b's own title names "save as catalog item" as part of its concept, and Phase 1b already delivered the Domain-level requirement (`CatalogItem.Create(..., createdFromAngebotItemId)`).
+- **A second, independent finding reinforced the same conclusion:** implementing this command per its documented route (`POST /api/v1/angebot-items/{itemId}/save-as-catalog-item` — item id only, no `AngebotId`) would require a new Application-layer lookup capability (resolving an `AngebotItem`'s owning `Angebot`/`Section` from the item's id alone) that no other command needs and that doesn't exist today — exactly the kind of premature, single-purpose architectural surface this project has consistently avoided.
+
+**Decision:** `SaveAngebotItemAsCatalogItemCommand` is deferred out of Phase 2 — not implemented, not abandoned. Formalized as `ARCHITECTURE_DECISIONS.md` **D39**. `NEXT_STEPS.md` and `PROJECT_STATE.md` corrected accordingly; no code was written for this command.
+
+**With that corrected, Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s nine-command list) is fully complete** — Slices 1–15, 297 tests (153 Domain + 144 Application), 0 warnings/errors. See `PROJECT_STATE.md` for the full closeout review (roadmap-item verification, deferred-item audit, test/build confirmation, and the recommended PR title and commit range).

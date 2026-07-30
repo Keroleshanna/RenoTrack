@@ -1,26 +1,26 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30, mid-Phase 2, immediately after completing Slice 15 (`AddAngebotItemCommand`) — Phase 2's originally-scoped work is now complete except `SaveAngebotItemAsCatalogItemCommand`.
+**Last updated:** 2026-07-30 — Phase 2 closeout. `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed **not** part of Phase 2's roadmap-defined scope (`ARCHITECTURE_DECISIONS.md` D39); Phase 2's actual scope (`PROJECT_ROADMAP.md`'s nine-command list) is fully complete as of Slice 15. Ready for PR.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 2 — Application Layer**, per `PROJECT_ROADMAP.md`. In progress, not complete.
+**Phase 2 — Application Layer**, per `PROJECT_ROADMAP.md`. **Roadmap-defined scope complete; ready for PR.**
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
-- **Phase 2 (Application layer) — 🔶 in progress**, on branch `feature/phase-2-application-layer`, **not yet merged, not yet pushed to remote as of this writing** (15 vertical slices committed locally; see §5).
+- **Phase 2 (Application layer) — ✅ scope complete, not yet merged/pushed**, on branch `feature/phase-2-application-layer` (15 vertical slices committed locally; see §5). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion.
 - Phase 3 onward — not started.
 
 ## 2. Current Branch State
 
 - Active branch: `feature/phase-2-application-layer`.
-- This branch is **not yet pushed** to `origin`. It contains 15 local commits (one per vertical slice, per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19).
+- This branch is **not yet pushed** to `origin`. It contains 15 local commits (one per vertical slice) plus a mid-phase documentation commit, per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19. Commit range: `ef9bc27` (Slice 1) through `bfe5643` (Slice 15), plus this closeout documentation commit.
 - `main` is up to date locally as of the last `git fetch`/`merge --ff-only` performed after Phase 1b's PR was merged.
-- **Next git action when resuming:** continue committing additional slices to this same branch. Next up: `SaveAngebotItemAsCatalogItemCommand` (SRS FR-4.10), the one remaining piece before Phase 2's originally-scoped work is fully complete and a PR can be considered (see `NEXT_STEPS.md` §3). Do not open a PR or push until instructed.
+- **Next git action when resuming:** open the Phase 2 PR (see §9 below for the recommended title and full closeout review). Do not push until instructed.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
@@ -139,7 +139,7 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 - `RetireCatalogItemCommand` → `CatalogItemDto`
 - `SearchCatalogItemsQuery` → `IReadOnlyList<CatalogItemDto>` — **the first query in the codebase**, using `IQueryHandler<TQuery, TResult>` instead of `ICommandHandler`; always excludes retired items (BR-12); no parameters (see `ARCHITECTURE_DECISIONS.md` D36/D37)
 
-**Not yet implemented:** `SaveAngebotItemAsCatalogItemCommand` (SRS FR-4.10 — the one remaining piece of Phase 2's original scope, see §7/§8), `UploadInspectionPhotoCommand`'s eventual `GetAsync` companion.
+**Not yet implemented (deliberately out of Phase 2's scope, not gaps):** `SaveAngebotItemAsCatalogItemCommand` (SRS FR-4.10 — confirmed **not** part of Phase 2's roadmap-defined scope, `ARCHITECTURE_DECISIONS.md` D39; see §7), `UploadInspectionPhotoCommand`'s eventual `GetAsync` companion.
 
 ### 5.5 DTOs
 
@@ -178,7 +178,7 @@ All eight original spec documents live in the repo root and have been actively m
 | `BusinessRules.md` | **Yes, extensively** | BR-10, BR-11, BR-12, BR-13, BR-14 all added, each with a Changelog row |
 | `PermissionMatrix.md` | **Yes** | §1 "Assign/reassign Inspector" row clarified for BR-13; §6 "Delete/retire" row clarified for BR-12 and cross-referenced to BR-14 |
 | `Wireframes.md` | No | Unmodified since Phase 0 |
-| `PROJECT_ROADMAP.md` | No (but see below) | Still reflects the original phase plan; **does not yet reflect** that AngebotReviewComment work happened inside Phase 2 rather than a dedicated earlier phase, or that Phase 2's Angebot-workflow ordering deferred `AddAngebotItemCommand` |
+| `PROJECT_ROADMAP.md` | No (but see below) | Still reflects the original phase plan; **does not yet reflect** that AngebotReviewComment work happened inside Phase 2 rather than a dedicated earlier phase, or that Phase 2's Angebot-workflow ordering deferred `AddAngebotItemCommand`. Notably, its own Phase 2 command list is what the Slice 15 closeout review used to confirm `SaveAngebotItemAsCatalogItemCommand` was never in scope — this document's original scoping held up under scrutiny. |
 
 **New permanent documentation (this handoff):** `CLAUDE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE2_PROGRESS.md`, `NEXT_STEPS.md`, this file, and `HANDOFF_PROMPT.md`.
 
@@ -190,7 +190,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 1. **`AddAngebotItemCommand` — ✅ complete (Slice 15).** Both the Catalog-sourced and custom-item paths implemented from the start, per the standing decision. See `PHASE2_PROGRESS.md` Slice 15 for the full design-review record, including BR-14 and the `NEXT_STEPS.md` §2 wording correction.
 2. **CatalogItem Application layer — ✅ complete.** `CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` all done (Slices 11–14).
-3. **`SaveAngebotItemAsCatalogItemCommand` (SRS FR-4.10) — not yet built.** The one remaining piece of Phase 2's originally-scoped work; confirmed during Slice 15's design review to be its own follow-up slice, not bundled into `AddAngebotItemCommand`.
+3. **`SaveAngebotItemAsCatalogItemCommand` (SRS FR-4.10) — deliberately deferred, confirmed out of Phase 2's scope.** Reviewed explicitly rather than assumed-in-scope: `PROJECT_ROADMAP.md`'s Phase 2 command list never included it, and building it now would force a new, single-purpose Application-layer lookup capability (resolving an `AngebotItem`'s owning `Angebot` from the item's id alone) with no other justification. See `ARCHITECTURE_DECISIONS.md` D39. Revisit when a phase that actually needs it arrives (most naturally Phase 3, once real EF ids exist).
 4. **`SearchCatalogItemsQuery` is the only query in the codebase so far.** Every command still returns a DTO built from the same aggregate it just mutated. Other read-side needs (list views, a Lead pipeline query, etc.) have not been started — this is normal for where Phase 2 currently stands, not a gap to rush to fill.
 5. **`IFileStorage.GetAsync`/`DeleteAsync`** — not built (§4's repository-growth discipline applies here too).
 6. **`Angebot.Send()`, `RecordCustomerApproval()`, `RecordCustomerRejection()`** exist in the Domain (built in Phase 1) but have **no Application-layer commands yet** — deliberately deferred to Phase 6 (Token-link mechanism) per `PROJECT_ROADMAP.md`, since they depend on `ITokenLinkService`, which doesn't exist yet.
@@ -202,4 +202,33 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 8. Immediate Next Step
 
-**Build `SaveAngebotItemAsCatalogItemCommand` (SRS FR-4.10).** This is the last remaining piece of Phase 2's originally-scoped work (see `NEXT_STEPS.md` §2 tail / §3). Once it's done, Phase 2 should be reviewed for closeout and a single PR, per `CLAUDE.md` §19's "accumulate a phase's slices, open one PR at milestone" convention.
+**Open the Phase 2 PR.** See §9 below for the full closeout review (roadmap-item verification, deferred-item audit, doc consistency, test/build confirmation, recommended PR title and commit range). After the PR, Phase 3 (Infrastructure) begins.
+
+---
+
+## 9. Phase 2 Closeout Review
+
+Performed 2026-07-30, immediately before opening the PR.
+
+**1. Every Phase 2 roadmap item complete?** Yes. `PROJECT_ROADMAP.md`'s Phase 2 command list — `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand` — all nine are implemented, tested, and committed (§5.4). `CatalogItem`'s Application layer, while not itself on that list, was a necessary and justified prerequisite for `AddAngebotItemCommand` and is also complete.
+
+**2. Every deferred item explicitly documented with a reason?** Yes — cross-checked against §7 above and `NEXT_STEPS.md` §2:
+- `SaveAngebotItemAsCatalogItemCommand` — out of scope, `ARCHITECTURE_DECISIONS.md` D39 (roadmap-scope check + premature-lookup-capability reasoning).
+- `IFileStorage.GetAsync`/`DeleteAsync` — no current command needs them (`CLAUDE.md` §4).
+- `Angebot.Send()`/`RecordCustomerApproval()`/`RecordCustomerRejection()` Application commands — deferred to Phase 6, depend on `ITokenLinkService`.
+- `AngebotItem` update/remove methods — open question, not a rule, `ARCHITECTURE_DECISIONS.md` D12.
+- HTTP status-code mapping for Domain exceptions — deferred to Phase 4.
+- `INumberGeneratorService`'s atomic-transaction guarantee — unverified, flagged as highest-risk, to be tested in Phase 3.
+
+None of these are silent gaps; each has a named reason and a named future trigger for revisiting.
+
+**3. Are `PROJECT_STATE.md`, `NEXT_STEPS.md`, and `PHASE2_PROGRESS.md` internally consistent?** Yes, verified by cross-reading all three just now: all three agree Phase 2's roadmap scope (§5.4's fifteen slices) is complete, all three agree `SaveAngebotItemAsCatalogItemCommand` is deferred (not "the next slice"), and all three point to the same `ARCHITECTURE_DECISIONS.md` D39 for the reasoning. `PHASE2_PROGRESS.md` gained its own closing "Phase 2 Scope Correction & Closeout" section recording the same decision in slice-log form.
+
+**4. Final test count?** **297 tests, 0 failing** — 153 `RenoTrack.Domain.Tests` + 144 `RenoTrack.Application.Tests` (`RenoTrack.Api.Tests` still empty, Phase 4 not started).
+
+**5. Build clean?** **Yes — 0 Warnings, 0 Errors** (`TreatWarningsAsErrors` solution-wide, `CLAUDE.md` §14).
+
+**6. Recommended PR title and commit range:**
+- **Title:** `Phase 2: Application layer — Lead/Inspection/Angebot commands, queries, and guards` (matches `PROJECT_ROADMAP.md`'s own pre-named PR title for this phase, line 92 — no reason to deviate).
+- **Commit range:** `main..feature/phase-2-application-layer` — from `ef9bc27` (Slice 1, `CreateLeadCommand`) through the closeout documentation commit that follows `bfe5643` (Slice 15, `AddAngebotItemCommand`). Sixteen feature/doc commits total (fifteen slices plus one mid-phase handoff-documentation commit), plus this closeout commit.
+- **PR description should note explicitly:** `CatalogItem`'s Application layer was an in-scope, justified insertion (needed by `AddAngebotItemCommand`); `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed out of scope (D39), not overlooked.
