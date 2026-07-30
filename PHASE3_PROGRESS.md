@@ -73,3 +73,29 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 3 (`UnitOfWorkTests`) — persists pending changes tracked by the same `DbContext`; no-op with nothing pending doesn't throw; an already-cancelled token throws `OperationCanceledException`. The cancellation test initially failed with no pending change at all — EF Core short-circuits `SaveChangesAsync()` when nothing is tracked, skipping the cancellation check entirely — fixed by giving the test a real pending change first, a small empirical finding about EF's own behavior rather than an assumption.
 
 **Final outcome:** 20 Infrastructure tests, alongside 153 Domain + 144 Application → **317 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 4 — `ILeadRepository`
+
+**Goal:** The first concrete repository implementation — `Lead` is the simplest aggregate in the model (no child entities, no navigation properties), making it the natural first case to establish the repository pattern the remaining six repositories will follow.
+
+**Design decisions & architectural discussion (full design review before any code, per the user's request, including a follow-up review requested on one specific point):**
+- **Every method verified against a real caller** before implementation: `AddAsync` → `CreateLeadCommandHandler`; `GetByIdAsync` → `ScheduleInspectionCommandHandler`, `CompleteInspectionCommandHandler`, `CreateAngebotCommandHandler`. No speculative method added.
+- **`GetByIdAsync` implemented via `DbSet<Lead>.FindAsync`** — a plain PK lookup, no `Include`/`ThenInclude`, since `Lead` has zero navigation properties (Architecture.md §6: Lead relates to every other aggregate by id only, in the reverse direction — other tables carry `LeadId FK`, not the other way around). Confirmed this isn't just true today but structurally permanent, since the "aggregates relate by id, never navigation" rule (`CLAUDE.md` §2) applies project-wide, not just to Lead's current simplicity.
+- **`FindAsync` explicitly re-reviewed on request** for compatibility with the wider repository contract, checking three specific risks before accepting it:
+  1. No future Lead navigation properties are expected (confirmed above — a permanent architectural constraint, not a temporary absence).
+  2. No global EF Core query filter exists anywhere in the codebase (confirmed via direct search — no `HasQueryFilter` call anywhere), and none is expected for `Lead` specifically, since Leads are never deleted/retired (`CLAUDE.md` §2 — no soft-delete-shaped flag exists to filter on).
+  3. No handler depends on LINQ-only query behavior `FindAsync` would bypass — the opposite was found to be true: `FindAsync`'s default **tracked** result is actually load-bearing. `CompleteInspectionCommandHandler` loads a `Lead`, mutates it (`MarkInspectionDone()`), and relies entirely on `IUnitOfWork.SaveChangesAsync()` to persist that change — there is no `UpdateAsync` anywhere in this project (`CLAUDE.md` §4), so change tracking is the *only* mechanism making that pattern work. An untracked (`AsNoTracking`) result would have silently broken every load-then-mutate handler.
+- **`AddAsync` confirmed as pure persistence, no validation.** No uniqueness rule exists anywhere in `BusinessRules.md`/`ERD.md` for `Lead` (no unique phone/email constraint), and `Lead.Create(...)` already owns all of its own construction invariants — re-checking anything in the repository would duplicate a guard that already exists one layer down (`CLAUDE.md` §5).
+- **`SaveChangesAsync` confirmed as exclusively `IUnitOfWork`'s responsibility** — `AddAsync`'s body only calls `DbSet<Lead>.AddAsync` (staging the entity in the change tracker), never `SaveChangesAsync`. Verified with a dedicated integration test proving nothing persists if `IUnitOfWork.SaveChangesAsync` is never called, not just asserted by code review.
+- **Indexing reviewed and confirmed unnecessary for this slice.** The existing `(Status, AssignedInspectorId)` index (added Slice 1 for SRS FR-2.4 pipeline filtering) already covers the only non-PK query pattern documented anywhere, and isn't even exercised by `ILeadRepository`'s two PK-based methods. Adding a new index for a query that doesn't exist yet would be exactly the speculative growth `CLAUDE.md` §4 rejects.
+- **No new architectural decision was made** — this slice is a straightforward, first application of conventions already settled in Slices 1–3 (repository growth-on-demand, thin persistence-only classes, no generic base class). Nothing new added to `ARCHITECTURE_DECISIONS.md`.
+
+**New abstractions introduced:** `LeadRepository : ILeadRepository` (`src/RenoTrack.Infrastructure/Persistence/Repositories/LeadRepository.cs`) — the first repository, establishing a new `Persistence/Repositories/` folder that the remaining six repository slices will use. Two methods, `AddAsync`/`GetByIdAsync`, both trivial one-line bodies over `RenoTrackDbContext.Leads`.
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 4 (`LeadRepositoryTests`, real LocalDB, same `"Infrastructure Database"` collection as every other Infrastructure test) — distinct from Slice 1's `LeadPersistenceTests`, which proves raw `DbContext` field round-tripping, not repository-class behavior: `AddAsync_FollowedBySaveChangesAsync_PersistsTheLead`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing` (the concrete proof that `SaveChangesAsync` stays exclusively `IUnitOfWork`'s job), `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedLead` (cross-`DbContext`-instance correctness), `GetByIdAsync_WhenLeadDoesNotExist_ReturnsNull`.
+
+**Final outcome:** 24 Infrastructure tests, alongside 153 Domain + 144 Application → **321 solution-wide.** Build clean (0 warnings, 0 errors). Committed.

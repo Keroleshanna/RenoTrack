@@ -15,8 +15,8 @@ Design review + dependency map approved before any code was written (per the sta
 1. **`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests` — ✅ done.** See `PHASE3_PROGRESS.md` Slice 1 for the full record, including two documentation contradictions resolved before implementation (`ERD.md`'s stale `Subtotal`/`LineTotal`/`DecisionResult` columns — D41; `LocalDiskFileStorage`'s phase assignment — D42) and the new `RenoTrack.Infrastructure.Tests` project (D40).
 2. **`InitialCreate` migration — ✅ done.** A pre-migration three-way schema review (Domain ↔ EF configurations ↔ `ERD.md`) caught three missing FKs (`Inspection.LeadId`, `Angebot.LeadId`, `Angebot.InspectionId` — D45) before generating anything. A manual review of the generated migration then caught a second real bug — owned-child shadow FK columns were nullable instead of `NOT NULL` (D46) — fixed before the migration was finalized. Two new tests prove the migration applies cleanly and has zero model drift. See `PHASE3_PROGRESS.md` Slice 2 for the full record.
 3. **`IUnitOfWork` — ✅ done.** Confirmed intentionally thin by explicit design review before implementation (D48) — a one-line wrapper over `SaveChangesAsync`, no transaction API, no `IDisposable`. See `PHASE3_PROGRESS.md` Slice 3 for the full record.
-4. **`ILeadRepository` — next up.**
-5. `IInspectionRepository`
+4. **`ILeadRepository` — ✅ done.** `LeadRepository` uses `DbSet<Lead>.FindAsync` for `GetByIdAsync` (no `Include` — Lead has no navigation properties, confirmed structurally permanent, not incidental); `AddAsync` performs no validation and never calls `SaveChangesAsync`, verified by a dedicated test. See `PHASE3_PROGRESS.md` Slice 4 for the full record, including the follow-up review of `FindAsync`'s compatibility with the wider repository contract.
+5. **`IInspectionRepository` — next up.**
 6. `IAngebotRepository`
 7. `IAngebotReviewCommentRepository`
 8. `ICatalogItemRepository`
@@ -28,7 +28,7 @@ Design review + dependency map approved before any code was written (per the sta
 14. `AddInfrastructure()` extension + `Program.cs` wiring
 15. Identity storage + role seeding
 
-**Immediate next step:** Slice 4 (`ILeadRepository`). Every slice follows the same vertically-complete process as Phase 2: design review → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit. No partially-finished infrastructure, no "configure this later."
+**Immediate next step:** Slice 5 (`IInspectionRepository`). `Inspection` has one child collection (`Photos`) — the design review should explicitly cover whether/how `GetByIdAsync` loads it (likely `Include`, unlike Lead's plain `FindAsync`). Every slice follows the same vertically-complete process as Phase 2: design review → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit. No partially-finished infrastructure, no "configure this later."
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -89,5 +89,5 @@ Design review + dependency map approved before any code was written (per the sta
 
 1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE3_PROGRESS.md`, and this file, in that order, in full (`PHASE2_PROGRESS.md` is historical background at this point, not required reading for resuming Phase 3 work).
 2. `git fetch origin`; confirm you're on `feature/phase-3-infrastructure-efcore` and that it's still based on current `origin/main`.
-3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (317 as of Slice 3: 153 Domain + 144 Application + 20 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
-4. Continue with the next slice in `PHASE3_PROGRESS.md`'s order (§1b above) — Slice 4, `ILeadRepository`, unless a later slice's commit has already landed since this was written. Every slice: design review → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit, in that order, without exception.
+3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (321 as of Slice 4: 153 Domain + 144 Application + 24 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
+4. Continue with the next slice in `PHASE3_PROGRESS.md`'s order (§1b above) — Slice 5, `IInspectionRepository`, unless a later slice's commit has already landed since this was written. Every slice: design review → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit, in that order, without exception.
