@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Identity;
 using RenoTrack.Infrastructure;
 using RenoTrack.Infrastructure.Identity;
 
@@ -18,8 +17,8 @@ var app = builder.Build();
 // authentication/JWT wiring here; that's Phase 4's concern.
 using (var scope = app.Services.CreateScope())
 {
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
-    await IdentityRoleSeeder.SeedRolesAsync(roleManager);
+    var seeder = scope.ServiceProvider.GetRequiredService<IdentityRoleSeeder>();
+    await seeder.SeedRolesAsync();
 }
 
 // Configure the HTTP request pipeline.

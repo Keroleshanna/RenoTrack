@@ -49,6 +49,12 @@ public static class DependencyInjection
             .AddRoles<IdentityRole<int>>()
             .AddEntityFrameworkStores<RenoTrackDbContext>();
 
+        // A dedicated service, not a static utility (D55) — matching every other Infrastructure
+        // service's shape. Scoped, consistent with the rest of this file, even though it creates
+        // its own child scopes internally (IServiceScopeFactory is a Singleton-safe capability,
+        // not itself Scoped state) — no reason to depart from the uniform lifetime rule above.
+        services.AddScoped<IdentityRoleSeeder>();
+
         services.AddScoped<ILeadRepository, LeadRepository>();
         services.AddScoped<IInspectionRepository, InspectionRepository>();
         services.AddScoped<IAngebotRepository, AngebotRepository>();

@@ -1,18 +1,18 @@
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 
 namespace RenoTrack.Infrastructure.Tests.Identity;
 
 /// <summary>
-/// Proves IdentityRoleSeeder against real LocalDB, using the same DI-built RoleManager the real
-/// app resolves (via IdentityTestServices). Deterministic and idempotent (run twice, still
-/// exactly 2 roles), and — the specific concern raised in review — safe under concurrent
-/// application startup, where two instances could both observe a role missing and race to create
-/// it. AspNetRoles' unique index on NormalizedName (a framework default, not something this
-/// project configures) makes the loser's INSERT fail; the seeder must tolerate that, not crash
-/// startup or leave a duplicate row.
+/// Proves IdentityRoleSeeder against real LocalDB, resolving the real DI-registered service
+/// (via IdentityTestServices' AddInfrastructure() call) rather than constructing it by hand.
+/// Deterministic and idempotent (run twice, still exactly 2 roles), and — the specific concern
+/// raised in review — safe under concurrent application startup, where two instances could both
+/// observe a role missing and race to create it, in either of the two ways that race can
+/// manifest (D54/D55). Each role seeds through its own internally-created scope (D55), so a
+/// failed attempt for one role can never leave residue affecting another.
 /// </summary>
 [Collection("Infrastructure Database")]
 public sealed class IdentityRoleSeederTests
@@ -23,8 +23,8 @@ public sealed class IdentityRoleSeederTests
         await using var provider = IdentityTestServices.BuildProvider();
         await using (var scope = provider.CreateAsyncScope())
         {
-            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
-            await RenoTrack.Infrastructure.Identity.IdentityRoleSeeder.SeedRolesAsync(roleManager);
+            var seeder = scope.ServiceProvider.GetRequiredService<IdentityRoleSeeder>();
+            await seeder.SeedRolesAsync();
         }
 
         await using var readScope = provider.CreateAsyncScope();
@@ -40,14 +40,14 @@ public sealed class IdentityRoleSeederTests
 
         await using (var firstScope = provider.CreateAsyncScope())
         {
-            var roleManager = firstScope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
-            await RenoTrack.Infrastructure.Identity.IdentityRoleSeeder.SeedRolesAsync(roleManager);
+            var seeder = firstScope.ServiceProvider.GetRequiredService<IdentityRoleSeeder>();
+            await seeder.SeedRolesAsync();
         }
 
         await using (var secondScope = provider.CreateAsyncScope())
         {
-            var roleManager = secondScope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
-            await RenoTrack.Infrastructure.Identity.IdentityRoleSeeder.SeedRolesAsync(roleManager);
+            var seeder = secondScope.ServiceProvider.GetRequiredService<IdentityRoleSeeder>();
+            await seeder.SeedRolesAsync();
         }
 
         await using var readScope = provider.CreateAsyncScope();
@@ -68,8 +68,8 @@ public sealed class IdentityRoleSeederTests
         var tasks = Enumerable.Range(0, concurrentInstances).Select(async _ =>
         {
             await using var scope = provider.CreateAsyncScope();
-            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
-            await RenoTrack.Infrastructure.Identity.IdentityRoleSeeder.SeedRolesAsync(roleManager);
+            var seeder = scope.ServiceProvider.GetRequiredService<IdentityRoleSeeder>();
+            await seeder.SeedRolesAsync();
         });
 
         await Task.WhenAll(tasks);
