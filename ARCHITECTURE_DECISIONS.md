@@ -693,6 +693,25 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D48 — `UnitOfWork` Confirmed as an Intentionally Thin Abstraction
+
+**Problem:** Before implementing `IUnitOfWork`'s Infrastructure side (Phase 3, Slice 3), the user asked for a short design review covering whether it should contain any logic beyond `SaveChangesAsync()`, transaction ownership, `DbContext`/repository lifetime, disposal responsibility, cancellation propagation, and whether the interface should stay minimal — explicitly asking for the "why," not just the conclusion, if the answer was "keep it thin."
+
+**Findings, each confirmed rather than assumed:**
+- **No logic beyond `SaveChangesAsync()`.** Every Phase 2 handler calls it exactly once, after all repository/Domain work; EF Core's own `SaveChangesAsync()` already wraps everything tracked by that call in an implicit transaction, so no explicit `BeginTransaction`/`Commit`/`Rollback` is needed for anything built so far.
+- **Transaction ownership** stays with EF Core's implicit per-`SaveChanges` transaction. The one case that looks like it needs more — `INumberGeneratorService`'s atomic requirement (Slice 11) — is deliberately *not* solved through `IUnitOfWork`'s public contract; it's the number-generator service's own internal concern (its own explicit `BeginTransactionAsync()` wrapping a raw SQL increment and the entity's save).
+- **`DbContext` and every repository share one Scoped lifetime** — this is what makes "repository adds an entity, `UnitOfWork.SaveChangesAsync()` commits it" work at all; a different lifetime pairing would silently break this.
+- **`UnitOfWork` does not implement `IDisposable`** — it doesn't own the `DbContext` (constructor-injected), so disposal belongs to the DI container's scope, not to this class.
+- **Cancellation token passes straight through**, no additional handling.
+
+**Final decision:** `UnitOfWork : IUnitOfWork` is a one-line wrapper: `SaveChangesAsync(ct) => dbContext.SaveChangesAsync(ct)`. Nothing else.
+
+**Why chosen:** The same repository/interface growth-on-demand discipline already applied everywhere else in this project (`CLAUDE.md` §4) — grow the interface only when a real, currently-being-built command needs more, never speculatively. Exposing `DbContext` or a generic `ExecuteInTransactionAsync` wrapper through the interface would leak an Infrastructure mechanism into the Application layer's contract for no current benefit.
+
+**Consequences:** `UnitOfWorkTests` proves three things directly: `SaveChangesAsync` persists pending changes tracked by the same `DbContext`, calling it with nothing pending doesn't throw, and an already-cancelled token *does* throw — but only when there's a real pending change to save, since EF Core short-circuits `SaveChangesAsync()` entirely (skipping the cancellation check) when nothing is tracked. This was found empirically (a first draft of the cancellation test had no pending change and failed, since EF returned immediately without ever consulting the token) — a small, concrete confirmation that EF's own behavior, not just this wrapper's code, needed to be verified rather than assumed.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |

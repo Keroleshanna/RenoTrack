@@ -52,3 +52,24 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 5 — 3 FK-rejection tests (`InspectionPersistenceTests.LeadIdForeignKey_RejectsANonExistentLead`, `AngebotPersistenceTests.LeadIdForeignKey_RejectsANonExistentLead`, `AngebotPersistenceTests.InspectionIdForeignKey_RejectsANonExistentInspection`) plus 2 migration tests (`InitialCreateMigrationTests`). Three existing tests were also strengthened (real `Lead` seeding instead of a coincidentally-matching hardcoded id) without changing their count.
 
 **Final outcome:** 17 Infrastructure tests, alongside 153 Domain + 144 Application → **314 solution-wide.** Build clean (0 warnings, 0 errors). Migration not yet applied to any persistent/shared database — only exercised by the two migration-specific integration tests, each against its own throwaway LocalDB database, cleaned up via `IAsyncLifetime`. Committed.
+
+---
+
+## Slice 3 — `IUnitOfWork`
+
+**Goal:** Implement the Infrastructure side of `IUnitOfWork`, following a short design review (per the user's explicit request) rather than assuming a thin wrapper was obviously correct.
+
+**Design decisions & architectural discussion (full record: `ARCHITECTURE_DECISIONS.md` D48):**
+- Confirmed no logic beyond `SaveChangesAsync()` is needed — every Phase 2 handler calls it exactly once; EF Core's own implicit per-`SaveChanges` transaction already covers everything a handler needs, with `INumberGeneratorService`'s (Slice 11) atomic requirement deliberately handled inside that service itself, not through `IUnitOfWork`'s contract.
+- `DbContext` and every repository share one Scoped DI lifetime with `UnitOfWork` — the mechanism that makes "repository adds an entity → `UnitOfWork.SaveChangesAsync()` commits it" work at all.
+- `UnitOfWork` does not implement `IDisposable` — it doesn't own the injected `DbContext`; disposal belongs to the DI container's scope.
+- Cancellation token passes straight through with no additional handling.
+- Interface confirmed intentionally minimal — same growth-on-demand discipline as every other repository/interface in this project (`CLAUDE.md` §4).
+
+**New abstractions introduced:** `UnitOfWork : IUnitOfWork` (`src/RenoTrack.Infrastructure/Persistence/UnitOfWork.cs`) — a one-line wrapper over `RenoTrackDbContext.SaveChangesAsync`.
+
+**Documentation updates:** `ARCHITECTURE_DECISIONS.md` gained D48.
+
+**Tests added:** 3 (`UnitOfWorkTests`) — persists pending changes tracked by the same `DbContext`; no-op with nothing pending doesn't throw; an already-cancelled token throws `OperationCanceledException`. The cancellation test initially failed with no pending change at all — EF Core short-circuits `SaveChangesAsync()` when nothing is tracked, skipping the cancellation check entirely — fixed by giving the test a real pending change first, a small empirical finding about EF's own behavior rather than an assumption.
+
+**Final outcome:** 20 Infrastructure tests, alongside 153 Domain + 144 Application → **317 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
