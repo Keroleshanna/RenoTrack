@@ -8,7 +8,7 @@
 
 All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command list: `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand`) is done — 15 vertical slices, full record in `PHASE2_PROGRESS.md`. `CatalogItem`'s Application layer (`CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` — Slices 11–14) was a deliberate, justified insertion into this branch, needed by `AddAngebotItemCommand`. **Merged to `main` via PR #5 (merge commit `dc85de1`).** `feature/phase-2-application-layer` is no longer the active branch.
 
-## 1b. Phase 3 — In Progress (Slice 1 of 15 Done)
+## 1b. Phase 3 — In Progress (Slices 1–3 of 15 Done)
 
 Design review + dependency map approved before any code was written (per the standing process). Working branch: `feature/phase-3-infrastructure-efcore`. Slice order (Identity deliberately moved to the end, after DI composition, per explicit user request — repository work stays independent of it):
 
@@ -70,6 +70,11 @@ Design review + dependency map approved before any code was written (per the sta
 - A retired `CatalogItem` remains a valid direct `CatalogItemId` reference — retirement only affects discovery, never a direct reference (BR-14, `ARCHITECTURE_DECISIONS.md` D38).
 - `AddAngebotItemCommand`'s `Quantity`/`UnitPrice`/`VatRate` are always caller-supplied for both paths; only `Description`/`Specification`/`Unit` are copied from a `CatalogItem` in the Catalog-sourced path.
 - `SaveAngebotItemAsCatalogItemCommand` is out of Phase 2's scope and deferred — not a rejection of the feature, just a scope/sequencing decision (BR-14 is unrelated and stands; `ARCHITECTURE_DECISIONS.md` D39).
+- No generic `Repository<TEntity>` base class for Infrastructure repositories — hand-written, per-aggregate classes only, matching the project's consistent anti-generic-abstraction stance.
+- `RenoTrack.Infrastructure.Tests` uses real SQL Server LocalDB, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40).
+- Migrations are regenerated from the model when the model changes, never hand-edited — the migration is a product of the model, not a separately-maintained artifact.
+- `IUnitOfWork`'s Infrastructure implementation is an intentionally thin, one-line wrapper over `SaveChangesAsync` — no transaction API, no `IDisposable` (`ARCHITECTURE_DECISIONS.md` D48).
+- User-referencing FK constraints (`AssignedInspectorId`, `InspectorId`, `CreatedByInspectorId`, `ReviewedByAdminId`, `AdminUserId`) are deliberately deferred until the Identity slice (Slice 15) — not an oversight (`ARCHITECTURE_DECISIONS.md` D44).
 
 ## 5. What Still Requires Future Discussion (Not Yet Decided — Do Not Assume an Answer)
 
