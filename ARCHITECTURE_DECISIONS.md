@@ -549,6 +549,22 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D38 — BR-14: A Retired `CatalogItem` Remains a Valid Direct Reference
+
+**Problem:** During `AddAngebotItemCommand`'s design review, `NEXT_STEPS.md` §2 had flagged as an open question whether the command should reject an attempt to add an item sourced from a retired `CatalogItem`. Before answering either way, the full documentation set (`BusinessRules.md`, `PermissionMatrix.md`, `ERD.md`, `SRS.md`, `Wireframes.md`) was searched explicitly for "retired"/"retire" — at the user's specific request not to infer an answer without first confirming the documentation was genuinely silent.
+
+**Findings:** Every existing mention ties retirement's effect specifically to **discovery** — `BR-12` says a retired item "is excluded from the Catalog picker... but the row itself is kept"; `PermissionMatrix.md` §6 says it "stops appearing in the Catalog picker (D2) but is kept so any AngebotItem previously created from it... keeps a valid `CatalogItemId` trace link." Nothing anywhere states that a retired item becomes an invalid *target* for a **new** reference — the documentation set was confirmed genuinely silent on this specific question, not merely unread.
+
+**Alternatives considered:** (a) Reject `AddAngebotItemCommand` when the referenced `CatalogItem.IsRetired == true`, inferring this from BR-12's general "retired items are excluded from use" spirit. (b) Allow it — retirement only ever affects discovery (`SearchCatalogItemsQuery`), never direct reference by id.
+
+**Final decision:** (b), formalized as a new rule, **BR-14** (`BusinessRules.md`), rather than left as an implicit implementation choice.
+
+**Why chosen:** BR-8's copy-on-create semantics already make the resulting `AngebotItem` functionally independent of a `CatalogItem`'s current state (including `IsRetired`) the instant it's created — `CatalogItemTests.UpdatingACatalogItem_DoesNotAffectAnAngebotItemAlreadyCreatedFromIt_BR8` already proves this at the Domain level for edits, and retirement is no different in kind. Rejecting on a retired source would be inventing a new restriction with no documented basis, purely by extrapolating BR-12's picker-exclusion rule further than it actually states.
+
+**Consequences:** `AddAngebotItemCommandHandler`'s call to `ICatalogItemRepository.GetByIdAsync` is deliberately **not** filtered by `IsRetired` — unlike `ICatalogItemQueries.SearchAsync`, which does filter (BR-12). `PermissionMatrix.md` §6's "Delete/retire" row was updated to cross-reference BR-14 alongside its existing BR-8/BR-12 references, per `CLAUDE.md` §15's "update all affected documents" rule.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |

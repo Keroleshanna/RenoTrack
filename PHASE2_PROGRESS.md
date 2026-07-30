@@ -316,6 +316,30 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 ---
 
+## Slice 15 — `AddAngebotItemCommand`
+
+**Goal:** The final deferred piece of Phase 2's originally-scoped Angebot workflow (Sequence Diagram §4's "Add a Line Item" step, both paths), postponed since Slice 6 until `CatalogItem`'s Application layer existed (see "Why `AddAngebotItemCommand` Was Intentionally Postponed" below).
+
+**Design decisions & architectural discussion (full design review before any code, per the user's request):**
+- **Two documentation issues resolved before implementation, both requiring the user's explicit confirmation first — not inferred silently:**
+  - **Recorded as `BR-14`** (`BusinessRules.md`, `ARCHITECTURE_DECISIONS.md` D38): a retired `CatalogItem` remains a valid direct `CatalogItemId` reference — retirement only ever affects discovery (`SearchCatalogItemsQuery`). The full documentation set was searched explicitly for "retired"/"retire" first, confirming genuine silence on this specific question before recording it as a new rule rather than inferring an answer from BR-12's picker-exclusion wording. `PermissionMatrix.md` §6 updated to cross-reference it.
+  - **Corrected `NEXT_STEPS.md` §2's wording**, which had implied `UnitPrice` was copied from `CatalogItem.SuggestedUnitPrice`. `Sequence Diagram.md` line 210 (the authoritative wire contract) shows the Catalog-path request body as `{ catalogItemId, qty, unitPrice, vatRate }` — confirming `Quantity`, `UnitPrice`, and `VatRate` are **always** caller-supplied for both paths (SRS FR-4.9: "leaving only quantity **and price** to confirm/adjust"). Only `Description`/`Specification`/`Unit` are copied from the `CatalogItem` in the Catalog path.
+- **No new repository methods** — `IAngebotRepository.GetByIdAsync` and `ICatalogItemRepository.GetByIdAsync` (both already existed) are sufficient.
+- **New territory: resolving `SectionId` against an aggregate whose children have no real ids yet.** This is the first command needing to target an *existing* child (`AddAngebotSectionCommand` only ever added new ones). `CLAUDE.md` §2 already anticipated this — "the Application layer resolves which child a request targets... by reading the already-loaded parent's child collection." Handler resolves via `angebot.Sections.FirstOrDefault(s => s.Id == command.SectionId)`. Test fixtures extend the same sanctioned test-only reflection pattern (`CLAUDE.md` §14) to assign distinguishing ids to sections, which no prior test needed.
+- **No audit** — adding a line item is operational draft-construction activity, same precedent as `AddAngebotSectionCommandHandler`.
+- **No notification** — SRS FR-9.2 names no trigger.
+- **`SaveAngebotItemAsCatalogItemCommand` confirmed deferred** to its own follow-up slice — it creates a `CatalogItem`, never touches `Angebot`, a genuinely separate command.
+
+**New abstractions introduced:** `ItemDto`, `AngebotSummaryDto` (both named in Sequence Diagram §4), `AddAngebotItemResult(ItemDto Item, AngebotSummaryDto Summary)` — a named composite return type rather than a raw tuple, matching the diagram's "ItemDto + updated AngebotSummaryDto" response shape.
+
+**Documentation updates:** `BusinessRules.md` gained **BR-14**; `ARCHITECTURE_DECISIONS.md` gained **D38**; `PermissionMatrix.md` §6 cross-referenced BR-14; `NEXT_STEPS.md` §2 corrected to match the Sequence Diagram's authoritative wire contract.
+
+**Tests added:** 19 (`AddAngebotItemCommandHandlerTests`) — custom-item happy path, updated-summary happy path, item added to the correct section, save-changes count, Catalog-sourced happy path (Description/Specification/Unit copied from `CatalogItem`), **explicit proof `UnitPrice` is the command's value, not the Catalog's `SuggestedUnitPrice`**, **BR-8 Application-layer snapshot proof** (mutate + retire the source `CatalogItem` after adding; created item unaffected), **BR-14 proof** (retired `CatalogItem` still a valid reference), multi-section targeting (two sections, item lands only in the targeted one), not-found ×3 (Angebot/Section/CatalogItem), ownership failure, Domain guard-failure propagation (Angebot `InReview`), validation failures (custom-path missing fields, non-positive quantity ×2, negative price, invalid VAT rate).
+
+**Final outcome:** 144 Application tests, 153 Domain tests → **297 solution-wide.** This closes out Phase 2's originally-scoped Lead/Inspection/Angebot/CatalogItem Application-layer work, except `SaveAngebotItemAsCatalogItemCommand` (see `NEXT_STEPS.md` §3 for what's left before considering Phase 2 closeable). Committed.
+
+---
+
 ## Why `AddAngebotItemCommand` Was Intentionally Postponed
 
 `AddAngebotItemCommand` is next in Sequence Diagram §4's literal flow, immediately after `AddAngebotSectionCommand`. It was explicitly **not** built yet, by deliberate user decision, for the following reason:
