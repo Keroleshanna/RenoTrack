@@ -18,7 +18,7 @@
 ## 2. Current Branch State
 
 - Active branch: `feature/phase-2-application-layer`.
-- This branch is **not yet pushed** to `origin`. It contains 15 local commits (one per vertical slice) plus a mid-phase documentation commit, per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19. Commit range: `ef9bc27` (Slice 1) through `bfe5643` (Slice 15), plus this closeout documentation commit.
+- This branch is **not yet pushed** to `origin`. It contains 15 local commits (one per vertical slice) plus two documentation commits (one mid-phase handoff, one closeout), per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19. Commit range: `ef9bc27` (Slice 1) through `0628031` (Phase 2 closeout docs), 17 commits total.
 - `main` is up to date locally as of the last `git fetch`/`merge --ff-only` performed after Phase 1b's PR was merged.
 - **Next git action when resuming:** open the Phase 2 PR (see §9 below for the recommended title and full closeout review). Do not push until instructed.
 
@@ -230,5 +230,5 @@ None of these are silent gaps; each has a named reason and a named future trigge
 
 **6. Recommended PR title and commit range:**
 - **Title:** `Phase 2: Application layer — Lead/Inspection/Angebot commands, queries, and guards` (matches `PROJECT_ROADMAP.md`'s own pre-named PR title for this phase, line 92 — no reason to deviate).
-- **Commit range:** `main..feature/phase-2-application-layer` — from `ef9bc27` (Slice 1, `CreateLeadCommand`) through the closeout documentation commit that follows `bfe5643` (Slice 15, `AddAngebotItemCommand`). Sixteen feature/doc commits total (fifteen slices plus one mid-phase handoff-documentation commit), plus this closeout commit.
+- **Commit range:** `main..feature/phase-2-application-layer` — `ef9bc27` (Slice 1, `CreateLeadCommand`) through `0628031` (Phase 2 closeout docs). **17 commits total:** 15 vertical slices, one mid-phase handoff-documentation commit (`38c4314`), and this closeout commit (`0628031`).
 - **PR description should note explicitly:** `CatalogItem`'s Application layer was an in-scope, justified insertion (needed by `AddAngebotItemCommand`); `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed out of scope (D39), not overlooked.
