@@ -293,6 +293,29 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 ---
 
+## Slice 14 — `SearchCatalogItemsQuery` (First Query in the Codebase)
+
+**Goal:** Fourth and final slice of the CatalogItem Application layer, and the first query anywhere in the project — the first real implementation of the read/write split `CLAUDE.md` §3 had only described in prose until now.
+
+**Design decisions & architectural discussion (confirmed via a short pre-implementation review, per the user's request):**
+- **Bypasses repositories and aggregate hydration entirely**, per `CLAUDE.md` §3 and `NEXT_STEPS.md` §1.4 — a new `ICatalogItemQueries.SearchAsync(CancellationToken)` interface returns `IReadOnlyList<CatalogItemDto>` directly, with no `CatalogItem` aggregate ever materialized. Reusing `ICatalogItemRepository.GetByIdAsync` in a loop was explicitly rejected — it would hydrate full aggregates just to discard everything except six scalar fields per row, the exact anti-pattern flagged in `NEXT_STEPS.md`.
+- **`ICatalogItemQueries` placed in the `CatalogItems` feature folder, not `Common.Interfaces`** — its return type is a feature DTO (`CatalogItemDto`), and `Common` must never depend on a feature folder (the same reasoning that moved `NewWebsiteLeadNotification` out of a `LeadDto` dependency, D23). This differs from every other repository interface (all of which live in `Common.Interfaces`, since they only reference Domain entities, not feature DTOs).
+- **`IQueryHandler<TQuery, TResult>` used as designed in D36** — `SearchCatalogItemsQueryHandler` is its first real consumer.
+- **No `includeRetired` parameter, no search term, no pagination, no sorting** — re-confirmed against current documentation before implementing: BR-12 requires excluding retired items unconditionally; Wireframes D2/F1 show plain, undifferentiated lists with no "show retired" affordance; `PermissionMatrix.md` §6 grants both roles full ("F") access with no scoping. D2's free-text "Search Catalog" box was explicitly considered and **not** implemented as a query parameter — neither SRS FR-4.9 nor Architecture §5.2's endpoint (`GET /api/v1/catalog-items`, no query string) formalizes it as part of this query's contract; it reads as a client-side filter over an already-small, curated list, not a server-side search requirement.
+- No `IOwnershipValidator` — both roles have full access (§16).
+- No validator — the query carries no fields.
+- The handler is a pure one-line passthrough to `ICatalogItemQueries.SearchAsync`; all BR-12 filtering/projection logic is the responsibility of whatever implements the interface (Infrastructure, Phase 3) — not duplicated in the handler.
+
+**New abstractions introduced:** `IQueryHandler<TQuery, TResult>` (`Common/IQueryHandler.cs`), `ICatalogItemQueries` (`CatalogItems/ICatalogItemQueries.cs`), `SearchCatalogItemsQuery`/`SearchCatalogItemsQueryHandler`. No new DTO — reuses `CatalogItemDto`.
+
+**Documentation updates:** None beyond this log entry — D36/D37 (recorded during Slice 11's design review) already anticipated this slice's exact shape; this slice confirmed rather than revised them.
+
+**Tests added:** 3 (`SearchCatalogItemsQueryHandlerTests`) — returns all active items, **explicit proof retired items are excluded (BR-12)**, empty-result case. `FakeCatalogItemQueries` (new fake) deliberately implements the same retired-item filtering a real implementation must perform, rather than a dumb passthrough, so the handler test exercises the actual contract.
+
+**Final outcome:** 125 Application tests, 153 Domain tests → **278 solution-wide.** This closes out the entire CatalogItem Application-layer feature (`Create`, `Update`, `Retire`, `Search`) — the immediate next step reverts to `AddAngebotItemCommand` (see `NEXT_STEPS.md` §2). Committed.
+
+---
+
 ## Why `AddAngebotItemCommand` Was Intentionally Postponed
 
 `AddAngebotItemCommand` is next in Sequence Diagram §4's literal flow, immediately after `AddAngebotSectionCommand`. It was explicitly **not** built yet, by deliberate user decision, for the following reason:

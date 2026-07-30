@@ -4,9 +4,9 @@
 
 ---
 
-## 1. Immediate Next Task: CatalogItem Application Layer
+## 1. CatalogItem Application Layer — ✅ Complete (Slices 11–14)
 
-The Domain entity `CatalogItem` already exists and is fully built and tested (Phase 1b — `Create`, `Update`, `Retire`, BR-12 retirement policy). **Nothing in the Domain needs to change.** The task is purely the Application layer: commands, a query, validators, handlers, DTOs, and tests — following the exact same process this whole project has used for every prior feature.
+The Domain entity `CatalogItem` already existed and was fully built and tested (Phase 1b — `Create`, `Update`, `Retire`, BR-12 retirement policy); nothing in the Domain changed. All four pieces of this feature are now done: `CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery`. See `PHASE2_PROGRESS.md` Slices 11–14 for the full record of each. The immediate next task is §2 below: `AddAngebotItemCommand`.
 
 ### 1.1 Recommended Implementation Order
 
@@ -15,7 +15,7 @@ Follow this order — it goes simplest-and-most-precedented first, saving the on
 1. **`CreateCatalogItemCommand` — ✅ done (Slice 11).** Closest precedent: `CreateLeadCommand`/`CreateAngebotCommand`. Straightforward create-and-persist, no cross-aggregate concerns (CatalogItem is independent, per Architecture §6). `ICatalogItemRepository` introduced with `AddAsync` only; `CatalogItemDto` introduced; `AuditAction.CatalogItemCreated` added. See `PHASE2_PROGRESS.md` Slice 11 for the full record.
 2. **`UpdateCatalogItemCommand` — ✅ done (Slice 12).** Closest precedent: any command loading then mutating an existing aggregate (`ScheduleInspectionCommand`, `AddAngebotSectionCommand`). Confirmed as the first `Update`-shaped command in the whole Application layer; `ICatalogItemRepository` gained `GetByIdAsync`; `AuditAction.CatalogItemUpdated` added; reuses the existing `CatalogItemDto`. See `PHASE2_PROGRESS.md` Slice 12 for the full record.
 3. **`RetireCatalogItemCommand` — ✅ done (Slice 13).** Simplest of the three; `CatalogItem.Retire()` takes no parameters and is idempotent — re-verified explicitly before implementation (see `PHASE2_PROGRESS.md` Slice 13's four-question Domain check: idempotency confirmed, no "unretire" path exists or is planned anywhere in the docs, no rule should block retirement based on historical `AngebotItem` references per BR-8). Handler is the simplest of the three CatalogItem commands.
-4. **`SearchCatalogItemsQuery` — next up (last piece of this feature).** **This is the first query in the entire codebase.** Every command so far has followed the same "load aggregate → mutate → return DTO of that same aggregate" shape; a query has no aggregate to mutate and, per `CLAUDE.md` §3, is expected to return DTOs directly without full aggregate hydration. Expect a genuine design discussion here with no established precedent to fall back on mechanically — see §2 below.
+4. **`SearchCatalogItemsQuery` — ✅ done (Slice 14).** The first query in the entire codebase. Uses the new `IQueryHandler<TQuery, TResult>` abstraction (D36) via a new `ICatalogItemQueries` interface (placed in the `CatalogItems` feature folder, not `Common.Interfaces`, since its return type is a feature DTO). No parameters — no `includeRetired`, no search term, no pagination, no sorting (D37) — always excludes retired items (BR-12). See `PHASE2_PROGRESS.md` Slice 14 for the full record.
 
 ### 1.2 Authorization Model — Check PermissionMatrix.md §6 Before Assuming Anything
 
@@ -49,9 +49,9 @@ Work through these the same way every other slice in `PHASE2_PROGRESS.md` did �
 
 ---
 
-## 2. After CatalogItem: Return to `AddAngebotItemCommand`
+## 2. Immediate Next Task: Return to `AddAngebotItemCommand`
 
-Once CatalogItem's Application layer is complete, implement `AddAngebotItemCommand` **with both paths available from the start** — this was the entire reason it was postponed (`ARCHITECTURE_DECISIONS.md` D30). Do not implement one path first "to make progress."
+CatalogItem's Application layer is now complete (§1 above). Implement `AddAngebotItemCommand` **with both paths available from the start** — this was the entire reason it was postponed (`ARCHITECTURE_DECISIONS.md` D30). Do not implement one path first "to make progress."
 
 **Expected shape, based on Sequence Diagram §4 and BR-8:**
 - Command likely needs a discriminator or optional `CatalogItemId` parameter: if supplied, the handler loads the `CatalogItem`, copies its `Title`/`DefaultSpecification`/`DefaultUnit`/`SuggestedUnitPrice` into the new `AngebotItem`'s parameters (BR-8's copy-on-create semantics — the handler does the copying; `AngebotItem` itself has no knowledge of `CatalogItem` beyond the passive traceability `CatalogItemId` field); if not supplied, the caller provides `Description`/`Specification`/`Unit`/`UnitPrice` directly for a fully custom item.

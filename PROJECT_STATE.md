@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30, mid-Phase 2, immediately after completing Slice 13 (`RetireCatalogItemCommand`) of the CatalogItem Application-layer feature.
+**Last updated:** 2026-07-30, mid-Phase 2, immediately after completing Slice 14 (`SearchCatalogItemsQuery`) — the CatalogItem Application-layer feature is now complete in full.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
@@ -12,23 +12,23 @@
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
-- **Phase 2 (Application layer) — 🔶 in progress**, on branch `feature/phase-2-application-layer`, **not yet merged, not yet pushed to remote as of this writing** (13 vertical slices committed locally; see §5).
+- **Phase 2 (Application layer) — 🔶 in progress**, on branch `feature/phase-2-application-layer`, **not yet merged, not yet pushed to remote as of this writing** (14 vertical slices committed locally; see §5).
 - Phase 3 onward — not started.
 
 ## 2. Current Branch State
 
 - Active branch: `feature/phase-2-application-layer`.
-- This branch is **not yet pushed** to `origin`. It contains 13 local commits (one per vertical slice, per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19).
+- This branch is **not yet pushed** to `origin`. It contains 14 local commits (one per vertical slice, per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19).
 - `main` is up to date locally as of the last `git fetch`/`merge --ff-only` performed after Phase 1b's PR was merged.
-- **Next git action when resuming:** continue committing additional slices to this same branch. Next up: `SearchCatalogItemsQuery` — the last piece of the CatalogItem feature. Do not open a PR or push until instructed, or until the CatalogItem feature + `AddAngebotItemCommand` (the two remaining pieces of Phase 2's original scope) are both complete — matching how Phase 1 waited until all its entities were done before one PR.
+- **Next git action when resuming:** continue committing additional slices to this same branch. Next up: `AddAngebotItemCommand` (both Catalog-sourced and custom paths, from the start — see `NEXT_STEPS.md` §2), now that CatalogItem's Application layer is complete. Do not open a PR or push until instructed, or until `AddAngebotItemCommand` (the one remaining piece of Phase 2's original scope) is also complete — matching how Phase 1 waited until all its entities were done before one PR.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
 As of the last verified run in this conversation:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **275 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **278 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
-  - `RenoTrack.Application.Tests`: **122 tests.**
+  - `RenoTrack.Application.Tests`: **125 tests.**
   - `RenoTrack.Api.Tests`: 0 tests (project exists, empty — Phase 4 not started).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
@@ -82,7 +82,8 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 
 | Item | Location | Notes |
 |---|---|---|
-| `ICommandHandler<TCommand, TResult>` | `Common/ICommandHandler.cs` | The only dispatch abstraction — no MediatR |
+| `ICommandHandler<TCommand, TResult>` | `Common/ICommandHandler.cs` | The write-side dispatch abstraction — no MediatR |
+| `IQueryHandler<TQuery, TResult>` | `Common/IQueryHandler.cs` | The read-side counterpart — a deliberate second abstraction, not a reuse of `ICommandHandler` (`ARCHITECTURE_DECISIONS.md` D36). First (and so far only) consumer: `SearchCatalogItemsQuery`. |
 | `AuditAction` (enum) | `Common/AuditAction.cs` | Current values: `LeadCreated, InspectionScheduled, InspectionDone, AngebotCreated, AngebotSubmittedForReview, AngebotApproved, AngebotChangesRequested, CatalogItemCreated, CatalogItemUpdated, CatalogItemRetired` |
 | `OwnershipValidator` : `IOwnershipValidator` | `Common/OwnershipValidator.cs` | Implemented directly in Application (no external dependency); methods: `EnsureInspectionOwnership`, `EnsureLeadOwnership`, `EnsureAngebotOwnership` |
 | `NotFoundException` | `Common/Exceptions/NotFoundException.cs` | → 404 (Phase 4) |
@@ -105,7 +106,7 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 | `IOwnershipValidator` | `EnsureInspectionOwnership`, `EnsureLeadOwnership`, `EnsureAngebotOwnership` |
 | `ICatalogItemRepository` | `AddAsync`, `GetByIdAsync` |
 
-**Not yet built:** `IQueryHandler<TQuery, TResult>` and `ICatalogItemQueries` (needed by `SearchCatalogItemsQuery`, last slice in this feature — see `ARCHITECTURE_DECISIONS.md` D36/D37).
+`ICatalogItemQueries` (`SearchAsync`) lives in `CatalogItems/ICatalogItemQueries.cs`, not this folder — its return type is a feature DTO, so it can't live in `Common.Interfaces` without `Common` depending on a feature folder (same reasoning as D23). CatalogItem's Application layer (repository + queries + all three commands) is now complete.
 
 ### 5.3 Notification Models (`Common/Notifications/`)
 
@@ -113,7 +114,7 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 - `AngebotSubmittedForReviewNotification(int AngebotId, string AngebotNumber, int LeadId)`
 - `AngebotChangesRequestedNotification(int AngebotId, string AngebotNumber, string Comment, int InspectorId)`
 
-### 5.4 Commands Implemented (13 vertical slices, all with Command + Validator + Handler + tests)
+### 5.4 Commands & Queries Implemented (14 vertical slices, all with Command/Query + Validator (where applicable) + Handler + tests)
 
 **Leads** (`Application/Leads/`):
 - `CreateLeadCommand` → `LeadDto`
@@ -135,8 +136,9 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 - `CreateCatalogItemCommand` → `CatalogItemDto`
 - `UpdateCatalogItemCommand` → `CatalogItemDto`
 - `RetireCatalogItemCommand` → `CatalogItemDto`
+- `SearchCatalogItemsQuery` → `IReadOnlyList<CatalogItemDto>` — **the first query in the codebase**, using `IQueryHandler<TQuery, TResult>` instead of `ICommandHandler`; always excludes retired items (BR-12); no parameters (see `ARCHITECTURE_DECISIONS.md` D36/D37)
 
-**Not yet implemented:** `AddAngebotItemCommand` (intentionally postponed — see §7), `SearchCatalogItemsQuery` (last piece of the CatalogItem feature — see §7/§8), `UploadInspectionPhotoCommand`'s eventual `GetAsync` companion, any query (read-side) — no queries exist anywhere in the codebase yet.
+**Not yet implemented:** `AddAngebotItemCommand` (intentionally postponed — see §7), `UploadInspectionPhotoCommand`'s eventual `GetAsync` companion. CatalogItem's Application layer is now fully complete.
 
 ### 5.5 DTOs
 
@@ -151,11 +153,11 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 
 **Not yet created:** `ItemDto`, `AngebotSummaryDto` (both explicitly named in Sequence Diagram §4, deferred until `AddAngebotItemCommand` is built).
 
-### 5.6 Application Test Coverage (122 tests, `RenoTrack.Application.Tests`)
+### 5.6 Application Test Coverage (125 tests, `RenoTrack.Application.Tests`)
 
 - `RenoTrack.Application.Tests.csproj` references `RenoTrack.Domain` explicitly (added when the first handler test needed to assert on Domain state).
-- Fakes in `tests/RenoTrack.Application.Tests/Fakes/`: `FakeLeadRepository`, `FakeInspectionRepository`, `FakeAngebotRepository`, `FakeAngebotReviewCommentRepository`, `FakeCatalogItemRepository`, `FakeUnitOfWork`, `FakeAuditService`, `FakeEmailSender`, `FakeFileStorage`, `FakeNumberGeneratorService`. `FakeLeadRepository`/`FakeInspectionRepository`/`FakeAngebotRepository`/`FakeCatalogItemRepository` each expose a `Seed(entity)` helper (reflection-based id assignment — test-only).
-- One test class per handler, in `tests/RenoTrack.Application.Tests/{Leads,Inspections,Angebote,CatalogItems}/Commands/<CommandName>/`, plus `tests/RenoTrack.Application.Tests/Common/OwnershipValidatorTests.cs`.
+- Fakes in `tests/RenoTrack.Application.Tests/Fakes/`: `FakeLeadRepository`, `FakeInspectionRepository`, `FakeAngebotRepository`, `FakeAngebotReviewCommentRepository`, `FakeCatalogItemRepository`, `FakeCatalogItemQueries`, `FakeUnitOfWork`, `FakeAuditService`, `FakeEmailSender`, `FakeFileStorage`, `FakeNumberGeneratorService`. `FakeLeadRepository`/`FakeInspectionRepository`/`FakeAngebotRepository`/`FakeCatalogItemRepository` each expose a `Seed(entity)` helper (reflection-based id assignment — test-only). `FakeCatalogItemQueries` implements the same BR-12 retired-item filtering a real implementation must perform, not a dumb passthrough.
+- One test class per handler, in `tests/RenoTrack.Application.Tests/{Leads,Inspections,Angebote,CatalogItems}/Commands/<CommandName>/`, plus `tests/RenoTrack.Application.Tests/CatalogItems/Queries/SearchCatalogItems/` (the first query test) and `tests/RenoTrack.Application.Tests/Common/OwnershipValidatorTests.cs`.
 
 ---
 
@@ -184,9 +186,9 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-13** (BR-1–BR-9 from 
 ## 7. Deferred / Known-Incomplete Work (do not treat these as bugs — they are intentional, documented deferrals)
 
 1. **`AddAngebotItemCommand` — postponed until CatalogItem exists.** Explicit user decision: this command represents *one* business use case with two supported paths (from Catalog, or fully custom per BR-8), and implementing only the custom path now would mean reopening the same command later once CatalogItem is available. Do not implement a "custom-only" stub of this command. See `NEXT_STEPS.md` for the exact recommended order once CatalogItem is done.
-2. **CatalogItem Application layer** — in progress. `CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand` done; `SearchCatalogItemsQuery` remains (see `NEXT_STEPS.md`).
+2. **CatalogItem Application layer — ✅ complete.** `CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` all done (Slices 11–14). `AddAngebotItemCommand` is now unblocked.
 3. **`ItemDto` / `AngebotSummaryDto`** — do not exist yet; both are named explicitly in Sequence Diagram §4 and will be created when `AddAngebotItemCommand` is finally implemented.
-4. **No queries exist anywhere.** Every command so far returns a DTO built from the same aggregate it just mutated. The read-side (list views, `SearchCatalogItemsQuery`, a Lead pipeline query, etc.) has not been started at all — this is normal for where Phase 2 currently stands, not a gap to rush to fill.
+4. **`SearchCatalogItemsQuery` is the only query in the codebase so far.** Every command still returns a DTO built from the same aggregate it just mutated. Other read-side needs (list views, a Lead pipeline query, etc.) have not been started — this is normal for where Phase 2 currently stands, not a gap to rush to fill.
 5. **`IFileStorage.GetAsync`/`DeleteAsync`** — not built (§4's repository-growth discipline applies here too).
 6. **`Angebot.Send()`, `RecordCustomerApproval()`, `RecordCustomerRejection()`** exist in the Domain (built in Phase 1) but have **no Application-layer commands yet** — deliberately deferred to Phase 6 (Token-link mechanism) per `PROJECT_ROADMAP.md`, since they depend on `ITokenLinkService`, which doesn't exist yet.
 7. **`AngebotItem` has no update/remove method** — an open question, not a bug (see `CLAUDE.md` §2). Revisit only if real evidence (a documented endpoint or explicit business decision) appears.
@@ -197,4 +199,4 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-13** (BR-1–BR-9 from 
 
 ## 8. Immediate Next Step
 
-**Finish the CatalogItem Application-layer feature with `SearchCatalogItemsQuery`.** `CreateCatalogItemCommand` (Slice 11), `UpdateCatalogItemCommand` (Slice 12), and `RetireCatalogItemCommand` (Slice 13) are done. This is the first query in the whole codebase — use the `IQueryHandler<TQuery, TResult>` abstraction (`ARCHITECTURE_DECISIONS.md` D36) and no `includeRetired` parameter (D37), always excluding retired items (BR-12). After CatalogItem is complete, return to `AddAngebotItemCommand` with both the Catalog-sourced and custom-item paths available from the start.
+**Begin `AddAngebotItemCommand`, with both the Catalog-sourced and custom-item paths available from the start.** The CatalogItem Application-layer feature (Slices 11–14) is now fully complete, which was the explicit precondition for this command (see `NEXT_STEPS.md` §2 for its expected shape: `ItemDto`/`AngebotSummaryDto`, `IOwnershipValidator.EnsureAngebotOwnership`, and the "save as Catalog item" decision).
