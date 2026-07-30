@@ -99,3 +99,26 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 4 (`LeadRepositoryTests`, real LocalDB, same `"Infrastructure Database"` collection as every other Infrastructure test) — distinct from Slice 1's `LeadPersistenceTests`, which proves raw `DbContext` field round-tripping, not repository-class behavior: `AddAsync_FollowedBySaveChangesAsync_PersistsTheLead`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing` (the concrete proof that `SaveChangesAsync` stays exclusively `IUnitOfWork`'s job), `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedLead` (cross-`DbContext`-instance correctness), `GetByIdAsync_WhenLeadDoesNotExist_ReturnsNull`.
 
 **Final outcome:** 24 Infrastructure tests, alongside 153 Domain + 144 Application → **321 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 5 — `IInspectionRepository`
+
+**Goal:** Second repository. Focused review (per the user's standing instruction from Slice 4's approval) covering only what differs from `LeadRepository`, reusing every already-settled decision otherwise.
+
+**What's different from `LeadRepository` (the only points reviewed):**
+- **`Inspection` has one child collection, `Photos`.** `GetByIdAsync` must `.Include(i => i.Photos)` — not a new decision, a direct application of `CLAUDE.md` §4's already-settled "no partial-load contract" rule, which had no visible effect for `Lead` (no children) but does here. `FindAsync` doesn't support `Include`, so `GetByIdAsync` uses `FirstOrDefaultAsync(i => i.Id == id, ...)` instead.
+- **Navigation mapping already proven.** `InspectionConfiguration`'s `Photos` backing-field binding (D43) and its `.Include`-based round-trip were both already verified in Slice 1's `InspectionPersistenceTests`. Nothing new to prove about the mapping itself.
+- **Tracking behavior confirmed to still hold for a child-collection mutation, not just a scalar one.** `UploadInspectionPhotoCommandHandler` loads an `Inspection` via `GetByIdAsync`, calls `inspection.AddPhoto(...)`, and relies on `IUnitOfWork.SaveChangesAsync()` alone — proven with a dedicated test that a photo added to an already-loaded (tracked) aggregate is persisted with no repository-level "update" step, extending Slice 4's tracking-dependency finding to a collection mutation.
+- **No performance concern** — Inspection's photo count is small (no documented volume concern), so a single eager `Include` is correct without any split-query/pagination consideration.
+- **Repository contract still sufficient** — both existing interface methods already cover every real caller (`ScheduleInspectionCommandHandler` for `AddAsync`; `CompleteInspectionCommandHandler`/`UpdateInspectionNotesCommandHandler`/`UploadInspectionPhotoCommandHandler` for `GetByIdAsync`). No new method needed.
+
+**No new architectural decision** — mechanical application of already-settled rules (CLAUDE.md §4, D43). Nothing added to `ARCHITECTURE_DECISIONS.md`.
+
+**New abstractions introduced:** `InspectionRepository : IInspectionRepository` (`src/RenoTrack.Infrastructure/Persistence/Repositories/InspectionRepository.cs`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 5 (`InspectionRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheInspection`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedInspectionWithPhotos` (also proves the `Include` loads `Photos`), `GetByIdAsync_WhenInspectionDoesNotExist_ReturnsNull`, and `AddingAPhotoToAnAggregateLoadedViaGetByIdAsync_IsPersistedBySaveChangesAsyncAlone` (the collection-mutation tracking proof specific to this slice).
+
+**Final outcome:** 29 Infrastructure tests, alongside 153 Domain + 144 Application → **326 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
