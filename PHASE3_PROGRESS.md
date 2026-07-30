@@ -174,3 +174,26 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 5 (`CatalogItemRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheCatalogItem`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedCatalogItem`, `GetByIdAsync_WhenCatalogItemDoesNotExist_ReturnsNull`, `GetByIdAsync_ForARetiredCatalogItem_StillReturnsIt` (BR-14/D38 confirmation).
 
 **Final outcome:** 46 Infrastructure tests, alongside 153 Domain + 144 Application → **343 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 9 — `ICatalogItemQueries`
+
+**Goal:** First query implementation (not a repository) — `SearchAsync()` returns `CatalogItemDto` directly, bypassing aggregate hydration entirely. Focused review on the seven points the user specified, since this is a genuinely new shape.
+
+**Review outcome — no new architectural decision, applying already-settled rules to a new shape:**
+- **Why separate from `ICatalogItemRepository`:** already settled (D36) — CQRS-lite's read/write split is real, not nominal (CLAUDE.md §3).
+- **Why DTOs, not entities:** a picker list has no reason to instantiate a full aggregate to read six scalar fields.
+- **Executes entirely in SQL, no pre-projection materialization:** implemented by projecting field-by-field directly inside `Select(c => new CatalogItemDto(...))` rather than calling `CatalogItemMappingExtensions.ToDto()` inside the query — the latter would force full-entity materialization before the method call. Verified for real, not assumed: the projection (including `Money`/`ItemUnit` converter access via `.Amount`/`.Code`) is confirmed genuinely translatable by EF Core, proven by the integration tests actually running against LocalDB rather than throwing a client-evaluation error.
+- **Retired-item filtering confirmed as the only place it happens:** `.Where(c => !c.IsRetired)` here; `CatalogItemRepository.GetByIdAsync` (Slice 8) and `AddAngebotItemCommandHandler` both deliberately don't filter (BR-14/D38).
+- **`AsNoTracking()` used** — pure read, no follow-up mutation anywhere in the call path, so change tracking adds nothing.
+- **No `IUnitOfWork` dependency** — nothing here is ever committed, consistent with the query side of CQRS-lite.
+- **No paging/sorting/search parameter added** — `ICatalogItemQueries.SearchAsync(CancellationToken)`'s zero-parameter shape was already settled in Phase 2 (D37); nothing in SRS/Wireframes documents server-side pagination for the Catalog. One minor, non-contract implementation choice: `.OrderBy(c => c.Title)` for deterministic result order, since SQL has none by default.
+
+**New abstractions introduced:** `CatalogItemQueries : ICatalogItemQueries` (`src/RenoTrack.Infrastructure/Persistence/Queries/CatalogItemQueries.cs` — new `Persistence/Queries/` folder, parallel to `Persistence/Repositories/`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 3 (`CatalogItemQueriesTests`) — `SearchAsync_ReturnsAllFieldsCorrectlyProjected` (also the concrete proof the projection expression is translatable), `SearchAsync_ExcludesRetiredItems`, `SearchAsync_AfterAddingANewCatalogItem_IncludesItInTheResultCount`.
+
+**Final outcome:** 49 Infrastructure tests, alongside 153 Domain + 144 Application → **346 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
