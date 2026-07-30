@@ -583,6 +583,264 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D40 — `RenoTrack.Infrastructure.Tests`: A New, Deliberate Test Project (Phase 3)
+
+**Problem:** `Architecture.md` §3's solution structure named exactly three test projects (`Domain.Tests`, `Application.Tests`, `Api.Tests`). None can exercise real EF Core/repository behavior: `Domain.Tests`/`Application.Tests` are deliberately isolated from any database (in-memory fakes only), and `Api.Tests` only references `RenoTrack.Api` — Phase 4 hasn't built any endpoints yet, so there's nothing to test through.
+
+**Alternatives considered:** (a) temporarily add a direct `RenoTrack.Infrastructure` reference to `RenoTrack.Api.Tests` ahead of Phase 4. (b) introduce a new `RenoTrack.Infrastructure.Tests` project, referencing `RenoTrack.Infrastructure` and `RenoTrack.Domain` only, mirroring `Domain.Tests`'/`Application.Tests`' own "reference only what's needed" discipline.
+
+**Final decision:** (b), with the user's explicit sign-off (this is a real deviation from `Architecture.md`'s documented structure, not something to add silently).
+
+**Why chosen:** (a) would make `Api.Tests` depend on Infrastructure before `Api` itself does — backwards from the intended dependency direction, and confusing for anyone reading the project reference graph. A dedicated project keeps the graph honest and gives Infrastructure integration tests a home that doesn't presuppose Phase 4 exists yet.
+
+**Consequences:** `Architecture.md` §3 updated to list the new project and explain why it's an addition, not part of the original Phase 0 structure. Tests use real SQL Server LocalDB, never the EF Core InMemory provider (D-established in the Phase 3 design review — InMemory doesn't enforce the constraints/types this layer exists to verify). All tests in the project share one `ICollectionFixture`-backed LocalDB database and run serially against it (xUnit collections never parallelize against each other), avoiding interference between tests that share real, persistent state.
+
+---
+
+## D41 — `ERD.md` Corrected to Match Confirmed Domain State (`Subtotal`/`LineTotal`/`DecisionResult`)
+
+**Problem:** While designing Phase 3's entity configurations, `ERD.md` was found to still list `AngebotSection.Subtotal`, `AngebotItem.LineTotal` as physical columns ("Subtotal is cached, recalculated whenever a child item changes"), and `Angebot.DecisionResult` as a nullable column — none of which exist in the actual Domain code. `AngebotSection.Subtotal`/`AngebotItem.LineTotal` are pure `=>` computed properties with no backing field (`CLAUDE.md` §2 already states this explicitly and deliberately); `Angebot.DecisionResult` was removed from the Domain entirely back in Phase 1 (D16 — "a presentation-mapping concern, not a Domain concept, out of scope for Domain").
+
+**Investigation:** Confirmed directly against the live C# source (not just documentation) that all three properties either don't exist (`DecisionResult`) or have no backing field to persist (`Subtotal`/`LineTotal`). `ERD.md` predates these Phase 1 decisions and was never updated to match — a real, load-bearing documentation gap, since Phase 3's entity configurations literally cannot proceed without deciding whether these get columns.
+
+**Alternatives considered:** (a) Add columns for all three anyway, matching `ERD.md` literally, treating the Domain as the thing that needs to catch up. (b) Trust the Domain code and `CLAUDE.md` (both more recent and more authoritative per `PROJECT_STATE.md`'s own stated precedence rule) and correct `ERD.md` to match.
+
+**Final decision:** (b), confirmed explicitly by the user rather than assumed unilaterally.
+
+**Why chosen:** `CLAUDE.md` §2 doesn't just fail to mention these fields being stored — it explicitly and reasonedly states they're computed-only ("No ERD-stated performance reason applies at that granularity"), and D16 explicitly removed `DecisionResult` as a deliberate decision, not an oversight. Reintroducing columns for either would resurrect settled Phase 1 decisions without new evidence, which `NEXT_STEPS.md`/`CLAUDE.md` both prohibit.
+
+**Consequences:** `ERD.md`'s diagram and Physical Schema Notes updated in the same commit as the entity configurations that implement this (`CLAUDE.md` §15's documentation-first discipline). `AngebotSectionConfiguration`/`AngebotItemConfiguration`/`AngebotConfiguration` explicitly `.Ignore()` these three properties rather than silently omitting a mapping for them — makes the exclusion visible in code, not just absent.
+
+---
+
+## D42 — `LocalDiskFileStorage` Reassigned to Phase 4 (`CLAUDE.md` Corrected)
+
+**Problem:** `CLAUDE.md` §13 stated `LocalDiskFileStorage` is implemented "in `RenoTrack.Infrastructure` (Phase 3)." `PROJECT_ROADMAP.md`'s Phase 4 deliverable list explicitly includes it; Phase 3's own deliverable list does not mention it at all. A direct contradiction between two documents, surfaced during Phase 3's design review.
+
+**Investigation:** `PROJECT_ROADMAP.md` has been the authoritative, execution-driving document for every phase so far — branch names, PR titles, and (immediately prior to this) the entire basis for confirming `SaveAngebotItemAsCatalogItemCommand` was out of Phase 2's scope (D39). `CLAUDE.md` §13's "(Phase 3)" reads like a forward-reference written speculatively during Phase 2, never re-verified against the roadmap once Phase 3 was actually scoped.
+
+**Alternatives considered:** (a) Build `LocalDiskFileStorage` for real in Phase 3, per `CLAUDE.md`'s stated (but unverified) claim. (b) Defer it to Phase 4 per `PROJECT_ROADMAP.md`, registering only a minimal placeholder in Phase 3 so DI composition succeeds for `UploadInspectionPhotoCommand`.
+
+**Final decision:** (b), confirmed explicitly by the user.
+
+**Why chosen:** Same reasoning as D39 — `PROJECT_ROADMAP.md` is the authoritative scope document; a stale forward-reference in `CLAUDE.md` doesn't override it. Building the real disk implementation now would also be premature relative to Phase 4's own stated ownership of it.
+
+**Consequences:** `CLAUDE.md` §13 corrected to say "(Phase 4)" with a note explaining the correction. Phase 3 (Slice 12, per the dependency map) registers a placeholder `IFileStorage` implementation only.
+
+---
+
+## D43 — Encapsulated Child Collections Mapped via Backing-Field EF Core Navigation
+
+**Problem:** `Inspection.Photos`, `Angebot.Sections`, and `AngebotSection.Items` are all exposed as `IReadOnlyList<T>` over a `private readonly List<T>` field, with no public setter — by design, so nothing outside the aggregate root can mutate a child collection directly (`CLAUDE.md` §2). EF Core's default navigation convention typically expects a settable `ICollection<T>`-shaped property.
+
+**Investigation:** EF Core does support binding a navigation directly to a private backing field (`PropertyAccessMode.Field`), and has since EF Core 3+, but this needed to be proven with an actual round-trip test against real LocalDB, not assumed to work by convention — exactly the risk flagged in the Phase 3 design review.
+
+**Final decision:** Explicitly configure `builder.Navigation(x => x.Photos).UsePropertyAccessMode(PropertyAccessMode.Field)` (and the equivalent for `Sections`/`Items`) in each entity configuration, rather than relying on EF's implicit field-discovery convention.
+
+**Why chosen:** Being explicit here costs nothing and removes any ambiguity about why the mapping works, versus leaving a future reader to wonder whether it's convention-based magic. `RenoTrack.Infrastructure.Tests`' `InspectionPersistenceTests`/`AngebotPersistenceTests` prove this actually round-trips through a real database (add via the aggregate root → save → reload via a fresh `DbContext` → assert the collection is populated), not just that the code compiles.
+
+**Consequences:** All three encapsulated collections materialize correctly on reload, confirmed by integration tests. This is the concrete resolution of the risk flagged in the Phase 3 design review — verified, not assumed.
+
+---
+
+## D44 — User-Referencing Foreign Keys Deferred Until the Identity Slice
+
+**Problem:** `Lead.AssignedInspectorId`, `Inspection.InspectorId`, `Angebot.CreatedByInspectorId`/`ReviewedByAdminId`, and `AngebotReviewComment.AdminUserId` all conceptually reference a `User`, and `ERD.md` lists each as a "Notable Foreign Key." But Identity (which owns the `Users`/`AspNetUsers` table) is Slice 15 in the revised Phase 3 order — deliberately sequenced after every repository slice, per the user's explicit request to keep repository work independent of Identity.
+
+**Final decision:** These columns are mapped as plain `int`/`int?` properties with no FK constraint in Slice 1 (and will remain so through Slice 14). The Identity slice can add the constraints retroactively via a follow-up migration once the `Users` table exists — this doesn't require revisiting any configuration written in Slice 1.
+
+**Why chosen:** Directly follows from the user's ordering decision — a repository slice can't reference a table that doesn't exist yet, and there's no reason to block Slices 1–14 on Identity landing first just to satisfy a documentation line's phrasing.
+
+**Consequences:** `ERD.md`'s physical notes for `Leads`, `Inspections`, `Angebote`, and `AngebotReviewComments` each note explicitly which FK is deferred and why, so this isn't a silent gap. Meanwhile, `AngebotItem.CatalogItemId` and `CatalogItem.CreatedFromAngebotItemId` **do** get real FK constraints in Slice 1, since both `CatalogItems` and `AngebotItems` tables already exist today — the deferral is specific to the Identity dependency, not a general policy against FKs.
+
+---
+
+## D45 — Three Missing FKs Found During Slice 2's Pre-Migration Schema Review
+
+**Problem:** Before generating `InitialCreate`, a deliberate three-way comparison (Domain code ↔ EF configurations ↔ `ERD.md`) was performed, per the user's explicit request, rather than generating the migration straight from Slice 1's configurations. It found `Inspection.LeadId`, `Angebot.LeadId`, and `Angebot.InspectionId` had no FK constraint configured at all — a real gap, not a deliberate deferral. All three reference tables (`Leads`, `Inspections`) that already exist today, so none of them fall under the "Users table doesn't exist yet" reasoning correctly applied to the Identity-referencing columns (D44). This was a straightforward oversight in Slice 1: only the cross-aggregate `CatalogItem`↔`AngebotItem` FKs were added; these three same-table-exists-today relationships were missed.
+
+**Final decision:** Add all three as real FKs, `DeleteBehavior.Restrict` (consistent with every other cross-aggregate FK in the model — `Lead`/`Inspection` are never deleted per the project's "never truly delete a historical record" philosophy, so cascade behavior would never trigger anyway, but `Restrict` is the correct, safe default regardless).
+
+**Why this matters as a process point, not just a bug fix:** this is the concrete payoff of doing a schema review *before* generating a migration rather than after — the gap was caught by comparing three sources deliberately, not by re-reading the same code that already had the bug in it.
+
+**Consequences:** `InspectionConfiguration` and `AngebotConfiguration` updated. `RenoTrack.Infrastructure.Tests` gained explicit FK-rejection tests for all three (`LeadIdForeignKey_RejectsANonExistentLead` in both `InspectionPersistenceTests` and `AngebotPersistenceTests`, `InspectionIdForeignKey_RejectsANonExistentInspection` in `AngebotPersistenceTests`) — and three existing tests that had been using a hardcoded, never-actually-inserted `leadId: 1` were fixed to seed a real `Lead` row first, since they had only been passing by accident (test-class execution order happened to let a different test class create a real `Lead` with `Id == 1` first).
+
+---
+
+## D46 — Owned-Child Shadow FK Columns Were Nullable by Default (Found in the Generated Migration)
+
+**Problem:** Manual review of the first generated `InitialCreate` migration (before applying it anywhere, per the user's explicit "review the migration manually" instruction) found `InspectionPhotos.InspectionId`, `AngebotSections.AngebotId`, and `AngebotItems.SectionId` — the three shadow FK columns for encapsulated child collections — were all generated as `nullable: true`. This is wrong: by Domain design, a photo/section/item always belongs to exactly one parent; the relationship is a required composition, not optional.
+
+**Investigation:** `HasMany(x => x.Children).WithOne()` (no back-navigation, since the child has no reference back to its parent — matching the Domain's own "no FK back-reference" design) defaults EF Core's convention to an *optional* relationship, because there's no non-nullable navigation property anywhere telling EF the relationship is required. `.IsRequired()` must be called explicitly on the relationship builder to get a `NOT NULL` shadow FK column.
+
+**Final decision:** Add `.IsRequired()` to all three `HasMany(...).WithOne()` calls (`InspectionConfiguration.Photos`, `AngebotConfiguration.Sections`, `AngebotSectionConfiguration.Items`), then regenerate `InitialCreate` from scratch (the first, incorrect migration was removed via `dotnet ef migrations remove` before ever being applied to a database — nothing to undo).
+
+**Why chosen:** This is a genuine correctness bug, not a style preference — a nullable FK here would have let a database-level `InspectionPhoto`/`AngebotSection`/`AngebotItem` row exist with no parent at all, silently contradicting the Domain's own invariant that these are always created through their aggregate root.
+
+**Consequences:** All 15 (now 17, with the two new migration tests) `RenoTrack.Infrastructure.Tests` still pass with `.IsRequired()` added — confirming the fix didn't change any tested behavior, only tightened the schema to match what was always true in practice. This is exactly the kind of issue the user's insistence on manually reviewing the generated migration (not just trusting the configuration code) was designed to catch.
+
+---
+
+## D47 — `IDesignTimeDbContextFactory` Added for Migration Tooling, DI Composition Still Deferred
+
+**Problem:** `dotnet ef migrations add` needs to construct `RenoTrackDbContext` at design time, but the real DI composition (`AddInfrastructure()` + `Program.cs` wiring) is deliberately Slice 14 — much later in the approved dependency map. Generating a migration in Slice 2 needed some way to build the context without jumping ahead to Slice 14's work.
+
+**Final decision:** Add `RenoTrackDbContextFactory : IDesignTimeDbContextFactory<RenoTrackDbContext>` in `RenoTrack.Infrastructure` — the standard EF Core pattern for exactly this situation. It hardcodes a LocalDB connection string used only by `dotnet ef` tooling (never by the running application), consistent with `RenoTrack.Infrastructure.Tests`' own fixture. `Microsoft.EntityFrameworkCore.Design` added to both `RenoTrack.Infrastructure` (`PrivateAssets="all"` — dev-time only, never a runtime dependency for consumers) and `RenoTrack.Api` (as the migrations' eventual startup project once Slice 14 lands).
+
+**Why chosen:** Keeps Slice 2 self-contained — generating a migration doesn't require jumping ahead to DI wiring that hasn't been designed yet, and doesn't leave a half-built Slice 14 in place just to unblock tooling.
+
+**Consequences:** `dotnet ef migrations add`/`remove` work today via this factory. Slice 14 will still do the real DI registration for the running application; this factory is never consulted at runtime, only by `dotnet ef` itself.
+
+---
+
+## D48 — `UnitOfWork` Confirmed as an Intentionally Thin Abstraction
+
+**Problem:** Before implementing `IUnitOfWork`'s Infrastructure side (Phase 3, Slice 3), the user asked for a short design review covering whether it should contain any logic beyond `SaveChangesAsync()`, transaction ownership, `DbContext`/repository lifetime, disposal responsibility, cancellation propagation, and whether the interface should stay minimal — explicitly asking for the "why," not just the conclusion, if the answer was "keep it thin."
+
+**Findings, each confirmed rather than assumed:**
+- **No logic beyond `SaveChangesAsync()`.** Every Phase 2 handler calls it exactly once, after all repository/Domain work; EF Core's own `SaveChangesAsync()` already wraps everything tracked by that call in an implicit transaction, so no explicit `BeginTransaction`/`Commit`/`Rollback` is needed for anything built so far.
+- **Transaction ownership** stays with EF Core's implicit per-`SaveChanges` transaction. The one case that looks like it needs more — `INumberGeneratorService`'s atomic requirement (Slice 11) — is deliberately *not* solved through `IUnitOfWork`'s public contract; it's the number-generator service's own internal concern (its own explicit `BeginTransactionAsync()` wrapping a raw SQL increment and the entity's save).
+- **`DbContext` and every repository share one Scoped lifetime** — this is what makes "repository adds an entity, `UnitOfWork.SaveChangesAsync()` commits it" work at all; a different lifetime pairing would silently break this.
+- **`UnitOfWork` does not implement `IDisposable`** — it doesn't own the `DbContext` (constructor-injected), so disposal belongs to the DI container's scope, not to this class.
+- **Cancellation token passes straight through**, no additional handling.
+
+**Final decision:** `UnitOfWork : IUnitOfWork` is a one-line wrapper: `SaveChangesAsync(ct) => dbContext.SaveChangesAsync(ct)`. Nothing else.
+
+**Why chosen:** The same repository/interface growth-on-demand discipline already applied everywhere else in this project (`CLAUDE.md` §4) — grow the interface only when a real, currently-being-built command needs more, never speculatively. Exposing `DbContext` or a generic `ExecuteInTransactionAsync` wrapper through the interface would leak an Infrastructure mechanism into the Application layer's contract for no current benefit.
+
+**Consequences:** `UnitOfWorkTests` proves three things directly: `SaveChangesAsync` persists pending changes tracked by the same `DbContext`, calling it with nothing pending doesn't throw, and an already-cancelled token *does* throw — but only when there's a real pending change to save, since EF Core short-circuits `SaveChangesAsync()` entirely (skipping the cancellation check) when nothing is tracked. This was found empirically (a first draft of the cancellation test had no pending change and failed, since EF returned immediately without ever consulting the token) — a small, concrete confirmation that EF's own behavior, not just this wrapper's code, needed to be verified rather than assumed.
+
+---
+
+## D49 — `AuditLog` Is an Infrastructure Persistence Model, Not a Domain Entity
+
+**Problem:** Every persisted type built so far (`Lead`, `Inspection`, `InspectionPhoto`, `Angebot`, `AngebotSection`, `AngebotItem`, `CatalogItem`, `AngebotReviewComment`) is a Domain entity, following the project's rich-domain-model convention: private constructor, static factory, self-guarded invariants (`CLAUDE.md` §2). `IAuditService` (Phase 2, `Application.Common.Interfaces`) needs a real persisted record in Phase 3, Slice 10 — raising the question of whether that record should be built the same way.
+
+**Investigation:** `AuditLog` has no business invariant discussed anywhere in `BusinessRules.md`/`StateMachine.md` — no `BR-n` references it. `Architecture.md` §11 and `CLAUDE.md` §10 both describe it purely as cross-cutting instrumentation ("written by a small `IAuditService` called from handlers at key transition points"), not as a business concept with Domain behavior. Its only Application-layer contact point, `IAuditService`, is a plain logging-shaped interface (`LogAsync(entityType, entityId, action, performedByUserId, details, ct)`), not a repository over an aggregate — structurally closer to the notification models in `Application.Common.Notifications` (D23: pure data conveying a fact, no Domain behavior) than to any existing aggregate root, except that it is persisted rather than transient.
+
+**Alternatives considered:** (a) Build `AuditLog` as a Domain entity, matching every other persisted type's convention, for structural consistency. (b) Build `AuditLog` as an Infrastructure-only persistence model with no Domain counterpart at all — the first EF-mapped type in this project without one.
+
+**Final decision:** (b), by explicit user instruction.
+
+**Why chosen:** `AuditLog` represents technical instrumentation, not business behavior — it protects no invariant beyond having its fields set at construction (there is no meaningful "invalid state" the way `Lead.Create` prevents an empty name), never transitions, and is never read back through any Domain rule. Applying the rich-domain-model machinery (private constructor, static factory, self-guards, `CLAUDE.md` §2) to a type with no actual invariants to protect would be ceremony without purpose, and would incorrectly imply `AuditLog` is a business concept participating in the ubiquitous language the way `Lead`/`Angebot`/`CatalogItem` do.
+
+**Consequences:** `AuditLog` lives in `RenoTrack.Infrastructure/Persistence/Entities/AuditLog.cs` as a plain sealed class with a normal (not private) constructor — `RenoTrack.Application`/`RenoTrack.Domain` never reference this type at all, only `IAuditService`'s interface (primitives + `AuditAction` in, `Task` out). This is a precedent: if a future Infrastructure-only technical record is ever needed (a cache entry, a rate-limit counter, etc.), the same reasoning — no Domain business rule references it, purely cross-cutting — determines whether it belongs in `Domain` or stays Infrastructure-only, rather than defaulting to the rich-domain-model pattern for every persisted row.
+
+---
+
+## D50 — `IAuditService`: Best-Effort Audit Strategy — Business Consistency Never Depends on Audit Persistence
+
+**Problem:** Every handler already follows `CLAUDE.md` §6's canonical shape: `IUnitOfWork.SaveChangesAsync()` (step 5, the business commit) happens *before* `auditService.LogAsync(...)` (step 6), and no handler calls `SaveChangesAsync` again afterward. This is pre-existing Phase 2 behavior, not reopened here — but it has a real, previously-unaddressed consequence: since audit logging happens strictly after the business transaction has already committed, it cannot participate in that transaction, and the Infrastructure implementation of `LogAsync` must independently persist its own write (calling `SaveChangesAsync` on the shared `DbContext` itself, since nothing else will). Every handler `await`s `LogAsync(...)` directly with no `try/catch` — so if that independent write throws (e.g. a transient DB fault), the exception propagates out of an already-successful handler, and the caller would receive an error response for a business operation that in fact already succeeded and is durably saved.
+
+**Alternatives considered:** (a) Let audit-write exceptions propagate normally — simplest, but produces a false "failed" response for data that was actually committed, and makes the reliability of every business command hostage to the audit table's own health. (b) Adopt an explicit **Best-Effort Audit** strategy: catch any exception inside the Infrastructure `AuditService.LogAsync`, log it as a warning (`ILogger<AuditService>`), and never rethrow — audit failures are recorded for operational visibility but never surface to the caller or affect the business result.
+
+**Final decision:** (b), by explicit user instruction, named and documented as the **Best-Effort Audit strategy**:
+- Business consistency never depends on audit persistence.
+- The business transaction (`IUnitOfWork.SaveChangesAsync()`) is always committed first, independently of audit logging.
+- Audit logging executes afterward, as a separate, best-effort write.
+- Audit failures are logged as warnings (`ILogger<AuditService>`), not thrown.
+- Audit failures never invalidate an already-committed business operation — `LogAsync` never lets an exception propagate to its caller.
+
+**Why chosen:** `CLAUDE.md` §10 already frames audit as being for "business milestones a reviewer would want to see" — valuable operational/observability data, not a correctness-critical invariant on the level of `Money`/BR-11. A transient failure writing one audit row is an acceptable, recoverable loss; reporting an already-persisted business operation as failed because of it is a strictly worse outcome, and would make every command's reliability depend on a secondary, non-essential write path. This requires no change to `IAuditService`'s existing signature (`Task`, no result) — the swallow-and-log behavior is entirely internal to the Infrastructure implementation, invisible to callers by design.
+
+**Consequences:** `AuditService.LogAsync` wraps its own `DbContext.AuditLogs.Add(...)` + `SaveChangesAsync(...)` in a `try/catch`, logging any exception via `ILogger<AuditService>.LogWarning(...)` and returning normally either way. No handler code changes — this is purely an Infrastructure-side guarantee. A future reader should not expect `LogAsync` to ever throw, and should not add `try/catch` around it in handler code — that defensive layer already exists inside the implementation itself.
+
+---
+
+## D51 — `NumberSequence` Is an Infrastructure Persistence Model, Not a Domain Entity
+
+**Problem:** `INumberGeneratorService` (Phase 2) needs a real persisted counter in Phase 3, Slice 11 — raising the same Domain-vs-Infrastructure question already resolved once for `AuditLog` (D49).
+
+**Investigation:** `NumberSequence` has no business invariant referenced anywhere in `BusinessRules.md`/`StateMachine.md` — no `BR-n` discusses it. It is a technical counter (`SequenceType`, `Year`, `LastValue`) whose sole purpose is guaranteeing unique, formatted numbers for other aggregates; nothing about it participates in any Domain rule or ubiquitous-language concept the way `Lead`/`Angebot`/`CatalogItem` do.
+
+**Final decision:** Same reasoning and outcome as D49, applied to a second technical/cross-cutting record: `NumberSequence` is an Infrastructure-only persistence model — no Domain entity, no rich-domain-model machinery (no private constructor/static factory/self-guards), living in `RenoTrack.Infrastructure/Persistence/Entities/`.
+
+**Why chosen:** Confirmed as a genuine, direct precedent match to D49's own reasoning — technical instrumentation, not business behavior — rather than reflexively applying the rich-domain-model convention to every persisted row regardless of whether it protects a real invariant.
+
+**Consequences:** `NumberSequence` joins `AuditLog` as the second EF-mapped type with no Domain-entity counterpart. `RenoTrack.Application`/`RenoTrack.Domain` never reference this type directly — only through `INumberGeneratorService`'s interface (`int year` in, `Task<string>` out).
+
+---
+
+## D52 — `INumberGeneratorService`: Atomic Single-Statement Increment, Decoupled From the Angebot's Own Transaction; Raw SQL Deliberately Introduced for This One Case
+
+**Problem 1 (a real documentation/reality mismatch, found during Slice 11's review, not assumed away):** `Architecture.md` §8 and `ERD.md`:239 both state the sequence increment happens "inside the same DB transaction as the Angebot creation." Re-checking the *actual*, already-built `CreateAngebotCommandHandler` (`CreateAngebotCommandHandler.cs:43-50`) shows this is not achievable as written: `numberGenerator.NextAngebotNumberAsync(...)` is awaited and returns a plain `string` **before** the `Angebot` object is even constructed in memory (line 45), let alone added to the `DbContext` (line 49) or committed via `IUnitOfWork.SaveChangesAsync()` (line 50). There is no way for the sequence increment to share one physical database transaction with the Angebot's own `INSERT` without either (a) reopening and restructuring this already-approved Phase 2 handler (not permitted without a genuine bug — `NEXT_STEPS.md` §3), or (b) leaving the increment merely *tracked*, not committed, until the later `SaveChangesAsync` — which reintroduces the exact concurrent read-then-write race the "same transaction" language was meant to prevent in the first place (two concurrent requests could both read the same `LastValue`, both stage `+1` to the same target value, and neither would detect the other without a concurrency-token retry loop that has nowhere sane to live given `INumberGeneratorService`'s existing `Task<string>` signature, already fixed in Phase 2).
+
+**Problem 2 (why EF Core alone cannot express the actual requirement):** The real, load-bearing requirement is **atomic increment-and-return of a single counter row**, safe under concurrent callers, in as small a locking window as possible. EF Core's change-tracking model is fundamentally a *read-then-track-then-write-on-SaveChanges* pattern — even loading a `NumberSequence` entity, incrementing a property in C#, and calling `SaveChangesAsync()` is still two separate round trips (a `SELECT` followed by an `UPDATE`), with the increment computed in application memory in between. That gap is exactly the race window: two concurrent callers can both `SELECT` the same `LastValue`, both compute the same `LastValue + 1` in memory, and whichever `SaveChangesAsync()` commits second will simply overwrite the first's row with the *same* incremented value (no built-in conflict detection, since no concurrency token is configured — and adding one would only convert the race into a `DbUpdateConcurrencyException` that still has no retry loop to run in). EF Core has no API to express "atomically increment this row and return the new value in one database round trip" as a single statement — that requires a database-level `UPDATE ... OUTPUT` (or equivalent), which is inherently provider-specific SQL, not an ORM abstraction EF Core exposes.
+
+**Alternatives considered:** (a) Accept the read-then-write race and rely on a unique constraint on `Angebot.AngebotNumber` to reject duplicates after the fact — rejected: this would cause `CreateAngebotCommand` to fail with a confusing `DbUpdateException` under concurrent load, for a case the system should instead handle transparently by simply generating a different, still-unique number. (b) Add an EF Core concurrency token (`[Timestamp]`/`RowVersion`) to `NumberSequence` and retry the whole increment-and-return operation on `DbUpdateConcurrencyException` — rejected: still requires two round trips minimum per attempt, and under real contention could require multiple retries, all for a problem a single atomic statement solves in one round trip with no retry logic needed at all. (c) A single atomic `UPDATE ... OUTPUT INSERTED.LastValue` raw SQL statement, executed via `DbContext.Database.SqlQueryRaw<int>(...)` with no ambient/explicit EF transaction open — the entire increment-and-return happens as one SQL Server auto-commit unit, taking a row-level exclusive lock for the duration of that single statement only (sub-millisecond), then releasing it.
+
+**Final decision:** (c). This is a **deliberate, narrowly-scoped exception** to the project's otherwise-consistent "EF Core only, no raw SQL" Infrastructure convention — introduced *only* inside `NumberGeneratorService`, for exactly this one atomic-increment-and-return requirement, and nowhere else in the Infrastructure layer. A first-of-year fallback (`INSERT ... OUTPUT INSERTED.LastValue` with `LastValue = 1`) handles the case where no row exists yet for a given `(SequenceType, Year)`; if that `INSERT` loses a race against a concurrent first-of-year request (caught via the table's own unique constraint violation), the `UPDATE` is retried exactly once — bounded, not an unbounded retry loop, and guaranteed to succeed since the racing request's row now exists.
+
+**Why chosen:** EF Core cannot express "atomically increment and return in one statement" — that gap is a real limitation of the ORM's read/track/write model, not a design preference to route around. Reaching for a small amount of provider-specific SQL for exactly this one, precisely-bounded requirement is the correct, minimal response: it solves the actual concurrency problem in a single round trip with no retry-loop machinery needed for the common case, and is far simpler to reason about than either accepting a real duplicate-number race or bolting a concurrency-token retry loop onto an ORM operation that doesn't need one. This exception must not be read as license to reach for raw SQL elsewhere in Infrastructure — every other repository/query in this project (Slices 4–9) uses EF Core's LINQ surface exclusively, and should continue to.
+
+**Documentation correction (`CLAUDE.md` §15's documentation-first discipline applied):** `Architecture.md` §8 and `ERD.md`'s `NumberSequences` row are both corrected in this same commit to describe the actual, provably-safe design — an independently-committed atomic statement, not literal same-transaction participation with the Angebot's own `SaveChangesAsync`.
+
+**Gaps in Angebot numbering:** confirmed acceptable — searched `BusinessRules.md`/`SRS.md` directly rather than assuming: **BR-9** explicitly requires Invoice numbers to "never skip or reuse numbers, even if an Invoice is later voided" (a stated §14 UStG legal requirement), but no equivalent rule exists anywhere for Angebot numbers. If the sequence is incremented but the rest of `CreateAngebotCommand` later fails for an unrelated reason, that reserved number is simply never reused — a harmless, explicitly-permitted gap. This tolerance does **not** extend to a future Invoice-numbering implementation, where BR-9 remains fully binding and would need its own review.
+
+**Consequences:** `NumberGeneratorService.NextAngebotNumberAsync` never throws for a genuine concurrency conflict (the atomic statement + bounded first-of-year retry structurally prevents one) — any exception that does propagate represents a real infrastructure failure (e.g. connection loss), and is allowed to surface unmodified, unlike `AuditService`'s best-effort swallow (D50): number generation is correctness-critical (an `Angebot` cannot exist without a valid, unique number), so failures here must be visible, not absorbed. Proven, not just asserted, by a real concurrency integration test issuing many parallel calls (each with its own `DbContext`) against the same year and asserting every returned number is distinct.
+
+---
+
+## D53 — `ApplicationUser`/Identity Roles Are Infrastructure-Only — Forced by D1, Not a Judgment Call
+
+**Problem:** Phase 3 Slice 15 needs a real ASP.NET Core Identity user/role schema (Architecture.md §7.1). Every prior Infrastructure-only persistence model (`AuditLog` D49, `NumberSequence` D51) required weighing whether a Domain placement was *possible but not worthwhile* versus *genuinely excluded*.
+
+**Investigation:** `RenoTrack.Domain.csproj` has zero `<ProjectReference>` entries (D1) — a structural, compiler-enforced rule, not a convention. `ApplicationUser` must inherit `IdentityUser<TKey>` (from `Microsoft.AspNetCore.Identity`, an ASP.NET Core-specific framework package) to work with `UserManager`/`SignInManager`/`RoleManager` and the built-in `[Authorize(Roles = "...")]` machinery Architecture.md §7.1 commits to. `Domain` cannot reference that package at all without violating D1.
+
+**Final decision:** `ApplicationUser : IdentityUser<int>` and Identity's own tables live entirely in `RenoTrack.Infrastructure` (`Identity/ApplicationUser.cs`), using the framework's built-in `IdentityRole<int>` directly (no custom subclass — nothing today requires an extra property on Role).
+
+**Why chosen — the key distinction from D49/D51:** those two were genuine judgment calls (the types *could* have been modeled as pure C# with no framework dependency, but weren't, because they represent technical instrumentation, not business behavior). `ApplicationUser` has no such choice — it structurally cannot compile in `Domain` given D1, independent of any judgment about whether it "deserves" rich-domain-model treatment. This is a precedent for future framework-mandated types: check whether Domain's own zero-dependency rule makes Domain placement literally impossible before applying D49/D51-style reasoning about whether it's merely undesirable.
+
+**Consequences:** `ERD.md`'s simplified single-table `USER` sketch (a plain `Role` string column) is corrected in this same commit to describe the real schema — `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, plus the framework's own `AspNetUserClaims`/`AspNetUserLogins`/`AspNetUserTokens`/`AspNetRoleClaims` — matching the same "trust the more specific, more authoritative document, correct the simplified one" precedent D41 already established. Table names stay the framework defaults (not renamed to `Users`/`Roles`) — every ASP.NET Core Identity guide/tool assumes these exact names, and renaming would be friction for zero benefit.
+
+---
+
+## D54 — `AddIdentityCore`, Not `AddIdentity`; Role Seeding Is Best-Effort-Safe Under Concurrent Startup
+
+**Problem 1:** `RenoTrack.Api` will authenticate via JWT bearer tokens (Architecture.md §7.1), not cookies. ASP.NET Core offers two entry points: `AddIdentity<TUser, TRole>()` (the full package, which also wires cookie-authentication-scheme defaults meant for server-rendered web apps) and `AddIdentityCore<TUser>()` (the minimal building block, with no assumption about the authentication scheme).
+
+**Final decision (Problem 1):** `AddIdentityCore<ApplicationUser>().AddRoles<IdentityRole<int>>().AddEntityFrameworkStores<RenoTrackDbContext>()` — no `AddDefaultTokenProviders()` either, since nothing yet needs password-reset/email-confirmation tokens (`CLAUDE.md` §4's growth-on-demand discipline applied to Identity's own optional pieces, not just this project's own abstractions). Every one of these is a pure `IServiceCollection` extension, so it integrates directly inside the existing `AddInfrastructure()` (Slice 14) with no new composition root.
+
+**Why chosen:** `AddIdentity` registering cookie-scheme defaults for an API that will never use cookies would be dead configuration at best, and a confusing footgun at worst (a future reader wondering why cookie auth exists when Architecture.md says JWT).
+
+**Problem 2 (raised in review — a real correctness question, not assumed away):** The naive role-seeding shape (`if (!await roleManager.RoleExistsAsync(name)) await roleManager.CreateAsync(...)`) is a classic check-then-act race. Two application instances starting simultaneously could both observe a role missing and both call `CreateAsync`. `AspNetRoles`' unique index on `NormalizedName` (`RoleNameIndex`, a framework default from `IdentityDbContext`'s own base model — not something this project configures) means the loser's `INSERT` fails. Critically, `RoleStore`/`RoleManager` do **not** catch a `SaveChanges` failure into a graceful `IdentityResult.Failed(...)` the way in-memory validation errors are — the `DbUpdateException` propagates unhandled, which would crash startup for the losing instance if left unmitigated.
+
+**Alternatives considered:** (a) Leave the race unmitigated and document it as acceptable, on the reasoning that v1's deployment model (Architecture.md §13: a single Azure App Service/VPS) makes concurrent-instance startup unlikely — rejected: the mitigation is cheap and the assumption is fragile (deployment topology can change, and even a single instance can restart into an overlapping window during a deploy). (b) Catch the failure and re-verify existence before deciding whether it's a genuine problem — the same shape as D52's first-of-year `INSERT` race, applied to a second, independent scenario.
+
+**Final decision (Problem 2):** (b). `IdentityRoleSeeder.SeedRolesAsync` catches `DbUpdateException` from a failed `CreateAsync` and re-checks `RoleExistsAsync`; if the role now exists, a concurrent instance won the race — benign, not rethrown. Any other cause (the role genuinely still missing) rethrows unchanged. `await` isn't permitted directly in a `catch` filter (`CS7094`), so the re-check happens in the catch body, not the filter expression.
+
+**Why chosen:** Directly mirrors D52's already-established pattern for exactly this class of problem — a check-then-act race resolved by a framework-provided uniqueness guarantee, caught and re-verified rather than either ignored or defended against with a heavier mechanism (a distributed lock would be real over-engineering for two role rows). Proven, not assumed: a concurrency test runs 10 simultaneous seeding calls (each its own scope, mirroring real per-request/per-host lifetime) against the same database and asserts none throw and exactly the two expected roles exist afterward.
+
+**Consequences:** This mitigation does not change `IdentityRoleSeeder`'s public shape or `AddInfrastructure()`'s registration — it's entirely internal to the seeder's own implementation, same as D50's audit-failure handling being invisible to callers.
+
+**Update (D55):** this "does not change the public shape" claim held for the `DbUpdateException` manifestation alone, but a second, independent bug was found empirically after this decision — see D55 for the full story and the resulting (justified) shape change.
+
+---
+
+## D55 — `IdentityRoleSeeder` Becomes a Dedicated DI Service; `IServiceScopeFactory` Isolates Each Role's Seeding Attempt
+
+**Problem 1 (a second real bug, found empirically during pre-merge CI verification, not assumed):** D54's `DbUpdateException` mitigation was verified by a 10-concurrent-instance test at the time — but re-running that same test repeatedly during final CI verification (prompted by an unrelated environment fix) surfaced a ~66% failure rate under both Debug and Release configurations. The actual failure: `RoleStore.CreateAsync` does `Context.Add(role); await Context.SaveChangesAsync();` — when `SaveChangesAsync` fails (the race D54 already anticipated), EF Core does **not** discard the failed entity; it remains tracked with state `Added` on that `DbContext`. `IdentityRoleSeeder.SeedRolesAsync`'s loop reused the **same** `RoleManager`/`DbContext` across both roles, so a failed "Admin" attempt left a poisoned entity that rode along into "Inspector"'s `SaveChangesAsync()` call — EF batches all pending changes into one transaction, so the whole batch (including "Inspector", which had no conflict of its own) rolled back together, surfacing as a confusingly-attributed failure on an entirely unrelated role.
+
+**Problem 2 (a related, independently-found gap in the same D54 mitigation):** `RoleManager<TRole>.CreateAsync` calls `ValidateRoleAsync` (which re-checks uniqueness via `FindByNameAsync`) **before** ever touching the store/`DbContext`. If a concurrent instance wins the race in the window between our own `RoleExistsAsync` check and this internal re-validation, `CreateAsync` returns a graceful `IdentityResult.Failed` ("Role name 'X' is already taken") instead of throwing at all — a second manifestation of the exact same race that D54's `catch (DbUpdateException)`-only handling didn't cover.
+
+**Investigation — is recovering the poisoned tracked entity `IdentityRoleSeeder`'s responsibility at all?** Explicitly asked before reaching for a fix, rather than defaulting to patching in place. Microsoft's own EF Core guidance is that a `DbContext` represents one unit of work, and the recommended response to a failed `SaveChanges()` is to discard that context, not attempt to recover and reuse it — manually detaching the specific failed entity (via `Entry(role).State = EntityState.Detached`) is the *non-idiomatic* path, and would require the DbContext reference in the first place, which `RoleManager.Store` doesn't expose publicly (a fix through `Store` would need reflection into a `protected` member — rejected outright, against this project's consistent no-reflection-in-production-code stance). This reframed the diagnosis: the bug isn't a missing catch clause, it's that the loop was treating two **independent** units of work (seeding "Admin", seeding "Inspector") as one, sharing mutable state between them that should never have been shared.
+
+**Alternatives considered for the fix's shape:**
+- (a) Add a `DbContext` parameter to `SeedRolesAsync`, detach the failed entity manually in the catch block — rejected: leaks an EF-specific type into what should be an Identity-domain-focused utility, and only manages the symptom (still relies on remembering to detach correctly) rather than removing the shared state that causes it.
+- (b) Change `SeedRolesAsync` to accept `IServiceScopeFactory` directly as a **method parameter** — rejected: pushes "how do I get scoped resources" onto every caller (`Program.cs`, every test call site), which is a worse contract than what existed before, and is inconsistent with how every other Infrastructure service in this project takes its dependencies via constructor, not per-call parameters.
+- (c) Keep `IdentityRoleSeeder` as a static utility class — rejected on a second, independent ground: it was already the one structural outlier in the whole Infrastructure layer. `IAuditService`, `INumberGeneratorService`, `IEmailSender`, `IFileStorage`, and every repository are all interface-or-class + DI-registered, constructor-injected with exactly what they need. A bare static method with no DI registration didn't match that shape, independent of this bug.
+- (d) A dedicated `IdentityRoleSeeder` class, constructed via normal DI (`AddScoped<IdentityRoleSeeder>()`), with `IServiceScopeFactory` injected through its **constructor**, and a **parameterless** public `SeedRolesAsync()` method. Internally, it creates one fresh `IServiceScope` per role, resolving a correctly-wired `RoleManager<IdentityRole<int>>` from each.
+
+**Final decision:** (d).
+
+**Verifying this doesn't reintroduce a service-locator smell, explicitly, before accepting it:** the anti-pattern this project has consistently avoided elsewhere (`DependencyInjection.cs`'s own stated rule: no service takes `IConfiguration`/`IServiceProvider` as a dependency) is specifically about a component holding a *general* resolver and pulling *arbitrary, dynamic* types at runtime, hiding its real dependency graph. `IdentityRoleSeeder` doesn't do that: its constructor declares exactly one narrow capability ("create an isolated scope"), and the code always resolves exactly one fixed, named type from each scope (`RoleManager<IdentityRole<int>>`) — visible directly in the method body, not dynamic, not hidden. This is also Microsoft's own documented pattern for components that outlive a single scope and must perform multiple independent pieces of scoped work — the same shape recommended for `BackgroundService`/`IHostedService` implementations needing scoped dependencies. `IDbContextFactory<RenoTrackDbContext>` was reconsidered as an alternative and rejected again for the same reason as when it first came up: it would supply a fresh `DbContext` but not a correctly-validator-wired `RoleManager`, forcing either hand-construction of Identity's object graph (duplicating what `AddIdentityCore()` already wires) or exposing `RoleManager`'s several constituent dependencies directly — both worse than reusing the existing, correct DI registration via a fresh scope.
+
+**Why chosen:** removes the shared mutable state instead of managing it — no cleanup code is needed at all, which is a net reduction in complexity, not an addition. The public contract also gets simpler as a side effect: `SeedRolesAsync()` takes no parameters, so callers (`Program.cs`, tests) don't need to know or construct anything beyond resolving the service itself.
+
+**Consequences:** `IdentityRoleSeeder` is registered `AddScoped` in `AddInfrastructure()`, alongside every other Infrastructure service — consistent lifetime, no special-casing. `Program.cs` and the three call sites in `IdentityRoleSeederTests.cs` were updated to resolve `IdentityRoleSeeder` and call the now-parameterless `SeedRolesAsync()`, instead of resolving `RoleManager<IdentityRole<int>>` themselves and passing it in — a mechanical call-site change, not a change to any test's assertions or intent. Verified empirically, not just by re-reading the fix: 32 consecutive runs of the concurrency test (22 Debug, 10 Release) all passed, versus roughly a 2-in-3 failure rate before this fix.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -603,3 +861,15 @@ Numbering is chronological across the whole project, not per-phase.
 | AutoMapper | `CLAUDE.md` §8 | Hidden mapping logic not worth the boilerplate savings at this project's scale |
 | Reusing `ICommandHandler<TQuery, TResult>` for `SearchCatalogItemsQuery` | D36 | Commands and queries are different concepts even with an identical signature today; user preferred a distinct `IQueryHandler` |
 | `SearchCatalogItemsQuery` with an `includeRetired` flag from the start | D37 | No documented use case surfaces retired items anywhere yet; add only when one does |
+| Adding `RenoTrack.Infrastructure` reference to `RenoTrack.Api.Tests` instead of a new test project | D40 | Would make `Api.Tests` depend on Infrastructure before `Api` itself does — backwards dependency direction |
+| Keeping `ERD.md`'s `Subtotal`/`LineTotal`/`DecisionResult` columns and adding them to the schema | D41 | Would resurrect settled Phase 1 decisions (computed-only properties, D16) without new evidence |
+| Building `LocalDiskFileStorage` for real in Phase 3 | D42 | `PROJECT_ROADMAP.md`'s Phase 4 deliverable list explicitly owns it; `CLAUDE.md`'s "(Phase 3)" was a stale forward-reference |
+| `AuditLog` as a rich Domain entity (private constructor, static factory, self-guards) | D49 | No business invariant references it anywhere; ceremony without purpose for a type with nothing to protect |
+| Letting `AuditService.LogAsync` exceptions propagate to the caller | D50 | Would report an already-committed business operation as failed; audit is best-effort instrumentation, not a correctness invariant |
+| Read-then-write sequence increment via plain EF Core (`SELECT`, increment in memory, `SaveChangesAsync`) | D52 | Two round trips with an in-memory gap between them is a real concurrent-duplicate race; EF Core has no single-statement atomic increment-and-return |
+| EF Core concurrency token + retry loop for the sequence increment | D52 | Still two-plus round trips per attempt, with no sane place for the retry loop given `INumberGeneratorService`'s existing signature; a single atomic statement needs no retry at all in the common case |
+| `AddIdentity<TUser,TRole>()` for API/JWT authentication | D54 | Wires cookie-authentication-scheme defaults the API never uses — dead config at best, a confusing footgun at worst |
+| Leaving the role-seeding concurrent-startup race unmitigated, citing v1's single-instance deployment | D54 | Cheap to fix properly; the "single instance" assumption is fragile against deploy topology changes and restart-overlap windows |
+| `DbContext` parameter on `SeedRolesAsync`, manual `Entry(role).State = Detached` | D55 | Leaks an EF-specific type into an Identity-domain utility; manages the symptom instead of removing the shared state that causes it |
+| `IServiceScopeFactory` as a `SeedRolesAsync` method parameter (not constructor-injected) | D55 | Pushes scope-creation concerns onto every caller; inconsistent with every other Infrastructure service taking dependencies via constructor |
+| `IDbContextFactory<RenoTrackDbContext>` instead of `IServiceScopeFactory` | D55 | Supplies a fresh `DbContext` but not a correctly-wired `RoleManager` — would force hand-constructing Identity's object graph, duplicating `AddIdentityCore()`'s own registration |
