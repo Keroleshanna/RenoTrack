@@ -263,3 +263,21 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 1 (`PlaceholderFileStorageTests`) — `SaveAsync_AlwaysThrowsNotImplementedException`. No database involved, so no `[Collection("Infrastructure Database")]` — lives under `tests/RenoTrack.Infrastructure.Tests/FileStorage/`, a new folder parallel to `Persistence/`.
 
 **Final outcome:** 58 Infrastructure tests, alongside 153 Domain + 144 Application → **355 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 13 — `IEmailSender` Placeholder
+
+**Goal:** Register a minimal placeholder implementation only — the real SMTP-backed implementation is Phase 9's deliverable (`IEmailSender`'s own doc comment; `CLAUDE.md` §11 — SRS OQ-3, the provider choice, must be resolved first). No design review beyond confirming the placeholder satisfies the interface, can't silently appear to send email, and clearly communicates the correct phase.
+
+**Two corrections made before implementing, not assumed:** the real implementation belongs to **Phase 9**, not Phase 4 (unlike `IFileStorage`, Slice 12) — confirmed against `IEmailSender.cs`'s own doc comment and `CLAUDE.md` §11. And unlike `PlaceholderFileStorage` (which throws), `IEmailSender`'s own interface doc comment **explicitly sanctions a no-op/logging implementation** here, specifically so Phase 2's already-built handlers (`CreateLeadCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`) can run end-to-end through Phases 3–8 without a real mail provider. A throw-based placeholder here would have broken that already-documented intent, not matched it — the two placeholders are deliberately different shapes for a real, checked reason, not an inconsistency.
+
+**Implementation choice:** `LoggingNoOpEmailSender` never throws, but every call is logged at `Warning` level with the notification's key details, so it is always visible (in logs, in tests) that no real email was ever sent, satisfying "cannot silently appear to send emails" without contradicting the interface's documented no-op allowance. Verified for real: each test asserts against a capturing `ILogger` fake that a Warning entry was actually emitted, not just assumed from reading the code.
+
+**New abstractions introduced:** `LoggingNoOpEmailSender : IEmailSender` (`src/RenoTrack.Infrastructure/Email/LoggingNoOpEmailSender.cs`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 3 (`LoggingNoOpEmailSenderTests`, one per interface method) — each asserts the call doesn't throw and that a `Warning`-level log entry containing "No email was sent" (plus the notification's key identifier) is actually captured. No database involved.
+
+**Final outcome:** 61 Infrastructure tests, alongside 153 Domain + 144 Application → **358 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
