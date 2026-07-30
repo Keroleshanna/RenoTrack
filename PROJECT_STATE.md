@@ -164,7 +164,7 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 
 ---
 
-## 6. Infrastructure Layer — Complete Inventory (Phase 3, in progress)
+## 6. Infrastructure Layer — Complete Inventory (Phase 3, complete)
 
 ### 6.1 `RenoTrackDbContext` (`src/RenoTrack.Infrastructure/Persistence/RenoTrackDbContext.cs`)
 
@@ -220,7 +220,7 @@ All eight original spec documents live in the repo root and have been actively m
 |---|---|---|
 | `SRS.md` | No | Unmodified since Phase 0 |
 | `Architecture.md` | **Yes, extensively** | §6.1/§6.2 (Domain design decisions), §7.3 (role vs. ownership — new), §9 (stable external resource identifiers — new), §11 (audit-target principle — new). Phase 3: §3's solution structure updated to add `RenoTrack.Infrastructure.Tests` |
-| `ERD.md` | **Yes** | `CatalogItem.IsRetired` column added (BR-12). Phase 3: `Subtotal`/`LineTotal`/`DecisionResult` removed to match confirmed Domain state (D41); notes added on which FKs are deferred until the Identity slice (D44) |
+| `ERD.md` | **Yes** | `CatalogItem.IsRetired` column added (BR-12). Phase 3: `Subtotal`/`LineTotal`/`DecisionResult` removed to match confirmed Domain state (D41); `NumberSequences`' transaction-boundary wording corrected (D52); `USER`/`ROLE` corrected from a simplified single-table sketch to the real `AspNetUsers`/`AspNetRoles`/`AspNetUserRoles` Identity schema, and all five deferred user-referencing FK notes updated from "deferred" to "resolved" (D44/D53) |
 | `Sequence Diagram.md` | **Yes** | §4 corrected (added missing AuditLog step for Angebot creation; fixed stale `CreateDraft` → `Create` reference) |
 | `StateMachine.md` | **Yes** | §1.3 `ScheduleInspection` row's side-effects updated for BR-13 |
 | `BusinessRules.md` | **Yes, extensively** | BR-10, BR-11, BR-12, BR-13, BR-14 all added, each with a Changelog row |
@@ -243,10 +243,10 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 5. **`IFileStorage.GetAsync`/`DeleteAsync`** — not built (§4's repository-growth discipline applies here too).
 6. **`Angebot.Send()`, `RecordCustomerApproval()`, `RecordCustomerRejection()`** exist in the Domain (built in Phase 1) but have **no Application-layer commands yet** — deliberately deferred to Phase 6 (Token-link mechanism) per `PROJECT_ROADMAP.md`, since they depend on `ITokenLinkService`, which doesn't exist yet.
 7. **`AngebotItem` has no update/remove method** — an open question, not a bug (see `CLAUDE.md` §2). Revisit only if real evidence (a documented endpoint or explicit business decision) appears.
-8. **Infrastructure project — 🔶 in progress (Slices 1–3 of 15 done).** `RenoTrackDbContext` + entity configurations + `InitialCreate` migration + `UnitOfWork` exist and are tested against real LocalDB; every repository/service interface listed in §5.2 except `IUnitOfWork` still has zero concrete implementation (Slices 4–13 build those; see §6.4 and `PHASE3_PROGRESS.md`).
-9. **`INumberGeneratorService`'s atomic-transaction requirement (Architecture §8) is unverified** — flagged as the single highest-risk assumption; due for its concurrency test at Slice 11.
-10. **`LocalDiskFileStorage`/real `IEmailSender` — deliberately deferred**, not gaps: `LocalDiskFileStorage` is Phase 4's (confirmed against `PROJECT_ROADMAP.md`, `CLAUDE.md` §13 corrected — D42); `IEmailSender`'s real SMTP-backed implementation is Phase 9's (`CLAUDE.md` §11). Phase 3 registers placeholder-only implementations of both (Slices 12–13) purely so DI composition succeeds.
-11. **User-referencing FK constraints** (`Lead.AssignedInspectorId`, `Inspection.InspectorId`, `Angebot.CreatedByInspectorId`/`ReviewedByAdminId`, `AngebotReviewComment.AdminUserId`) — deliberately deferred until the Identity slice (Slice 15) adds a `Users` table (`ARCHITECTURE_DECISIONS.md` D44), not an oversight.
+8. **Infrastructure project — ✅ complete (all 15 slices done).** `RenoTrackDbContext` + entity configurations + `InitialCreate` migration + `UnitOfWork` + all 6 repositories/queries + `IAuditService` + `INumberGeneratorService` + `IFileStorage`/`IEmailSender` placeholders + `AddInfrastructure()` DI wiring + Identity storage all exist and are tested against real LocalDB. Every Application interface listed in §5.2 (except the deliberately-Application-side `IOwnershipValidator`, CLAUDE.md §9) now has exactly one Infrastructure implementation. See §6.4 and `PHASE3_PROGRESS.md`.
+9. **`INumberGeneratorService`'s atomic-uniqueness requirement (Architecture §8) is now verified** — the single highest-risk assumption carried since Phase 2 (D34), resolved and proven by a 50-parallel-caller concurrency integration test in Slice 11 (D52).
+10. **`LocalDiskFileStorage`/real `IEmailSender` — still deliberately deferred**, not gaps: `LocalDiskFileStorage` is Phase 4's (confirmed against `PROJECT_ROADMAP.md`, `CLAUDE.md` §13 corrected — D42); `IEmailSender`'s real SMTP-backed implementation is Phase 9's (`CLAUDE.md` §11). Phase 3 registered placeholder-only implementations of both (Slices 12–13, `PlaceholderFileStorage` throws loudly, `LoggingNoOpEmailSender` logs-and-continues per each interface's own documented intent) purely so DI composition succeeds until then.
+11. **User-referencing FK constraints** (`Lead.AssignedInspectorId`, `Inspection.InspectorId`, `Angebot.CreatedByInspectorId`/`ReviewedByAdminId`, `AngebotReviewComment.AdminUserId`) — deferred until the Identity slice (`ARCHITECTURE_DECISIONS.md` D44), and now resolved: all five have real `Restrict` FK constraints as of Slice 15 (D53/D54).
 
 ---
 
