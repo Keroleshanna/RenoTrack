@@ -122,3 +122,27 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 5 (`InspectionRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheInspection`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedInspectionWithPhotos` (also proves the `Include` loads `Photos`), `GetByIdAsync_WhenInspectionDoesNotExist_ReturnsNull`, and `AddingAPhotoToAnAggregateLoadedViaGetByIdAsync_IsPersistedBySaveChangesAsyncAlone` (the collection-mutation tracking proof specific to this slice).
 
 **Final outcome:** 29 Infrastructure tests, alongside 153 Domain + 144 Application → **326 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 6 — `IAngebotRepository`
+
+**Goal:** First repository for a complex, two-level aggregate (`Angebot` → `Sections` → `Items`) and the first repository with a third method beyond `AddAsync`/`GetByIdAsync`. Focused review covering only what's new relative to Slices 4–5.
+
+**What's new relative to `LeadRepository`/`InspectionRepository` (the only points reviewed):**
+- **Two-level `Include` chain.** `GetByIdAsync` uses `.Include(a => a.Sections).ThenInclude(s => s.Items)`, extending Slice 5's single-level `Include` one level deeper. Same `PropertyAccessMode.Field` backing-field mapping as before (D43), already proven for both `AngebotSection`/`AngebotItem` in Slice 1's `AngebotPersistenceTests`.
+- **Confirmed the full-aggregate contract still applies uniformly, not per-caller.** Checked every consumer: `SubmitAngebotForReviewCommandHandler` genuinely *needs* `Sections`/`Items` (`Angebot.SubmitForReview()`'s own guard inspects them directly — an unloaded tree would silently look like "no items" and produce a wrong result, not an error). `ApproveAngebotCommandHandler`/`RequestAngebotChangesCommandHandler` don't use the tree at all, but the repository contract (`IAngebotRepository.GetByIdAsync`'s own doc comment: "there is no partial load of an aggregate root in DDD") doesn't vary per caller — this was already settled, not reopened.
+- **`HasActiveAngebotForLeadAsync` — new method shape, existence check rather than aggregate load.** Business rule (StateMachine.md §2.4, already stated in the interface doc comment): non-terminal = every `AngebotStatus` except `CustomerApproved`/`CustomerRejected`. Implemented as a single `AnyAsync` predicate on `LeadId`/`Status` only — no `Include`, doesn't touch `AngebotSections`/`AngebotItems` at all, uses the existing `Status` index (`AngebotConfiguration.cs:39`).
+- **N+1 checked and ruled out** — the `Include`/`ThenInclude` chain and the `AnyAsync` call are each a single SQL query; no per-row follow-up querying anywhere in this design.
+- **`AsSplitQuery()` reviewed and confirmed unnecessary** — it addresses cartesian-product row inflation from multiple *sibling* collections at the same level; `Sections`→`Items` is a single chain, not siblings, and the documented aggregate size (a handful of sections/items) gives no reason to split. Revisit only if a real, measured performance problem appears.
+- **Contract confirmed still complete** — all three methods (`AddAsync`, `GetByIdAsync`, `HasActiveAngebotForLeadAsync`) map to real callers; no new method needed.
+
+**No new architectural decision** — direct application of CLAUDE.md §4 (full-aggregate contract), D43 (backing-field mapping), and the project's no-premature-optimization stance to a two-level tree. Nothing added to `ARCHITECTURE_DECISIONS.md`.
+
+**New abstractions introduced:** `AngebotRepository : IAngebotRepository` (`src/RenoTrack.Infrastructure/Persistence/Repositories/AngebotRepository.cs`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 9 (`AngebotRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheAngebot`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsTheFullSectionsAndItemsTree`, `GetByIdAsync_WhenAngebotDoesNotExist_ReturnsNull`, `AddingASectionAndItemToAnAggregateLoadedViaGetByIdAsync_IsPersistedBySaveChangesAsyncAlone` (extends the Slice 4/5 tracking proof to a two-level tree mutation), `HasActiveAngebotForLeadAsync_MatchesStateMachine24sNonTerminalDefinition` (3 theory cases: `Draft` → active, `CustomerApproved`/`CustomerRejected` → not active), `HasActiveAngebotForLeadAsync_WhenLeadHasNoAngebot_ReturnsFalse`.
+
+**Final outcome:** 38 Infrastructure tests, alongside 153 Domain + 144 Application → **335 solution-wide.** Build clean (0 warnings, 0 errors). Committed.

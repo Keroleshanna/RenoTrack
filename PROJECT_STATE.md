@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30 — Phase 3, Slice 5 complete (`IInspectionRepository` → `InspectionRepository`, the first repository with a child collection). Phase 2 merged to `main` (PR #5, merge commit `dc85de1`).
+**Last updated:** 2026-07-30 — Phase 3, Slice 6 complete (`IAngebotRepository` → `AngebotRepository`, the first repository for a two-level aggregate). Phase 2 merged to `main` (PR #5, merge commit `dc85de1`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
@@ -13,7 +13,7 @@
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
-- **Phase 3 (Infrastructure) — 🔶 in progress.** Design review + dependency map approved; Slices 1–5 complete (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate` migration; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`). See `PHASE3_PROGRESS.md`.
+- **Phase 3 (Infrastructure) — 🔶 in progress.** Design review + dependency map approved; Slices 1–6 complete (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate` migration; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`; `IAngebotRepository`). See `PHASE3_PROGRESS.md`.
 
 ## 2. Current Branch State
 
@@ -25,10 +25,10 @@
 
 As of the last verified run in this conversation:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **326 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **335 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
-  - `RenoTrack.Infrastructure.Tests`: **29 tests** (real SQL Server LocalDB integration tests — new in Phase 3).
+  - `RenoTrack.Infrastructure.Tests`: **38 tests** (real SQL Server LocalDB integration tests — new in Phase 3).
   - `RenoTrack.Api.Tests`: 0 tests (project exists, empty — Phase 4 not started).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
@@ -194,11 +194,12 @@ One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `Cat
 - **`IUnitOfWork` → `UnitOfWork` — ✅ done (Slice 3).** One-line wrapper over `RenoTrackDbContext.SaveChangesAsync` — confirmed intentionally thin by explicit design review, `ARCHITECTURE_DECISIONS.md` D48. No `IDisposable` (doesn't own the injected `DbContext`).
 - **`ILeadRepository` → `LeadRepository` — ✅ done (Slice 4).** `src/RenoTrack.Infrastructure/Persistence/Repositories/LeadRepository.cs` — the first concrete repository, establishing the `Persistence/Repositories/` folder. `AddAsync`/`GetByIdAsync` only, matching the interface exactly. `GetByIdAsync` uses `DbSet<Lead>.FindAsync` (no `Include` needed — Lead has no navigation properties); its tracked result is relied upon by every handler that loads-then-mutates a Lead, since no `UpdateAsync` exists anywhere in this project. `AddAsync` performs no validation (Domain already guards its own invariants) and never calls `SaveChangesAsync` — that stays exclusively `IUnitOfWork`'s job, verified by a dedicated test.
 - **`IInspectionRepository` → `InspectionRepository` — ✅ done (Slice 5).** `src/RenoTrack.Infrastructure/Persistence/Repositories/InspectionRepository.cs` — the first repository with a child collection. `GetByIdAsync` eagerly `.Include(i => i.Photos)`s (CLAUDE.md §4's "full aggregate" rule, `FindAsync` doesn't support `Include` so `FirstOrDefaultAsync` is used instead). A photo added via `Inspection.AddPhoto(...)` on an aggregate loaded through this repository is persisted by `IUnitOfWork.SaveChangesAsync()` alone, verified by a dedicated test.
-- `IAngebotRepository`, `IAngebotReviewCommentRepository`, `ICatalogItemRepository`, `ICatalogItemQueries`, `IAuditService`, `INumberGeneratorService`, `IFileStorage` (placeholder only), `IEmailSender` (placeholder only) still contract-only, per the approved dependency map (`PHASE3_PROGRESS.md`). Identity is Slice 15, deliberately last.
+- **`IAngebotRepository` → `AngebotRepository` — ✅ done (Slice 6).** `src/RenoTrack.Infrastructure/Persistence/Repositories/AngebotRepository.cs` — the first repository for a two-level aggregate (`Sections` → `Items`). `GetByIdAsync` uses `.Include(a => a.Sections).ThenInclude(s => s.Items)` (`AsSplitQuery` deliberately not used — a single chain, not sibling collections, so no cartesian-product concern at this aggregate size). `HasActiveAngebotForLeadAsync` is a plain `AnyAsync` existence check over `LeadId`/`Status` only (StateMachine.md §2.4's non-terminal definition), no `Include`.
+- `IAngebotReviewCommentRepository`, `ICatalogItemRepository`, `ICatalogItemQueries`, `IAuditService`, `INumberGeneratorService`, `IFileStorage` (placeholder only), `IEmailSender` (placeholder only) still contract-only, per the approved dependency map (`PHASE3_PROGRESS.md`). Identity is Slice 15, deliberately last.
 
-### 6.5 Infrastructure Test Coverage (29 tests, `RenoTrack.Infrastructure.Tests`)
+### 6.5 Infrastructure Test Coverage (38 tests, `RenoTrack.Infrastructure.Tests`)
 
-Real SQL Server LocalDB integration tests, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40). `RenoTrackDbContextFixture` (`IAsyncLifetime` + `ICollectionFixture<T>`) creates/drops one shared LocalDB database (`RenoTrackInfrastructureTests`) per test run; every test class in the shared `"Infrastructure Database"` collection also seeds a real `Lead` row (via a `SeedLeadAsync` helper) before referencing its id, rather than a hardcoded placeholder — needed once real FKs made a coincidental id-match insufficient. Test classes: `LeadPersistenceTests`, `InspectionPersistenceTests`, `AngebotPersistenceTests`, `CatalogItemPersistenceTests`, `AngebotReviewCommentPersistenceTests` (15 tests total, including the 3 FK-rejection tests added in Slice 2, `EnsureCreated`-based schema), `UnitOfWorkTests` (3 tests), `InitialCreateMigrationTests` (2 tests, its own throwaway database, exercises `Database.MigrateAsync()` and `HasPendingModelChanges()` directly), `LeadRepositoryTests` (4 tests, Slice 4 — `LeadRepository`'s own `AddAsync`/`GetByIdAsync` contract behavior, distinct from `LeadPersistenceTests`'s raw-`DbContext` round-trip proof), plus `InspectionRepositoryTests` (5 tests, Slice 5 — `InspectionRepository`'s own contract, including that `GetByIdAsync` eagerly loads `Photos` and that a photo added post-load is persisted by `SaveChangesAsync` alone) — all under `tests/RenoTrack.Infrastructure.Tests/Persistence/`.
+Real SQL Server LocalDB integration tests, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40). `RenoTrackDbContextFixture` (`IAsyncLifetime` + `ICollectionFixture<T>`) creates/drops one shared LocalDB database (`RenoTrackInfrastructureTests`) per test run; every test class in the shared `"Infrastructure Database"` collection also seeds a real `Lead` row (via a `SeedLeadAsync` helper) before referencing its id, rather than a hardcoded placeholder — needed once real FKs made a coincidental id-match insufficient. Test classes: `LeadPersistenceTests`, `InspectionPersistenceTests`, `AngebotPersistenceTests`, `CatalogItemPersistenceTests`, `AngebotReviewCommentPersistenceTests` (15 tests total, including the 3 FK-rejection tests added in Slice 2, `EnsureCreated`-based schema), `UnitOfWorkTests` (3 tests), `InitialCreateMigrationTests` (2 tests, its own throwaway database, exercises `Database.MigrateAsync()` and `HasPendingModelChanges()` directly), `LeadRepositoryTests` (4 tests, Slice 4), `InspectionRepositoryTests` (5 tests, Slice 5 — `GetByIdAsync` eagerly loads `Photos`; a photo added post-load persists via `SaveChangesAsync` alone), plus `AngebotRepositoryTests` (9 tests, Slice 6 — `GetByIdAsync`'s two-level `Include`/`ThenInclude`, a section+item added post-load persisting via `SaveChangesAsync` alone, and `HasActiveAngebotForLeadAsync`'s non-terminal-status semantics driven directly via EF's change tracker since `Angebot.Status`'s only reachable terminal states through Domain methods require a `Sent` precondition) — all under `tests/RenoTrack.Infrastructure.Tests/Persistence/`.
 
 ---
 
@@ -242,7 +243,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Begin Slice 6 (`IAngebotRepository`)** — Slices 1–5 are all complete, reviewed, tested, documented, and committed. `Angebot` has a two-level child tree (`Sections` → `Items`), so Slice 6's focused review (per the standing "only discuss what differs" instruction) should cover: `.Include(a => a.Sections).ThenInclude(s => s.Items)` for `GetByIdAsync`; and `HasActiveAngebotForLeadAsync(int leadId)` — the one repository method beyond `AddAsync`/`GetByIdAsync` built so far, which needs its own query shape (likely a `Status`-filtered `AnyAsync`, no need to load the full aggregate for an existence check) reviewed on its own terms. See `PHASE3_PROGRESS.md` for the full slice order and each slice's record. §10 below remains the historical record of Phase 2's closeout.
+**Begin Slice 7 (`IAngebotReviewCommentRepository`)** — Slices 1–6 are all complete, reviewed, tested, documented, and committed. `AngebotReviewComment` is independent (not a child of `Angebot` — D32), has no child entities of its own, and its interface currently has **`AddAsync` only** (no `GetByIdAsync`, since no current command needs to read comments back — `PROJECT_STATE.md` §5.2). Slice 7's focused review should confirm this asymmetric, single-method contract is still correct rather than assuming every repository needs a matching `GetByIdAsync`. See `PHASE3_PROGRESS.md` for the full slice order and each slice's record. §10 below remains the historical record of Phase 2's closeout.
 
 ---
 
