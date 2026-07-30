@@ -52,13 +52,18 @@ public sealed class Inspection
     /// Attaches a photo. Sequence Diagram §3 Step B (repeats per photo). PermissionMatrix.md
     /// §2 restricts who may call this (the assigned Inspector only) — that is an authorization
     /// concern enforced at the API/Application layer, not something this aggregate checks,
-    /// consistent with how Lead never checks "who is calling" either.
+    /// consistent with how Lead never checks "who is calling" either. Returns the created
+    /// InspectionPhoto — same pattern as <c>AngebotSection.AddItem</c>, since a caller
+    /// building a response DTO needs a reference to exactly the child just created, not just
+    /// the fact that the collection grew.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown if this Inspection is already completed (BR-10).</exception>
-    public void AddPhoto(string fileUrl, string? caption = null)
+    public InspectionPhoto AddPhoto(string fileUrl, string? caption = null)
     {
         EnsureNotCompleted(nameof(AddPhoto));
-        _photos.Add(new InspectionPhoto(fileUrl, caption));
+        var photo = new InspectionPhoto(fileUrl, caption);
+        _photos.Add(photo);
+        return photo;
     }
 
     /// <summary>Sequence Diagram §3 Step B: <c>PATCH /inspections/{id} {notes}</c>.</summary>

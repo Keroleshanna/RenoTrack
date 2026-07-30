@@ -156,18 +156,21 @@ sequenceDiagram
     participant DOM as Domain: Angebot Aggregate
     participant REPO as IAngebotRepository
     participant DB as SQL Server
+    participant AUD as IAuditService
 
     Note over INS,DASH: Create the draft
     INS->>DASH: Click "Create Angebot" on Lead (status = InspectionDone)
     DASH->>API: POST /api/v1/leads/{leadId}/angebote { inspectionId? }
     API->>APP: Send(CreateAngebotCommand)
-    APP->>REPO: Guard: Lead.Status == InspectionDone
+    APP->>REPO: Guard: Lead.Status == InspectionDone (Lead.MarkAngebotInProgress()'s own self-guard)
     APP->>NUM: NextAngebotNumber(year)
-    NUM->>DB: UPDATE NumberSequences (atomic increment)
+    NUM->>DB: UPDATE NumberSequences (atomic increment, inside the same transaction that creates the Angebot)
     NUM-->>APP: "ANG-2026-00042"
-    APP->>DOM: Angebot.CreateDraft(leadId, inspectionId, number)
+    APP->>DOM: Angebot.Create(leadId, inspectionId, number, createdByInspectorId)
     APP->>REPO: AddAsync(angebot)
     REPO->>DB: INSERT INTO Angebote
+    APP->>AUD: LogAsync(entityType=Lead, action=AngebotCreated)
+    Note right of AUD: Logged against Lead, not Angebot — creating a draft<br/>drives Lead.MarkAngebotInProgress(), a Lead-level<br/>business milestone (Architecture.md §11)
     APP-->>API: AngebotDto { Id, Status=Draft }
     API-->>DASH: 201 Created
     DASH-->>INS: Empty Angebot editor opens

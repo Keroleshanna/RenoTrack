@@ -18,7 +18,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Create Lead manually (phone/email) | F | — | FR-2.1 — Admin-only per SRS |
 | Edit Lead contact details | F | S | Inspector may correct details on their own assigned Lead (e.g. wrong phone number found on-site) |
 | Change Lead status directly | F | — | Status changes happen as side effects of other actions (BR-7), not a free-standing edit — neither role edits status directly except via the defined transitions |
-| Assign/reassign Inspector to a Lead | F | — | Admin decision |
+| Assign/reassign Inspector to a Lead | F | — | Admin decision. Happens automatically whenever an Inspection is scheduled (BR-13) — this row covers standing this assignment up or changing it independently of scheduling a new Inspection |
 | Delete a Lead | — | — | Not supported in v1 — Leads are never hard-deleted (matches BR-9's spirit for Invoices; nothing legal requires it for Leads, but it keeps the audit trail intact) |
 | View Lead activity/audit timeline | F | S | Same scoping as the Lead itself |
 
@@ -86,7 +86,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Create/curate Catalog item directly (not via "save as") | F | — | Admin manages the "official" library |
 | Add Catalog item via "save as Catalog item" (from an Angebot) | — | F | Organic growth path, any Inspector (FR-4.10) |
 | Edit an existing Catalog item | F | — | Admin-only, to avoid one Inspector's edit surprising others (BR-8 already protects past Angebote from this, but future *new* Angebote using that template should reflect a deliberate, reviewed change) |
-| Delete/retire a Catalog item | F | — | Admin-only. "Delete" means retiring the item (`IsRetired = true`), never a physical row delete — a retired item stops appearing in the Catalog picker (D2) but is kept so any AngebotItem previously created from it (BR-8) keeps a valid `CatalogItemId` trace link (BR-12) |
+| Delete/retire a Catalog item | F | — | Admin-only. "Delete" means retiring the item (`IsRetired = true`), never a physical row delete — a retired item stops appearing in the Catalog picker (D2) but is kept so any AngebotItem previously created from it (BR-8) keeps a valid `CatalogItemId` trace link (BR-12). Retirement only affects discovery — a retired item remains a valid direct `CatalogItemId` reference for a new AngebotItem (BR-14) |
 
 ---
 
