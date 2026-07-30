@@ -146,3 +146,17 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 9 (`AngebotRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheAngebot`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsTheFullSectionsAndItemsTree`, `GetByIdAsync_WhenAngebotDoesNotExist_ReturnsNull`, `AddingASectionAndItemToAnAggregateLoadedViaGetByIdAsync_IsPersistedBySaveChangesAsyncAlone` (extends the Slice 4/5 tracking proof to a two-level tree mutation), `HasActiveAngebotForLeadAsync_MatchesStateMachine24sNonTerminalDefinition` (3 theory cases: `Draft` → active, `CustomerApproved`/`CustomerRejected` → not active), `HasActiveAngebotForLeadAsync_WhenLeadHasNoAngebot_ReturnsFalse`.
 
 **Final outcome:** 38 Infrastructure tests, alongside 153 Domain + 144 Application → **335 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 7 — `IAngebotReviewCommentRepository`
+
+**Goal:** Simplest repository yet — `AddAsync` only (no `GetByIdAsync`, no other method), independent aggregate with no children. Optimized review per the user's standing instruction: no new architectural question, so no detailed design review — a strict subset of already-approved `AddAsync` patterns from Slices 4–6.
+
+**New abstractions introduced:** `AngebotReviewCommentRepository : IAngebotReviewCommentRepository` (`src/RenoTrack.Infrastructure/Persistence/Repositories/AngebotReviewCommentRepository.cs`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 3 (`AngebotReviewCommentRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheComment`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `AddAsync_PersistedViaOneContextInstance_IsVisibleFromAnother`.
+
+**Final outcome:** 41 Infrastructure tests, alongside 153 Domain + 144 Application → **338 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
