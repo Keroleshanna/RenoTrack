@@ -160,3 +160,17 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 3 (`AngebotReviewCommentRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheComment`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `AddAsync_PersistedViaOneContextInstance_IsVisibleFromAnother`.
 
 **Final outcome:** 41 Infrastructure tests, alongside 153 Domain + 144 Application → **338 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 8 — `ICatalogItemRepository`
+
+**Goal:** Independent aggregate, no children, no navigation — same `AddAsync`/`GetByIdAsync` shape as `LeadRepository`. Optimized review: no new architectural question. One already-settled rule reused (not reopened): BR-14/D38 — `GetByIdAsync` deliberately does not filter by `IsRetired`; that belongs to the not-yet-built `ICatalogItemQueries.SearchAsync`, not this repository.
+
+**New abstractions introduced:** `CatalogItemRepository : ICatalogItemRepository` (`src/RenoTrack.Infrastructure/Persistence/Repositories/CatalogItemRepository.cs`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 5 (`CatalogItemRepositoryTests`) — `AddAsync_FollowedBySaveChangesAsync_PersistsTheCatalogItem`, `AddAsync_WithoutSaveChangesAsync_PersistsNothing`, `GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedCatalogItem`, `GetByIdAsync_WhenCatalogItemDoesNotExist_ReturnsNull`, `GetByIdAsync_ForARetiredCatalogItem_StillReturnsIt` (BR-14/D38 confirmation).
+
+**Final outcome:** 46 Infrastructure tests, alongside 153 Domain + 144 Application → **343 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
