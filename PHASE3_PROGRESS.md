@@ -281,3 +281,29 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 3 (`LoggingNoOpEmailSenderTests`, one per interface method) — each asserts the call doesn't throw and that a `Warning`-level log entry containing "No email was sent" (plus the notification's key identifier) is actually captured. No database involved.
 
 **Final outcome:** 61 Infrastructure tests, alongside 153 Domain + 144 Application → **358 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 14 — `AddInfrastructure()` DI Extension + `Program.cs` Wiring
+
+**Goal:** First slice touching `RenoTrack.Api`. Focused design review on Infrastructure composition only (lifetimes, `DbContext` registration, service registrations, configuration handling, `Program.cs` shape, dependency graph, build-time DI validation) — no Application-layer wiring (command handlers, FluentValidation validators, `IOwnershipValidator`) is in scope here.
+
+**Review outcome — no new architectural decision, direct application of already-settled rules:**
+- **Every registration is Scoped**, matching `RenoTrackDbContext`'s own Scoped lifetime (`AddDbContext`'s default) — the mechanism D48 already identified as what makes "repository adds an entity → `UnitOfWork.SaveChangesAsync()` commits it" work. This includes `PlaceholderFileStorage`/`LoggingNoOpEmailSender`, which have no dependencies today but are kept on the same uniform Scoped rule rather than Singleton, to avoid a future captive-dependency bug the moment their real Phase 4/Phase 9 implementations gain a Scoped dependency.
+- **`IOwnershipValidator` deliberately not registered here** — CLAUDE.md §9 is explicit its concrete implementation lives in `RenoTrack.Application`, not `Infrastructure`; that registration (and FluentValidation validators', and command handlers') belongs to a not-yet-built `AddApplication()` extension, out of scope for this slice.
+- **Configuration read only at registration time** — `AddInfrastructure(IServiceCollection, IConfiguration)` extracts one connection string once, captured as a plain `string`; no service takes `IConfiguration`/`IServiceProvider` as a dependency (no service-locator pattern). Connection string lives in `appsettings.Development.json` only (LocalDB, no real secret — matches `RenoTrackDbContextFactory`'s/the test fixture's already-committed pattern), per Architecture.md §13; `appsettings.json` stays without one, so a missing Production connection string throws a clear `InvalidOperationException` at startup rather than failing cryptically later.
+- **`Program.cs` stays minimal** — one added line, `builder.Services.AddInfrastructure(builder.Configuration);`.
+- **No circular dependencies** — every repository/query/service depends only on `RenoTrackDbContext` (+ `ILogger<T>` for two of them), never on each other.
+- **Build-time DI validation proven, not assumed** — a test builds the real container with `ValidateOnBuild = true, ValidateScopes = true` (the exact check that would catch a Singleton capturing a Scoped `DbContext`), resolves all 11 registered interfaces inside a real scope, and confirms two resolutions of `RenoTrackDbContext` within one scope return the same instance (the concrete proof behind D48's reasoning).
+
+**New abstractions introduced:** `DependencyInjection.AddInfrastructure(this IServiceCollection, IConfiguration)` (`src/RenoTrack.Infrastructure/DependencyInjection.cs`).
+
+**Other changes:** `Program.cs` calls `AddInfrastructure(builder.Configuration)`. `RenoTrack.Infrastructure.Tests.csproj` gains a `Microsoft.Extensions.Configuration` package reference (needed for `ConfigurationBuilder`/`AddInMemoryCollection` in the new DI test).
+
+**Local-only connection string, not committed:** a `ConnectionStrings:RenoTrackDb` entry was added locally to `appsettings.Development.json` — but `.gitignore` deliberately excludes that file under "Secrets / local config (never commit real values)," the same category as `.env` (a pre-existing, intentional rule, not a coincidental collision like `FileStorage/`'s naming clash with `storage/` was in Slice 12). This file is never committed to this repo. Consequence for a fresh clone: `RenoTrack.Api` will throw the clear `InvalidOperationException` from `AddInfrastructure()` until a developer creates their own local `appsettings.Development.json` with a `ConnectionStrings:RenoTrackDb` entry (LocalDB, matching `RenoTrackDbContextFactory`'s hardcoded connection string) — expected, matches Architecture.md §13's policy, and doesn't block any current test (`RenoTrack.Infrastructure.Tests` uses its own hardcoded fixture connection string, never `appsettings.json`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 4 (`DependencyInjectionTests`) — `AddInfrastructure_MissingConnectionString_ThrowsAtRegistrationTime`, `BuildingTheContainer_WithValidateOnBuildAndValidateScopes_Succeeds`, `EveryRegisteredInfrastructureService_ResolvesToItsExpectedConcreteType` (all 11 registrations), `RepositoriesResolvedInTheSameScope_ShareTheSameDbContextInstance`.
+
+**Final outcome:** 65 Infrastructure tests, alongside 153 Domain + 144 Application → **362 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
