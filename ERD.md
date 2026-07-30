@@ -12,13 +12,17 @@
 ```mermaid
 erDiagram
     USER {
-        int Id PK
-        string Name
-        string Email UK
-        string PasswordHash
-        string Role "Admin | Inspector"
-        bool IsActive
-        datetime CreatedAt
+        int Id PK "AspNetUsers — ASP.NET Core Identity (Architecture.md §7.1), not a hand-rolled table"
+        string Name "App-specific addition beyond IdentityUser's own columns"
+        string UserName UK "IdentityUser base column"
+        string Email "IdentityUser base column — PasswordHash, SecurityStamp, LockoutEnd, AccessFailedCount, etc. also inherited, omitted here for brevity"
+        bool IsActive "App-specific addition — deactivation (PermissionMatrix.md, resolves SRS OQ-1), never deletion"
+        datetime CreatedAt "App-specific addition"
+    }
+
+    ROLE {
+        int Id PK "AspNetRoles — plain IdentityRole&lt;int&gt;, no custom subclass"
+        string Name "Admin | Inspector — the only two roles (CLAUDE.md §20)"
     }
 
     LEAD {
@@ -190,6 +194,7 @@ erDiagram
         datetime Timestamp
     }
 
+    USER }o--o{ ROLE : "via AspNetUserRoles"
     USER ||--o{ LEAD : "assigned as Inspector"
     LEAD ||--o{ CONTACTMESSAGE : "originated from"
     LEAD ||--o| INSPECTION : has
@@ -214,19 +219,22 @@ erDiagram
     INVOICE ||--o{ TOKENLINK : "sent via"
 ```
 
+**`USER`/`ROLE` corrected (Phase 3, Slice 15, `ARCHITECTURE_DECISIONS.md` D53):** the single-table sketch above with a plain `Role` string column was a simplification from before Phase 3's Identity work started. Architecture.md §7.1 commits to real ASP.NET Core Identity, which is structurally a multi-table schema (`AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, plus the framework's own `AspNetUserClaims`/`AspNetUserLogins`/`AspNetUserTokens`/`AspNetRoleClaims` — omitted from the diagram above since nothing in this app uses them yet, but present in the actual database as framework-standard tables). `ApplicationUser`'s only additions beyond `IdentityUser<int>`'s own base columns are `Name`, `IsActive`, `CreatedAt`; `Role` uses the framework's `IdentityRole<int>` directly, with no custom subclass.
+
 ---
 
 ## 2. Physical Schema Notes (per table)
 
 | Table | Primary Key | Notable Foreign Keys | Unique Constraints | Notes |
 |---|---|---|---|---|
-| Users | Id (int, identity) | — | Email | Password hashed at rest; never stored/logged in plaintext |
-| Leads | Id | AssignedInspectorId → Users | — | Status stored as string enum for readability in raw SQL during support/debugging. `AssignedInspectorId` has no FK constraint until the Identity slice adds a `Users` table (Phase 3). |
+| AspNetUsers | Id (int, identity) | — | UserName (filtered), NormalizedEmail (non-unique index) | ASP.NET Core Identity's own table (Phase 3, Slice 15) — `Name`/`IsActive`/`CreatedAt` are this project's additions; everything else (`PasswordHash`, `SecurityStamp`, `LockoutEnd`, etc.) is `IdentityUser<int>`'s own base shape. Password hashing delegated entirely to Identity's default `IPasswordHasher` — no custom hashing code. |
+| AspNetRoles | Id (int, identity) | — | NormalizedName | Plain `IdentityRole<int>`, no custom subclass — seeded with exactly `Admin`/`Inspector` (`IdentityRoleSeeder`, idempotent and safe under concurrent application startup). |
+| Leads | Id | AssignedInspectorId → AspNetUsers (nullable) | — | Status stored as string enum for readability in raw SQL during support/debugging. `AssignedInspectorId` FK added in the Identity slice (Phase 3, Slice 15, D44 resolved). |
 | ContactMessages | Id | LeadId → Leads | — | Raw form submissions kept even if the Lead is later edited |
-| Inspections | Id | LeadId → Leads, InspectorId → Users | — | One Lead usually has one Inspection (SRS notes this could be relaxed later). `InspectorId` has no FK constraint until the Identity slice. |
+| Inspections | Id | LeadId → Leads, InspectorId → AspNetUsers (required) | — | One Lead usually has one Inspection (SRS notes this could be relaxed later). `InspectorId` FK added in the Identity slice (D44 resolved). |
 | InspectionPhotos | Id | InspectionId → Inspections | — | FileUrl points into the storage abstraction (Architecture §9), not a raw disk path exposed to clients |
-| Angebote | Id | LeadId → Leads, InspectionId → Inspections (nullable), CreatedByInspectorId → Users, ReviewedByAdminId → Users (nullable) | AngebotNumber | NetTotal/GrossTotal are cached/denormalized for fast list-page rendering; recalculated from AngebotItems on every edit (BR-6, Architecture §6.1). **No `DecisionResult` column** — removed from the Domain entirely as a presentation-mapping concern, not a stored fact (`ARCHITECTURE_DECISIONS.md` D16); derivable from `Status` (`CustomerApproved`/`CustomerRejected`) wherever it's needed. `CreatedByInspectorId`/`ReviewedByAdminId` have no FK constraint until the Identity slice adds a `Users` table (Phase 3). |
-| AngebotReviewComments | Id | AngebotId → Angebote, AdminUserId → Users | — | Append-only log of the review loop (SRS FR-5.4). `AdminUserId` has no FK constraint until the Identity slice. |
+| Angebote | Id | LeadId → Leads, InspectionId → Inspections (nullable), CreatedByInspectorId → AspNetUsers (required), ReviewedByAdminId → AspNetUsers (nullable) | AngebotNumber | NetTotal/GrossTotal are cached/denormalized for fast list-page rendering; recalculated from AngebotItems on every edit (BR-6, Architecture §6.1). **No `DecisionResult` column** — removed from the Domain entirely as a presentation-mapping concern, not a stored fact (`ARCHITECTURE_DECISIONS.md` D16); derivable from `Status` (`CustomerApproved`/`CustomerRejected`) wherever it's needed. `CreatedByInspectorId`/`ReviewedByAdminId` FKs added in the Identity slice (Phase 3, Slice 15, D44 resolved). |
+| AngebotReviewComments | Id | AngebotId → Angebote, AdminUserId → AspNetUsers (required) | — | Append-only log of the review loop (SRS FR-5.4). `AdminUserId` FK added in the Identity slice (D44 resolved). |
 | AngebotSections | Id | AngebotId → Angebote | — | **No `Subtotal` column** — it's a pure computed property in the Domain (`AngebotSection.Subtotal`, a `=>` expression with no backing field), never persisted. Recomputed from live child data on every access instead. |
 | AngebotItems | Id | SectionId → AngebotSections, CatalogItemId → CatalogItems (nullable) | — | CatalogItemId is a **trace link only** — never joined live for display (BR-8), but still a real FK constraint for data integrity. **No `LineTotal` column** — same reasoning as `AngebotSection.Subtotal`, a pure computed property. |
 | CatalogItems | Id | CreatedFromAngebotItemId → AngebotItems (nullable) | — | Grows either via Admin curation or Inspector "save as catalog item" (SRS FR-4.10). Never hard-deleted — PermissionMatrix.md §6's "Delete/retire" action sets `IsRetired = true` instead, preserving the `CatalogItemId` traceability link on any AngebotItem created from it (BR-8, BR-12) |
@@ -234,10 +242,10 @@ erDiagram
 | Projects | Id | CustomerId → Customers, AngebotId → Angebote | AngebotId | AgreedTotal is a snapshot of Angebot.GrossTotal at conversion time (doesn't move if the Angebot were ever re-opened, which the workflow doesn't currently allow) |
 | Invoices | Id | ProjectId → Projects | InvoiceNumber | Never deleted — Void is a status, not a row removal (BR-9) |
 | InvoiceLines | Id | InvoiceId → Invoices | — | Optional finer breakdown; an Invoice can exist with just header-level Net/VAT/Gross amounts if lines aren't needed |
-| Payments | Id | InvoiceId → Invoices, RecordedByAdminId → Users | — | Manual v1; future gateway integration adds columns here, not a schema redesign (SRS FR-8.5) |
+| Payments | Id | InvoiceId → Invoices, RecordedByAdminId → AspNetUsers | — | Manual v1; future gateway integration adds columns here, not a schema redesign (SRS FR-8.5) — not yet built (no Domain entity exists) |
 | TokenLinks | Id | (polymorphic: EntityType + EntityId, no DB-level FK) | Token | Polymorphic reference is intentional — one table serves both Angebot and Invoice links (Architecture §7.2) |
 | NumberSequences | Id | — | (SequenceType, Year) | Incremented via a single atomic `UPDATE ... OUTPUT` statement, independently committed (not inside the same transaction as the entity it numbers — not achievable given `CreateAngebotCommandHandler`'s call order). Row-level lock scoped to that one statement avoids collisions under concurrent writes (Architecture §8, `ARCHITECTURE_DECISIONS.md` D52) |
-| AuditLogs | Id | PerformedByUserId → Users (nullable) | — | Nullable user = system-triggered action (e.g. scheduled Overdue transition) |
+| AuditLogs | Id | — (PerformedByUserId is a plain nullable int, deliberately not a real FK — Architecture.md §11: "no cross-entity linkage") | — | Nullable = system-triggered action (e.g. scheduled Overdue transition) |
 
 ---
 

@@ -1,5 +1,8 @@
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using RenoTrack.Domain.Entities;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence.Entities;
 
 namespace RenoTrack.Infrastructure.Persistence;
@@ -8,12 +11,14 @@ namespace RenoTrack.Infrastructure.Persistence;
 /// One DbSet per aggregate root only — AngebotSection/AngebotItem/InspectionPhoto have no
 /// DbSet of their own, reachable only through their aggregate root's navigation, matching
 /// CLAUDE.md §2's "aggregate roots are the only public entry point" rule extended to how the
-/// persistence layer is queried. Identity tables and NumberSequence are added in their own
-/// later slices, not speculatively here (CLAUDE.md §4's growth-on-demand discipline applied to
-/// the DbContext itself). AuditLogs/NumberSequences are the first DbSets with no Domain-entity
-/// counterpart (D49, D51).
+/// persistence layer is queried. AuditLogs/NumberSequences are the first DbSets with no
+/// Domain-entity counterpart (D49, D51); AspNetUsers/AspNetRoles/etc. (via IdentityDbContext,
+/// Slice 15) are the second such group — required to inherit from IdentityUser/IdentityRole, so
+/// they cannot live in Domain either (D53). No `NumberSequence`/`AuditLog`/Identity DbSet was
+/// added speculatively — each arrived only in the slice that actually needed it.
 /// </summary>
-public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> options) : DbContext(options)
+public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> options)
+    : IdentityDbContext<ApplicationUser, IdentityRole<int>, int>(options)
 {
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<Inspection> Inspections => Set<Inspection>();
@@ -25,6 +30,10 @@ public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> opti
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Must run first — establishes AspNetUsers/AspNetRoles/etc. before our own
+        // configurations (some of which now add FKs pointing at ApplicationUser).
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(RenoTrackDbContext).Assembly);
     }
 }

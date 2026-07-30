@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Repositories;
 
@@ -25,14 +26,25 @@ public sealed class InspectionRepositoryTests(RenoTrackDbContextFixture fixture)
         return lead.Id;
     }
 
+    /// <summary>Inspection.InspectorId is a real FK as of Slice 15 — needs an actually-persisted ApplicationUser row.</summary>
+    private async Task<int> SeedApplicationUserAsync()
+    {
+        var user = new ApplicationUser { Name = "Test Inspector" };
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Users.Add(user);
+        await writeContext.SaveChangesAsync();
+        return user.Id;
+    }
+
     [Fact]
     public async Task AddAsync_FollowedBySaveChangesAsync_PersistsTheInspection()
     {
         var leadId = await SeedLeadAsync();
+        var inspectorId = await SeedApplicationUserAsync();
         await using var context = fixture.CreateContext();
         var repository = new InspectionRepository(context);
         var unitOfWork = new UnitOfWork(context);
-        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc), inspectorId: 3);
+        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc), inspectorId);
 
         await repository.AddAsync(inspection, CancellationToken.None);
         await unitOfWork.SaveChangesAsync(CancellationToken.None);
@@ -40,26 +52,27 @@ public sealed class InspectionRepositoryTests(RenoTrackDbContextFixture fixture)
         await using var readContext = fixture.CreateContext();
         var reloaded = await readContext.Inspections.SingleOrDefaultAsync(i => i.Id == inspection.Id);
         Assert.NotNull(reloaded);
-        Assert.Equal(3, reloaded.InspectorId);
+        Assert.Equal(inspectorId, reloaded.InspectorId);
     }
 
     [Fact]
     public async Task AddAsync_WithoutSaveChangesAsync_PersistsNothing()
     {
         var leadId = await SeedLeadAsync();
+        var inspectorId = await SeedApplicationUserAsync();
         Inspection inspection;
 
         await using (var context = fixture.CreateContext())
         {
             var repository = new InspectionRepository(context);
-            inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 21, 9, 0, 0, DateTimeKind.Utc), inspectorId: 4);
+            inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 21, 9, 0, 0, DateTimeKind.Utc), inspectorId);
 
             await repository.AddAsync(inspection, CancellationToken.None);
             // Deliberately no call to IUnitOfWork.SaveChangesAsync here.
         }
 
         await using var readContext = fixture.CreateContext();
-        var reloaded = await readContext.Inspections.SingleOrDefaultAsync(i => i.LeadId == leadId && i.InspectorId == 4);
+        var reloaded = await readContext.Inspections.SingleOrDefaultAsync(i => i.LeadId == leadId && i.InspectorId == inspectorId);
         Assert.Null(reloaded);
     }
 
@@ -67,7 +80,8 @@ public sealed class InspectionRepositoryTests(RenoTrackDbContextFixture fixture)
     public async Task GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsThePersistedInspectionWithPhotos()
     {
         var leadId = await SeedLeadAsync();
-        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 22, 9, 0, 0, DateTimeKind.Utc), inspectorId: 5);
+        var inspectorId = await SeedApplicationUserAsync();
+        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 22, 9, 0, 0, DateTimeKind.Utc), inspectorId);
         inspection.AddPhoto("inspections/1/front-door.jpg", "Front door");
 
         await using (var writeContext = fixture.CreateContext())
@@ -104,7 +118,8 @@ public sealed class InspectionRepositoryTests(RenoTrackDbContextFixture fixture)
     public async Task AddingAPhotoToAnAggregateLoadedViaGetByIdAsync_IsPersistedBySaveChangesAsyncAlone()
     {
         var leadId = await SeedLeadAsync();
-        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 23, 9, 0, 0, DateTimeKind.Utc), inspectorId: 6);
+        var inspectorId = await SeedApplicationUserAsync();
+        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 23, 9, 0, 0, DateTimeKind.Utc), inspectorId);
 
         await using (var writeContext = fixture.CreateContext())
         {

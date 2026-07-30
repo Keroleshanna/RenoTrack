@@ -1,12 +1,23 @@
 using Microsoft.EntityFrameworkCore;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
+using RenoTrack.Infrastructure.Identity;
 
 namespace RenoTrack.Infrastructure.Tests.Persistence;
 
 [Collection("Infrastructure Database")]
 public sealed class LeadPersistenceTests(RenoTrackDbContextFixture fixture)
 {
+    /// <summary>Lead.AssignedInspectorId is a real FK as of Slice 15 — needs an actually-persisted ApplicationUser row.</summary>
+    private async Task<int> SeedApplicationUserAsync()
+    {
+        var user = new ApplicationUser { Name = "Test Inspector" };
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Users.Add(user);
+        await writeContext.SaveChangesAsync();
+        return user.Id;
+    }
+
     [Fact]
     public async Task AddingALead_PersistsAndReloadsAllFields()
     {
@@ -34,6 +45,7 @@ public sealed class LeadPersistenceTests(RenoTrackDbContextFixture fixture)
     [Fact]
     public async Task AssigningAnInspectorAndTransitioningStatus_PersistsBothChanges()
     {
+        var inspectorId = await SeedApplicationUserAsync();
         var lead = Lead.Create("Max Klein", "0176 9999999", "max@example.com", LeadSource.Phone);
 
         await using (var writeContext = fixture.CreateContext())
@@ -45,7 +57,7 @@ public sealed class LeadPersistenceTests(RenoTrackDbContextFixture fixture)
         await using (var updateContext = fixture.CreateContext())
         {
             var toUpdate = await updateContext.Leads.SingleAsync(l => l.Id == lead.Id);
-            toUpdate.AssignInspector(7);
+            toUpdate.AssignInspector(inspectorId);
             toUpdate.MarkInspectionScheduled();
             await updateContext.SaveChangesAsync();
         }
@@ -53,7 +65,25 @@ public sealed class LeadPersistenceTests(RenoTrackDbContextFixture fixture)
         await using var readContext = fixture.CreateContext();
         var reloaded = await readContext.Leads.SingleAsync(l => l.Id == lead.Id);
 
-        Assert.Equal(7, reloaded.AssignedInspectorId);
+        Assert.Equal(inspectorId, reloaded.AssignedInspectorId);
         Assert.Equal(LeadStatus.InspectionScheduled, reloaded.Status);
+    }
+
+    [Fact]
+    public async Task AssignedInspectorIdForeignKey_RejectsANonExistentUser()
+    {
+        var lead = Lead.Create("Max Klein", "0176 9999999", "max@example.com", LeadSource.Phone);
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.Leads.Add(lead);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var updateContext = fixture.CreateContext();
+        var toUpdate = await updateContext.Leads.SingleAsync(l => l.Id == lead.Id);
+        toUpdate.AssignInspector(999_999);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => updateContext.SaveChangesAsync());
     }
 }

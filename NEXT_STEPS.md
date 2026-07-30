@@ -8,7 +8,7 @@
 
 All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command list: `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand`) is done — 15 vertical slices, full record in `PHASE2_PROGRESS.md`. `CatalogItem`'s Application layer (`CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` — Slices 11–14) was a deliberate, justified insertion into this branch, needed by `AddAngebotItemCommand`. **Merged to `main` via PR #5 (merge commit `dc85de1`).** `feature/phase-2-application-layer` is no longer the active branch.
 
-## 1b. Phase 3 — In Progress (Slices 1–3 of 15 Done)
+## 1b. Phase 3 — Feature-Complete (All 15 Slices Done, Not Yet Merged)
 
 Design review + dependency map approved before any code was written (per the standing process). Working branch: `feature/phase-3-infrastructure-efcore`. Slice order (Identity deliberately moved to the end, after DI composition, per explicit user request — repository work stays independent of it):
 
@@ -26,19 +26,9 @@ Design review + dependency map approved before any code was written (per the sta
 12. **`IFileStorage` placeholder — ✅ done.** `PlaceholderFileStorage.SaveAsync` always throws `NotImplementedException` (not a silent no-op — a no-op would drop uploaded photos while appearing to succeed). No new architectural decision, per D42. See `PHASE3_PROGRESS.md` Slice 12.
 13. **`IEmailSender` placeholder — ✅ done.** `LoggingNoOpEmailSender` — deliberately does **not** throw (unlike `PlaceholderFileStorage`), since `IEmailSender`'s own interface doc comment sanctions a no-op/logging placeholder so Phase 2's handlers run end-to-end without SMTP; real implementation is Phase 9's, not Phase 4's (corrected from an initial assumption). Every call logs a `Warning`, verified via a capturing `ILogger` fake, so it's never silent. See `PHASE3_PROGRESS.md` Slice 13.
 14. **`AddInfrastructure()` DI extension + `Program.cs` wiring — ✅ done.** All 11 repository/query/service interfaces registered Scoped (matching `DbContext`, D48) — including the two dependency-free placeholders, kept Scoped rather than Singleton to avoid a future captive-dependency bug. `IOwnershipValidator` deliberately excluded (Application-layer implementation, CLAUDE.md §9). Connection string in `appsettings.Development.json` only. Proven via a real `ValidateOnBuild`/`ValidateScopes` container-build test. See `PHASE3_PROGRESS.md` Slice 14.
-15. **Identity storage + role seeding — next up.** The deliberately-last slice — repository work stayed independent of it throughout. Introduces the `Users` table; every deferred user-referencing FK (D44) can then get a real constraint via a follow-up migration. Also needs Admin/Inspector role seeding. Full design review expected.
-6. `IAngebotRepository`
-7. `IAngebotReviewCommentRepository`
-8. `ICatalogItemRepository`
-9. `ICatalogItemQueries`
-10. `IAuditService`
-11. `INumberGeneratorService` (+ the concurrency test flagged since Phase 2, D34)
-12. `IFileStorage` placeholder (real `LocalDiskFileStorage` is Phase 4's — D42)
-13. `IEmailSender` placeholder (real SMTP-backed implementation is Phase 9's — `CLAUDE.md` §11)
-14. `AddInfrastructure()` extension + `Program.cs` wiring
-15. Identity storage + role seeding
+15. **Identity storage + role seeding — ✅ done.** Full design review. **D53** — `ApplicationUser`/roles are Infrastructure-only, forced by D1 (Domain's zero-project-reference rule), not a judgment call like D49/D51. **D54** — `AddIdentityCore` (not `AddIdentity`, avoids unwanted cookie-auth defaults for a JWT API); role seeding made safe under a real, checked concurrent-startup race (mirrors D52's mitigation pattern, proven by a 10-concurrent-instance test). The five deferred user-referencing FKs (D44) are now real constraints. 19 existing tests needed fixing (arbitrary hardcoded inspector/admin ids that had no FK to violate before this slice) — found by actually running the suite, not assumed clean. See `PHASE3_PROGRESS.md` Slice 15.
 
-**Immediate next step:** Slice 15 (Identity storage + role seeding). Deliberately sequenced last so repository work (Slices 4–13) stayed fully independent of it. Introduces ASP.NET Core Identity's `Users` table; once it exists, every deferred user-referencing FK (`Lead.AssignedInspectorId`, `Inspection.InspectorId`, `Angebot.CreatedByInspectorId`/`ReviewedByAdminId`, `AngebotReviewComment.AdminUserId` — D44) can get a real FK constraint via a follow-up migration, plus Admin/Inspector role seeding. Substantial new territory (Identity schema, password hashing conventions, role seeding strategy) — expect a full design review, not an abbreviated one.
+**Phase 3 is feature-complete — all 15 slices done, reviewed, tested, documented, and committed.** Per explicit instruction, the immediate next step is **not** Phase 4 — it's a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report), produced as a separate deliverable before any PR is opened.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -84,7 +74,7 @@ Design review + dependency map approved before any code was written (per the sta
 - `RenoTrack.Infrastructure.Tests` uses real SQL Server LocalDB, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40).
 - Migrations are regenerated from the model when the model changes, never hand-edited — the migration is a product of the model, not a separately-maintained artifact.
 - `IUnitOfWork`'s Infrastructure implementation is an intentionally thin, one-line wrapper over `SaveChangesAsync` — no transaction API, no `IDisposable` (`ARCHITECTURE_DECISIONS.md` D48).
-- User-referencing FK constraints (`AssignedInspectorId`, `InspectorId`, `CreatedByInspectorId`, `ReviewedByAdminId`, `AdminUserId`) are deliberately deferred until the Identity slice (Slice 15) — not an oversight (`ARCHITECTURE_DECISIONS.md` D44).
+- User-referencing FK constraints (`AssignedInspectorId`, `InspectorId`, `CreatedByInspectorId`, `ReviewedByAdminId`, `AdminUserId`) were deliberately deferred until the Identity slice — not an oversight (`ARCHITECTURE_DECISIONS.md` D44) — and are now real constraints as of Slice 15.
 
 ## 5. What Still Requires Future Discussion (Not Yet Decided — Do Not Assume an Answer)
 
@@ -99,5 +89,5 @@ Design review + dependency map approved before any code was written (per the sta
 
 1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE3_PROGRESS.md`, and this file, in that order, in full (`PHASE2_PROGRESS.md` is historical background at this point, not required reading for resuming Phase 3 work).
 2. `git fetch origin`; confirm you're on `feature/phase-3-infrastructure-efcore` and that it's still based on current `origin/main`.
-3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (362 as of Slice 14: 153 Domain + 144 Application + 65 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
-4. Continue with the next slice in `PHASE3_PROGRESS.md`'s order (§1b above) — Slice 15, Identity storage + role seeding, unless a later slice's commit has already landed since this was written. Every slice: design review (full or abbreviated, per below) → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit, in that order, without exception. Slice 15 is substantial new territory (Identity schema, password hashing, role seeding, retroactive FK constraints) — expect a full design review.
+3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (371 as of Slice 15: 153 Domain + 144 Application + 74 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
+4. **Phase 3 is feature-complete (all 15 slices done).** Do not start a Slice 16 or begin Phase 4 — the next deliverable is a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report), produced separately, before any PR is opened.

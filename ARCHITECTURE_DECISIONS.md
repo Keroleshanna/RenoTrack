@@ -781,6 +781,40 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D53 — `ApplicationUser`/Identity Roles Are Infrastructure-Only — Forced by D1, Not a Judgment Call
+
+**Problem:** Phase 3 Slice 15 needs a real ASP.NET Core Identity user/role schema (Architecture.md §7.1). Every prior Infrastructure-only persistence model (`AuditLog` D49, `NumberSequence` D51) required weighing whether a Domain placement was *possible but not worthwhile* versus *genuinely excluded*.
+
+**Investigation:** `RenoTrack.Domain.csproj` has zero `<ProjectReference>` entries (D1) — a structural, compiler-enforced rule, not a convention. `ApplicationUser` must inherit `IdentityUser<TKey>` (from `Microsoft.AspNetCore.Identity`, an ASP.NET Core-specific framework package) to work with `UserManager`/`SignInManager`/`RoleManager` and the built-in `[Authorize(Roles = "...")]` machinery Architecture.md §7.1 commits to. `Domain` cannot reference that package at all without violating D1.
+
+**Final decision:** `ApplicationUser : IdentityUser<int>` and Identity's own tables live entirely in `RenoTrack.Infrastructure` (`Identity/ApplicationUser.cs`), using the framework's built-in `IdentityRole<int>` directly (no custom subclass — nothing today requires an extra property on Role).
+
+**Why chosen — the key distinction from D49/D51:** those two were genuine judgment calls (the types *could* have been modeled as pure C# with no framework dependency, but weren't, because they represent technical instrumentation, not business behavior). `ApplicationUser` has no such choice — it structurally cannot compile in `Domain` given D1, independent of any judgment about whether it "deserves" rich-domain-model treatment. This is a precedent for future framework-mandated types: check whether Domain's own zero-dependency rule makes Domain placement literally impossible before applying D49/D51-style reasoning about whether it's merely undesirable.
+
+**Consequences:** `ERD.md`'s simplified single-table `USER` sketch (a plain `Role` string column) is corrected in this same commit to describe the real schema — `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, plus the framework's own `AspNetUserClaims`/`AspNetUserLogins`/`AspNetUserTokens`/`AspNetRoleClaims` — matching the same "trust the more specific, more authoritative document, correct the simplified one" precedent D41 already established. Table names stay the framework defaults (not renamed to `Users`/`Roles`) — every ASP.NET Core Identity guide/tool assumes these exact names, and renaming would be friction for zero benefit.
+
+---
+
+## D54 — `AddIdentityCore`, Not `AddIdentity`; Role Seeding Is Best-Effort-Safe Under Concurrent Startup
+
+**Problem 1:** `RenoTrack.Api` will authenticate via JWT bearer tokens (Architecture.md §7.1), not cookies. ASP.NET Core offers two entry points: `AddIdentity<TUser, TRole>()` (the full package, which also wires cookie-authentication-scheme defaults meant for server-rendered web apps) and `AddIdentityCore<TUser>()` (the minimal building block, with no assumption about the authentication scheme).
+
+**Final decision (Problem 1):** `AddIdentityCore<ApplicationUser>().AddRoles<IdentityRole<int>>().AddEntityFrameworkStores<RenoTrackDbContext>()` — no `AddDefaultTokenProviders()` either, since nothing yet needs password-reset/email-confirmation tokens (`CLAUDE.md` §4's growth-on-demand discipline applied to Identity's own optional pieces, not just this project's own abstractions). Every one of these is a pure `IServiceCollection` extension, so it integrates directly inside the existing `AddInfrastructure()` (Slice 14) with no new composition root.
+
+**Why chosen:** `AddIdentity` registering cookie-scheme defaults for an API that will never use cookies would be dead configuration at best, and a confusing footgun at worst (a future reader wondering why cookie auth exists when Architecture.md says JWT).
+
+**Problem 2 (raised in review — a real correctness question, not assumed away):** The naive role-seeding shape (`if (!await roleManager.RoleExistsAsync(name)) await roleManager.CreateAsync(...)`) is a classic check-then-act race. Two application instances starting simultaneously could both observe a role missing and both call `CreateAsync`. `AspNetRoles`' unique index on `NormalizedName` (`RoleNameIndex`, a framework default from `IdentityDbContext`'s own base model — not something this project configures) means the loser's `INSERT` fails. Critically, `RoleStore`/`RoleManager` do **not** catch a `SaveChanges` failure into a graceful `IdentityResult.Failed(...)` the way in-memory validation errors are — the `DbUpdateException` propagates unhandled, which would crash startup for the losing instance if left unmitigated.
+
+**Alternatives considered:** (a) Leave the race unmitigated and document it as acceptable, on the reasoning that v1's deployment model (Architecture.md §13: a single Azure App Service/VPS) makes concurrent-instance startup unlikely — rejected: the mitigation is cheap and the assumption is fragile (deployment topology can change, and even a single instance can restart into an overlapping window during a deploy). (b) Catch the failure and re-verify existence before deciding whether it's a genuine problem — the same shape as D52's first-of-year `INSERT` race, applied to a second, independent scenario.
+
+**Final decision (Problem 2):** (b). `IdentityRoleSeeder.SeedRolesAsync` catches `DbUpdateException` from a failed `CreateAsync` and re-checks `RoleExistsAsync`; if the role now exists, a concurrent instance won the race — benign, not rethrown. Any other cause (the role genuinely still missing) rethrows unchanged. `await` isn't permitted directly in a `catch` filter (`CS7094`), so the re-check happens in the catch body, not the filter expression.
+
+**Why chosen:** Directly mirrors D52's already-established pattern for exactly this class of problem — a check-then-act race resolved by a framework-provided uniqueness guarantee, caught and re-verified rather than either ignored or defended against with a heavier mechanism (a distributed lock would be real over-engineering for two role rows). Proven, not assumed: a concurrency test runs 10 simultaneous seeding calls (each its own scope, mirroring real per-request/per-host lifetime) against the same database and asserts none throw and exactly the two expected roles exist afterward.
+
+**Consequences:** This mitigation does not change `IdentityRoleSeeder`'s public shape or `AddInfrastructure()`'s registration — it's entirely internal to the seeder's own implementation, same as D50's audit-failure handling being invisible to callers.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -808,3 +842,5 @@ Numbering is chronological across the whole project, not per-phase.
 | Letting `AuditService.LogAsync` exceptions propagate to the caller | D50 | Would report an already-committed business operation as failed; audit is best-effort instrumentation, not a correctness invariant |
 | Read-then-write sequence increment via plain EF Core (`SELECT`, increment in memory, `SaveChangesAsync`) | D52 | Two round trips with an in-memory gap between them is a real concurrent-duplicate race; EF Core has no single-statement atomic increment-and-return |
 | EF Core concurrency token + retry loop for the sequence increment | D52 | Still two-plus round trips per attempt, with no sane place for the retry loop given `INumberGeneratorService`'s existing signature; a single atomic statement needs no retry at all in the common case |
+| `AddIdentity<TUser,TRole>()` for API/JWT authentication | D54 | Wires cookie-authentication-scheme defaults the API never uses — dead config at best, a confusing footgun at worst |
+| Leaving the role-seeding concurrent-startup race unmitigated, citing v1's single-instance deployment | D54 | Cheap to fix properly; the "single instance" assumption is fragile against deploy topology changes and restart-overlap windows |

@@ -1,14 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RenoTrack.Domain.Entities;
+using RenoTrack.Infrastructure.Identity;
 
 namespace RenoTrack.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-/// InspectorId has no FK constraint yet — same reason as Lead.AssignedInspectorId (Users table
-/// doesn't exist until the Identity slice). LeadId DOES get a real FK to Leads — that table
-/// exists today, so this is not a deferral candidate (a gap caught during Slice 2's schema
-/// review, not a deliberate choice — see ARCHITECTURE_DECISIONS.md).
+/// InspectorId gets a real FK to AspNetUsers as of Slice 15 (D44 resolved). Required (int),
+/// matching the already-correct Domain property — every Inspection always has an Inspector from
+/// creation (Inspection.Schedule).
 /// </summary>
 public sealed class InspectionConfiguration : IEntityTypeConfiguration<Inspection>
 {
@@ -26,6 +26,11 @@ public sealed class InspectionConfiguration : IEntityTypeConfiguration<Inspectio
         builder.HasOne<Lead>()
             .WithMany()
             .HasForeignKey(i => i.LeadId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(i => i.InspectorId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Inspection.Photos is IReadOnlyList<InspectionPhoto> over a private List<T> backing

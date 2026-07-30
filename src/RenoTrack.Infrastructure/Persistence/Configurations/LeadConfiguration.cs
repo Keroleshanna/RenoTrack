@@ -1,13 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RenoTrack.Domain.Entities;
+using RenoTrack.Infrastructure.Identity;
 
 namespace RenoTrack.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-/// AssignedInspectorId has no FK constraint yet — the Users table doesn't exist until the
-/// Identity slice (Phase 3, Slice 15). Adding the constraint then is a follow-up migration,
-/// not a change to this configuration's shape.
+/// AssignedInspectorId gets a real FK to AspNetUsers as of Slice 15 (D44's deferral resolved —
+/// the Users table now exists). Nullable (int?), matching the already-correct Domain property —
+/// a Lead may have no assigned Inspector yet, before BR-13's ScheduleInspection auto-assignment.
 /// </summary>
 public sealed class LeadConfiguration : IEntityTypeConfiguration<Lead>
 {
@@ -27,6 +28,11 @@ public sealed class LeadConfiguration : IEntityTypeConfiguration<Lead>
         builder.Property(l => l.Status).HasConversion<string>().HasMaxLength(30);
 
         builder.Property(l => l.CreatedAt).IsRequired();
+
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(l => l.AssignedInspectorId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // ERD.md §3: pipeline filtering (SRS FR-2.4).
         builder.HasIndex(l => new { l.Status, l.AssignedInspectorId });

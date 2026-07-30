@@ -307,3 +307,47 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 4 (`DependencyInjectionTests`) — `AddInfrastructure_MissingConnectionString_ThrowsAtRegistrationTime`, `BuildingTheContainer_WithValidateOnBuildAndValidateScopes_Succeeds`, `EveryRegisteredInfrastructureService_ResolvesToItsExpectedConcreteType` (all 11 registrations), `RepositoriesResolvedInTheSameScope_ShareTheSameDbContextInstance`.
 
 **Final outcome:** 65 Infrastructure tests, alongside 153 Domain + 144 Application → **362 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 15 — Identity Storage + Role Seeding
+
+**Goal:** The deliberately-last Phase 3 slice — ASP.NET Core Identity storage, role seeding, and the five deferred user-referencing FKs (D44) finally resolved. Full design review, focused on correctness and security per the user's explicit framing.
+
+**Two new architectural decisions recorded (`ARCHITECTURE_DECISIONS.md` D53–D54):**
+- **D53 — `ApplicationUser`/Identity roles are Infrastructure-only, forced by D1, not a judgment call.** `RenoTrack.Domain` has zero project references; `ApplicationUser` must inherit `IdentityUser<int>` (a framework base class), so it structurally cannot live in Domain — unlike `AuditLog`/`NumberSequence` (D49/D51), where Domain placement was a genuine choice. `IdentityRole<int>` used directly, no custom subclass.
+- **D54 — `AddIdentityCore` (not `AddIdentity`); role seeding made safe under concurrent startup.** `AddIdentityCore<ApplicationUser>().AddRoles<IdentityRole<int>>().AddEntityFrameworkStores<RenoTrackDbContext>()` avoids `AddIdentity`'s unwanted cookie-authentication-scheme defaults for a JWT-bearer-only API. **A real concurrency question raised during review, not assumed safe:** the naive check-then-create role-seeding pattern is a genuine check-then-act race under concurrent application startup — `AspNetRoles`' unique `NormalizedName` index (a framework default) makes the losing instance's `INSERT` fail with an unhandled `DbUpdateException`, since `RoleStore` doesn't convert `SaveChanges` failures into graceful `IdentityResult.Failed`. Mitigated the same way D52 handled its own first-of-year race: catch the failure, re-verify existence, treat "already exists now" as benign. Proven with a 10-concurrent-instance test, not just documented as acceptable.
+
+**Identity schema:** `ApplicationUser : IdentityUser<int>` adds only `Name`, `IsActive` (deactivation, resolving SRS OQ-1 per PermissionMatrix.md), `CreatedAt`. `RenoTrackDbContext` now inherits `IdentityDbContext<ApplicationUser, IdentityRole<int>, int>` (`base.OnModelCreating` called first). Table names stay the framework defaults (`AspNetUsers`, `AspNetRoles`, etc.) — no reason to rename away from what every Identity tool/guide expects. `ERD.md`'s simplified single-table `USER` sketch corrected to describe the real multi-table schema (same precedent as D41).
+
+**Password hashing:** entirely delegated to Identity's own default `IPasswordHasher<TUser>` — no custom hashing code anywhere. Verified with a test confirming a created user's `PasswordHash` is populated and isn't the plaintext.
+
+**Role seeding:** `IdentityRoleSeeder.SeedRolesAsync` seeds exactly `Admin`/`Inspector` — no user accounts (account creation is PermissionMatrix's own Admin-driven action, not storage setup). Deterministic and idempotent by construction; race-tolerant per D54.
+
+**Deferred FKs (D44) resolved — 5 columns across 4 tables, verified against source, not assumed:**
+
+| Column | Nullability | Delete behavior |
+|---|---|---|
+| `Lead.AssignedInspectorId` | nullable | Restrict |
+| `Inspection.InspectorId` | required | Restrict |
+| `Angebot.CreatedByInspectorId` | required | Restrict |
+| `Angebot.ReviewedByAdminId` | nullable | Restrict |
+| `AngebotReviewComment.AdminUserId` | required | Restrict |
+
+**A real, expected consequence of adding these FKs retroactively:** 19 existing tests across 7 test files failed immediately after the migration, because they used arbitrary hardcoded inspector/admin ids (`5`, `7`, `2`, etc.) with no backing `AspNetUsers` row — harmless before this slice (no FK existed to violate), a real FK violation afterward. Fixed by adding a `SeedApplicationUserAsync` helper (mirroring the already-established `SeedLeadAsync` pattern) to each affected test class and replacing every hardcoded id with a real seeded one. This was anticipated as a real risk of this slice, not a surprise — verified by actually running the full suite after adding the FKs, not assumed clean.
+
+**Authentication readiness:** storage only, confirmed — no `AddAuthentication()`/`AddJwtBearer()`, no `SignInManager`-based login endpoint, no `[Authorize]` attribute, no change to `UseAuthentication()`/`UseAuthorization()` beyond the pre-existing template boilerplate. All deferred to Phase 4.
+
+**DI registration:** Identity registration added inside the existing `AddInfrastructure()` (Slice 14) — no new composition root needed, confirming D54's `AddIdentityCore` choice integrates cleanly.
+
+**Migration review:** three-way comparison performed (no Domain entity per D53; `ApplicationUser`/FK configurations ↔ `ERD.md`, corrected). Generated migration (`AddIdentity`) manually reviewed: 7 `AspNetX` tables (`Users`, `Roles`, `UserRoles`, `UserClaims`, `UserLogins`, `UserTokens`, `RoleClaims`) with expected columns (including `ApplicationUser`'s 3 extra columns, correctly required/nullable), 5 new `AddForeignKey` operations (all `Restrict`, nullability matching the table above exactly — no `ALTER COLUMN` needed since the underlying column nullability was already correct from Slice 1), framework-internal Identity FKs correctly cascade (dormant in practice — Users are never hard-deleted), no unexpected tables, no missing Domain concept.
+
+**New abstractions introduced:** `ApplicationUser` (`src/RenoTrack.Infrastructure/Identity/ApplicationUser.cs`), `ApplicationUserConfiguration`, `IdentityRoleSeeder` (`src/RenoTrack.Infrastructure/Identity/IdentityRoleSeeder.cs`), `AddIdentity` migration. `RenoTrackDbContext` now inherits `IdentityDbContext<...>`. `Program.cs` seeds roles at startup (scope-based, storage-only).
+
+**Documentation updates:** `ARCHITECTURE_DECISIONS.md` (D53, D54, plus two new rejected-alternatives entries); `ERD.md` (`USER`/`ROLE` corrected, 5 FK rows updated, `AspNetUsers`/`AspNetRoles` terminology throughout); this entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 12 — `IdentityRoleSeederTests` (3: exact-two-roles, idempotent-run-twice, **10-concurrent-instance race proof**), `ApplicationUserTests` (1: password-hasher sanity check), plus 2 new FK-rejection tests (`Lead.AssignedInspectorId`, `Angebot.ReviewedByAdminId`) and 3 more (`Inspection.InspectorId`, `Angebot.CreatedByInspectorId`, `AngebotReviewComment.AdminUserId`) completing FK-rejection coverage for all 5 columns, plus fixes (not new tests, but real changes) to 19 previously-passing tests across 7 files to seed real users instead of arbitrary ids.
+
+**Final outcome:** 74 Infrastructure tests, alongside 153 Domain + 144 Application → **371 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+**Phase 3 is now feature-complete — all 15 slices done.** Per the user's explicit instruction, Phase 4 does not begin next; a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report) follows separately.

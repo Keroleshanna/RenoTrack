@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
 using RenoTrack.Domain.ValueObjects;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Repositories;
 
@@ -24,14 +25,25 @@ public sealed class AngebotRepositoryTests(RenoTrackDbContextFixture fixture)
         return lead.Id;
     }
 
+    /// <summary>Angebot.CreatedByInspectorId is a real FK as of Slice 15 — needs an actually-persisted ApplicationUser row.</summary>
+    private async Task<int> SeedApplicationUserAsync()
+    {
+        var user = new ApplicationUser { Name = "Test Inspector" };
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Users.Add(user);
+        await writeContext.SaveChangesAsync();
+        return user.Id;
+    }
+
     [Fact]
     public async Task AddAsync_FollowedBySaveChangesAsync_PersistsTheAngebot()
     {
         var leadId = await SeedLeadAsync();
+        var inspectorId = await SeedApplicationUserAsync();
         await using var context = fixture.CreateContext();
         var repository = new AngebotRepository(context);
         var unitOfWork = new UnitOfWork(context);
-        var angebot = Angebot.Create(leadId, inspectionId: null, angebotNumber: "ANG-2026-10001", createdByInspectorId: 5);
+        var angebot = Angebot.Create(leadId, inspectionId: null, angebotNumber: "ANG-2026-10001", createdByInspectorId: inspectorId);
 
         await repository.AddAsync(angebot, CancellationToken.None);
         await unitOfWork.SaveChangesAsync(CancellationToken.None);
@@ -46,11 +58,12 @@ public sealed class AngebotRepositoryTests(RenoTrackDbContextFixture fixture)
     public async Task AddAsync_WithoutSaveChangesAsync_PersistsNothing()
     {
         var leadId = await SeedLeadAsync();
+        var inspectorId = await SeedApplicationUserAsync();
 
         await using (var context = fixture.CreateContext())
         {
             var repository = new AngebotRepository(context);
-            var angebot = Angebot.Create(leadId, null, "ANG-2026-10002", 5);
+            var angebot = Angebot.Create(leadId, null, "ANG-2026-10002", inspectorId);
 
             await repository.AddAsync(angebot, CancellationToken.None);
             // Deliberately no call to IUnitOfWork.SaveChangesAsync here.
@@ -65,7 +78,8 @@ public sealed class AngebotRepositoryTests(RenoTrackDbContextFixture fixture)
     public async Task GetByIdAsync_AfterAddingViaADifferentContextInstance_ReturnsTheFullSectionsAndItemsTree()
     {
         var leadId = await SeedLeadAsync();
-        var angebot = Angebot.Create(leadId, null, "ANG-2026-10003", 5);
+        var inspectorId = await SeedApplicationUserAsync();
+        var angebot = Angebot.Create(leadId, null, "ANG-2026-10003", inspectorId);
         var section = angebot.AddSection("Pos. 1", sortOrder: 1);
         angebot.AddItemToSection(section, "Bodenbelag", 10m, ItemUnit.SquareMeter(), Money.FromExact(20.00m), VatRate.Standard);
 
@@ -103,7 +117,8 @@ public sealed class AngebotRepositoryTests(RenoTrackDbContextFixture fixture)
     public async Task AddingASectionAndItemToAnAggregateLoadedViaGetByIdAsync_IsPersistedBySaveChangesAsyncAlone()
     {
         var leadId = await SeedLeadAsync();
-        var angebot = Angebot.Create(leadId, null, "ANG-2026-10004", 5);
+        var inspectorId = await SeedApplicationUserAsync();
+        var angebot = Angebot.Create(leadId, null, "ANG-2026-10004", inspectorId);
 
         await using (var writeContext = fixture.CreateContext())
         {
@@ -144,7 +159,8 @@ public sealed class AngebotRepositoryTests(RenoTrackDbContextFixture fixture)
     public async Task HasActiveAngebotForLeadAsync_MatchesStateMachine24sNonTerminalDefinition(AngebotStatus status, bool expectedActive)
     {
         var leadId = await SeedLeadAsync();
-        var angebot = Angebot.Create(leadId, null, $"ANG-2026-{(int)status:D5}", 5);
+        var inspectorId = await SeedApplicationUserAsync();
+        var angebot = Angebot.Create(leadId, null, $"ANG-2026-{(int)status:D5}", inspectorId);
 
         await using (var writeContext = fixture.CreateContext())
         {

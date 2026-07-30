@@ -1,17 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RenoTrack.Domain.Entities;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence.ValueConverters;
 
 namespace RenoTrack.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-/// CreatedByInspectorId/ReviewedByAdminId have no FK constraint yet — Users table doesn't exist
-/// until the Identity slice. LeadId and InspectionId DO get real FKs — both Leads and
-/// Inspections exist today, so neither is a deferral candidate (a gap caught during Slice 2's
-/// schema review, not a deliberate choice — see ARCHITECTURE_DECISIONS.md). VatBreakdown is
-/// ignored: no ERD column exists for it at all (Architecture.md §6.1 — always computed,
-/// variable-shaped, nothing to denormalize).
+/// CreatedByInspectorId/ReviewedByAdminId get real FKs to AspNetUsers as of Slice 15 (D44
+/// resolved) — CreatedByInspectorId required (int), ReviewedByAdminId nullable (int?, only set
+/// once Approve/RequestChanges is called), both matching the already-correct Domain properties.
+/// LeadId and InspectionId already had real FKs since Slice 2. VatBreakdown is ignored: no ERD
+/// column exists for it at all (Architecture.md §6.1 — always computed, variable-shaped, nothing
+/// to denormalize).
 /// </summary>
 public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
 {
@@ -33,6 +34,16 @@ public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
         builder.HasOne<Inspection>()
             .WithMany()
             .HasForeignKey(a => a.InspectionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(a => a.CreatedByInspectorId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(a => a.ReviewedByAdminId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(a => a.Status).HasConversion<string>().HasMaxLength(30);
