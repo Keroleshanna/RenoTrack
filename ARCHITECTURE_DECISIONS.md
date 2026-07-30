@@ -521,6 +521,34 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D36 — `IQueryHandler<TQuery, TResult>`: A Deliberate Second Dispatch Abstraction, Not Reuse of `ICommandHandler`
+
+**Problem:** Design review for the CatalogItem Application layer reached `SearchCatalogItemsQuery` — the first query in the entire codebase. It needs a handler shape, and `ICommandHandler<TCommand, TResult>` already has the identical method signature (`Task<TResult> HandleAsync(TCommand command, CancellationToken cancellationToken)`).
+
+**Alternatives considered:** (a) Reuse `ICommandHandler<TQuery, TResult>` for queries too, since introducing a second interface with an identical signature could be read as speculative duplication. (b) Introduce a distinct `IQueryHandler<TQuery, TResult>`, even though its shape is currently identical to `ICommandHandler`.
+
+**Final decision:** (b), by explicit user instruction, overriding the initial recommendation of (a).
+
+**Why chosen:** `CLAUDE.md` §3's CQRS-lite split is a real, not just nominal, distinction — commands mutate aggregates via repositories; queries return DTOs directly, bypassing full aggregate hydration entirely. The user's reasoning: commands and queries are different architectural concepts even when today's method signature happens to coincide, and the dispatch abstraction should name that difference explicitly rather than let one interface quietly represent two mutually exclusive things. An identical signature today is not evidence the two concepts are the same — it just means neither side has yet needed a concern (e.g. a caching hint on queries, an idempotency key on commands) that the other doesn't.
+
+**Consequences:** `RenoTrack.Application.Common` gains a second interface, `IQueryHandler<TQuery, TResult>`, structurally identical to `ICommandHandler<TCommand, TResult>` but named and reasoned about separately. Its first consumer will be `SearchCatalogItemsQuery`, not yet implemented as of this writing.
+
+---
+
+## D37 — `SearchCatalogItemsQuery` Will Start With No `includeRetired` Parameter
+
+**Problem:** BR-12 requires retired `CatalogItem`s to be excluded from the Catalog picker (Wireframes.md D2). During design review, the question was raised whether the query's first version should also accept an `includeRetired` flag, anticipating a possible future Admin "manage all items, including retired" screen.
+
+**Alternatives considered:** (a) Add the flag now, defaulting to excluding retired items, on the reasoning that a management screen showing retired items is a foreseeable future need. (b) Return only non-retired items unconditionally, with no parameter at all, and add one later only once a real, documented caller needs it.
+
+**Final decision:** (b), by explicit user instruction.
+
+**Why chosen:** No documented use case anywhere (`Wireframes.md`, `SRS.md`, `PermissionMatrix.md`) currently shows retired items being surfaced anywhere. Adding the parameter now would be exactly the kind of "we'll need this eventually" speculative growth `CLAUDE.md` §4 and `NEXT_STEPS.md` §4 explicitly reject for repositories, DTOs, and (by the same reasoning) query interfaces.
+
+**Consequences:** `SearchCatalogItemsQuery` (not yet implemented as of this writing) will take no filter parameter when it is built, and its query implementation will always exclude `IsRetired` items. Revisit only when a real, documented use case needs to see retired items.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -539,3 +567,5 @@ Numbering is chronological across the whole project, not per-phase.
 | Two separate `CatalogItem` factories (`CreateByAdmin`/`CreateFromAngebotItem`) | D20 | Same Domain shape either way; the difference is an authorization concern, not a Domain one |
 | MediatR | D22 | Adds indirection that hides orchestration steps this educational project needs to keep visible |
 | AutoMapper | `CLAUDE.md` §8 | Hidden mapping logic not worth the boilerplate savings at this project's scale |
+| Reusing `ICommandHandler<TQuery, TResult>` for `SearchCatalogItemsQuery` | D36 | Commands and queries are different concepts even with an identical signature today; user preferred a distinct `IQueryHandler` |
+| `SearchCatalogItemsQuery` with an `includeRetired` flag from the start | D37 | No documented use case surfaces retired items anywhere yet; add only when one does |

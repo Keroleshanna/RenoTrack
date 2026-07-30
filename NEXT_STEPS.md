@@ -12,8 +12,8 @@ The Domain entity `CatalogItem` already exists and is fully built and tested (Ph
 
 Follow this order — it goes simplest-and-most-precedented first, saving the one genuinely novel piece (the query) for when the established conventions are freshly reinforced:
 
-1. **`CreateCatalogItemCommand`** — closest precedent: `CreateLeadCommand`/`CreateAngebotCommand`. Straightforward create-and-persist, no cross-aggregate concerns (CatalogItem is independent, per Architecture §6).
-2. **`UpdateCatalogItemCommand`** — closest precedent: any command loading then mutating an existing aggregate (`ScheduleInspectionCommand`, `AddAngebotSectionCommand`). New territory: this is the **first** `Update`-shaped command in the whole Application layer (every prior command has been Create/transition-only) — expect to design a `CatalogItemDto`-returning handler that calls `catalogItem.Update(...)` with all editable fields.
+1. **`CreateCatalogItemCommand` — ✅ done (Slice 11).** Closest precedent: `CreateLeadCommand`/`CreateAngebotCommand`. Straightforward create-and-persist, no cross-aggregate concerns (CatalogItem is independent, per Architecture §6). `ICatalogItemRepository` introduced with `AddAsync` only; `CatalogItemDto` introduced; `AuditAction.CatalogItemCreated` added. See `PHASE2_PROGRESS.md` Slice 11 for the full record.
+2. **`UpdateCatalogItemCommand` — next up.** — closest precedent: any command loading then mutating an existing aggregate (`ScheduleInspectionCommand`, `AddAngebotSectionCommand`). New territory: this is the **first** `Update`-shaped command in the whole Application layer (every prior command has been Create/transition-only) — expect to design a `CatalogItemDto`-returning handler that calls `catalogItem.Update(...)` with all editable fields.
 3. **`RetireCatalogItemCommand`** — simplest of the three; `CatalogItem.Retire()` takes no parameters and is idempotent (Phase 1b decision — retiring an already-retired item is a no-op, not an error). Expect a trivial handler.
 4. **`SearchCatalogItemsQuery`** — do this last. **This is the first query in the entire codebase.** Every command so far has followed the same "load aggregate → mutate → return DTO of that same aggregate" shape; a query has no aggregate to mutate and, per `CLAUDE.md` §3, is expected to return DTOs directly without full aggregate hydration. Expect a genuine design discussion here with no established precedent to fall back on mechanically — see §2 below.
 
@@ -29,7 +29,7 @@ Do **not** assume every CatalogItem command needs `IOwnershipValidator`. Per `CL
 | Delete/retire a Catalog item | Admin **F**, Inspector — | Role-based only (Admin) — **no** `IOwnershipValidator` call |
 | View Catalog | Admin **F**, Inspector **F** | Both roles, full access — no restriction to enforce at all beyond authentication |
 
-**Expected conclusion, to verify during design review rather than assume outright:** none of the CatalogItem commands are likely to need `IOwnershipValidator` at all — every single row above is `F`, not `S`. If this holds, it will be the **first entire feature** in the project with zero ownership checks anywhere in it. State this explicitly in the design-review analysis rather than silently proceeding — the user has consistently wanted this kind of observation surfaced, not just acted on quietly.
+**Confirmed during design review (Slice 11):** none of the CatalogItem commands need `IOwnershipValidator` — every row above is `F`, not `S`. This is confirmed as the **first entire feature** in the project with zero ownership checks anywhere in it. `CreateCatalogItemCommandHandler` has no ownership-check code, matching `ApproveAngebotCommandHandler`/`RequestAngebotChangesCommandHandler`'s precedent. Carry this same conclusion forward unchanged into `UpdateCatalogItemCommand`/`RetireCatalogItemCommand`.
 
 ### 1.3 Expected Architectural Concerns to Raise During Design Review
 
@@ -91,13 +91,16 @@ Per `PROJECT_ROADMAP.md`, once `AddAngebotItemCommand` (and "save as Catalog ite
 - Role-based authorization (API layer) vs. resource ownership (`IOwnershipValidator`, Application layer) — decided mechanically by PermissionMatrix's `F`/`S` marking.
 - The Application layer generates stable external identifiers before invoking external infrastructure, when doing so lets a Domain guard reject before an irreversible side effect.
 - Never truly delete a historical record (retire/void instead) — applies project-wide by default for any future "delete" requirement, not just the specific entities where it's already been formalized (Lead, Invoice, Inspection, CatalogItem).
+- No CatalogItem command uses `IOwnershipValidator` — every action is Admin/Inspector-`F` per `PermissionMatrix.md` §6, confirmed during Slice 11's design review.
+- `IQueryHandler<TQuery, TResult>` is a distinct interface from `ICommandHandler<TCommand, TResult>`, even though their method signatures currently coincide — queries get their own dispatch abstraction, not a reuse of the command one (`ARCHITECTURE_DECISIONS.md` D36).
+- `SearchCatalogItemsQuery` starts with no `includeRetired` parameter — always excludes retired items, no flag until a real documented use case needs one (`ARCHITECTURE_DECISIONS.md` D37).
 
 ## 6. What Still Requires Future Discussion (Not Yet Decided — Do Not Assume an Answer)
 
 - Whether `AngebotItem` should ever gain update/remove methods (currently an open question, not a rule — `ARCHITECTURE_DECISIONS.md` D12). Revisit only with real evidence (a documented endpoint, an explicit business decision).
 - The exact HTTP status-code mapping for Domain's own `ArgumentException`/`InvalidOperationException` (likely 400/409 respectively) — deferred to Phase 4's API middleware design.
 - Whether `SaveAngebotItemAsCatalogItemCommand` belongs in the CatalogItem feature or the `AddAngebotItemCommand` feature (§1.3/§2 above) — to be decided during design review, not pre-decided by this document.
-- The read/write split's concrete shape for queries (`ICatalogItemQueries` or similar) — `CLAUDE.md` §3 states the intended principle, but `SearchCatalogItemsQuery` will be the first real implementation of it; expect genuine design work here, not a mechanical application of an existing pattern.
+- The exact shape of `ICatalogItemQueries` (method name, return type) for `SearchCatalogItemsQuery` — the read/write split's principle itself is now decided (a dedicated query interface returning DTOs directly, no repository/aggregate hydration involved), but the interface hasn't been written yet.
 - OQ-1 through OQ-4 from `SRS.md` §10 remain open at the SRS level (Admin managing Inspector accounts; website language; email provider choice — needed before Phase 9; "revise and resend" after rejection) — none of these block current work, but do not assume an answer to any of them without checking `SRS.md` first.
 
 ---

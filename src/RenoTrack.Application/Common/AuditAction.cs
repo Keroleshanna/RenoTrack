@@ -19,4 +19,5 @@ public enum AuditAction
     AngebotSubmittedForReview,
     AngebotApproved,
     AngebotChangesRequested,
+    CatalogItemCreated,
 }

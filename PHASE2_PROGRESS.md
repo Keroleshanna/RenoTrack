@@ -226,6 +226,28 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 ---
 
+## Slice 11 — `CreateCatalogItemCommand`
+
+**Goal:** First slice of the CatalogItem Application layer (see `NEXT_STEPS.md` §1 for the full recommended order — Create → Update → Retire → Search). Closest precedent: `CreateLeadCommand` — a straightforward create-and-persist, no cross-aggregate concerns, since `CatalogItem` is an independent aggregate.
+
+**Design decisions & architectural discussion (design-reviewed and approved before implementation, covering the whole feature, not just this slice):**
+- Confirmed via `PermissionMatrix.md` §6: every CatalogItem action (Create, Update, Retire, Search) is Admin/Inspector-**F** (full access), never `S` (scoped) — the first entire feature in the project with **zero** `IOwnershipValidator` calls anywhere in it, same treatment as `ApproveAngebotCommand`/`RequestAngebotChangesCommand`.
+- Audit: all three mutating commands (Create/Update/Retire) will log against `CatalogItem` itself — no cross-aggregate audit-target ambiguity like Lead/Angebot had, since the entity mutated *is* the entity the business cares about.
+- Notification: none — SRS FR-9.2 names no Catalog-related trigger.
+- `SaveAngebotItemAsCatalogItemCommand` explicitly deferred to the `AddAngebotItemCommand` slice (it operates on `AngebotItem`, not `CatalogItem` — its natural home is the Angebot workflow feature, not this one).
+- `SearchCatalogItemsQuery` (last in the order, not part of this slice) will use a new `IQueryHandler<TQuery, TResult>` interface rather than reusing `ICommandHandler` — see `ARCHITECTURE_DECISIONS.md` D36 — and will take **no** `includeRetired` parameter, always excluding retired items, since no documented use case needs to see them (D37).
+- This specific slice, `CreateCatalogItemCommand`, introduced no new architectural territory of its own beyond the feature-level decisions above — its shape mirrors `CreateLeadCommand` exactly (validate → construct via `CatalogItem.Create` → persist → audit → return DTO), with no notification branch.
+
+**New abstractions introduced:** `ICatalogItemRepository` (`AddAsync` only — the absolute minimum this command needs), `CatalogItemDto` (header/scalar fields only — `DefaultUnit`/`SuggestedUnitPrice` unwrapped from `ItemUnit`/`Money` per `CLAUDE.md` §7), `AuditAction.CatalogItemCreated`.
+
+**Documentation updates:** `ARCHITECTURE_DECISIONS.md` gained D36 (`IQueryHandler` as a deliberate second dispatch abstraction) and D37 (`SearchCatalogItemsQuery` starts with no `includeRetired` parameter) — both decided during this slice's design review for the feature as a whole, ahead of the commands/query they'll actually apply to.
+
+**Tests added:** 6 (`CreateCatalogItemCommandHandlerTests`) — happy path (DTO shape including unwrapped `DefaultUnit`/`SuggestedUnitPrice`), repository add, save-changes count, audit entry (entity type `CatalogItem`, correct action/performer), validation failure with no side effects, negative-price validation failure.
+
+**Final outcome:** 108 Application tests, 153 Domain tests → **261 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
 ## Why `AddAngebotItemCommand` Was Intentionally Postponed
 
 `AddAngebotItemCommand` is next in Sequence Diagram §4's literal flow, immediately after `AddAngebotSectionCommand`. It was explicitly **not** built yet, by deliberate user decision, for the following reason:
