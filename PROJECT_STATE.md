@@ -18,7 +18,7 @@
 ## 2. Current Branch State
 
 - Active branch: `feature/phase-2-application-layer`.
-- This branch is **not yet pushed** to `origin`. It contains 15 local commits (one per vertical slice) plus two documentation commits (one mid-phase handoff, one closeout), per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19. Commit range: `ef9bc27` (Slice 1) through `0628031` (Phase 2 closeout docs), 17 commits total.
+- This branch is **not yet pushed** to `origin`. It contains 15 vertical-slice commits plus a handful of documentation-only commits (a mid-phase handoff commit, plus closeout/sanity-review corrections), per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19. Commit range for the PR: `main..feature/phase-2-application-layer` (starts at `ef9bc27`, Slice 1) — let the PR tooling report the exact count/diff rather than hardcoding it here, since any further doc-only fix commit would immediately make a hardcoded count stale again.
 - `main` is up to date locally as of the last `git fetch`/`merge --ff-only` performed after Phase 1b's PR was merged.
 - **Next git action when resuming:** open the Phase 2 PR (see §9 below for the recommended title and full closeout review). Do not push until instructed.
 
@@ -230,5 +230,5 @@ None of these are silent gaps; each has a named reason and a named future trigge
 
 **6. Recommended PR title and commit range:**
 - **Title:** `Phase 2: Application layer — Lead/Inspection/Angebot commands, queries, and guards` (matches `PROJECT_ROADMAP.md`'s own pre-named PR title for this phase, line 92 — no reason to deviate).
-- **Commit range:** `main..feature/phase-2-application-layer` — `ef9bc27` (Slice 1, `CreateLeadCommand`) through `0628031` (Phase 2 closeout docs). **17 commits total:** 15 vertical slices, one mid-phase handoff-documentation commit (`38c4314`), and this closeout commit (`0628031`).
+- **Commit range:** `main..feature/phase-2-application-layer`, starting at `ef9bc27` (Slice 1, `CreateLeadCommand`) — 15 vertical-slice commits plus a small number of documentation-only commits (mid-phase handoff docs, closeout docs, and closeout sanity-review corrections). Let `git log main..feature/phase-2-application-layer` at PR-open time be the source of truth for the exact count — it was already drifting across this very closeout review as fix commits landed, which is itself the reason not to hardcode it in prose.
 - **PR description should note explicitly:** `CatalogItem`'s Application layer was an in-scope, justified insertion (needed by `AddAngebotItemCommand`); `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed out of scope (D39), not overlooked.
