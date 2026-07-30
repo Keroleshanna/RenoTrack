@@ -27,6 +27,7 @@ public sealed class AngebotSectionConfiguration : IEntityTypeConfiguration<Angeb
         builder.HasMany(s => s.Items)
             .WithOne()
             .HasForeignKey("SectionId")
+            .IsRequired()
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(s => s.Items).UsePropertyAccessMode(PropertyAccessMode.Field);

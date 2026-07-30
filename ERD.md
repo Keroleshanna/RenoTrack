@@ -100,7 +100,7 @@ erDiagram
         decimal Quantity
         string Unit "m2 | Stk | lfm | pauschal | m"
         decimal UnitPrice
-        decimal VatRate "0 | 7 | 16 | 19"
+        int VatRate "enum-backed: 0 | 7 | 16 | 19 (Architecture §11 — enum chosen over decimal(5,2))"
     }
 
     CATALOGITEM {

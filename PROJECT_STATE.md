@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30 — Phase 3, Slice 1 complete (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`). Phase 2 merged to `main` (PR #5, merge commit `dc85de1`).
+**Last updated:** 2026-07-30 — Phase 3, Slice 2 complete (`InitialCreate` migration, generated only after a three-way schema review caught three missing FKs, and a manual migration review caught a shadow-FK nullability bug — both fixed before the migration was finalized). Phase 2 merged to `main` (PR #5, merge commit `dc85de1`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
@@ -13,7 +13,7 @@
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
-- **Phase 3 (Infrastructure) — 🔶 in progress.** Design review + dependency map approved; Slice 1 (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`) complete. See `PHASE3_PROGRESS.md`.
+- **Phase 3 (Infrastructure) — 🔶 in progress.** Design review + dependency map approved; Slice 1 (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`) and Slice 2 (`InitialCreate` migration) both complete. See `PHASE3_PROGRESS.md`.
 
 ## 2. Current Branch State
 
@@ -25,10 +25,10 @@
 
 As of the last verified run in this conversation:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **309 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **314 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
-  - `RenoTrack.Infrastructure.Tests`: **12 tests** (real SQL Server LocalDB integration tests — new in Phase 3).
+  - `RenoTrack.Infrastructure.Tests`: **17 tests** (real SQL Server LocalDB integration tests — new in Phase 3).
   - `RenoTrack.Api.Tests`: 0 tests (project exists, empty — Phase 4 not started).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
@@ -170,6 +170,8 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 
 One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `CatalogItems`, `AngebotReviewComments`. No `DbSet` for child entities (`AngebotSection`, `AngebotItem`, `InspectionPhoto`) — reachable only through their aggregate root's navigation. `OnModelCreating` calls `ApplyConfigurationsFromAssembly` — no configuration inlined there. No `NumberSequence`/`AuditLog`/Identity `DbSet`s yet — added in their own later slices (§8 below), not speculatively now.
 
+**`InitialCreate` migration** (`Persistence/Migrations/`) — the first real migration, generated via `RenoTrackDbContextFactory` (`IDesignTimeDbContextFactory<RenoTrackDbContext>`, design-time only — DI composition is still Slice 14). Creates exactly 8 tables (matching §6.1's `DbSet`s + child entities); confirmed via `InitialCreateMigrationTests` to apply cleanly to a fresh LocalDB database and to have zero pending model changes (i.e., the migration and the current EF model are in sync). Not yet applied to any shared/persistent database.
+
 ### 6.2 Entity Configurations (`src/RenoTrack.Infrastructure/Persistence/Configurations/`)
 
 | Configuration | Notes |
@@ -191,9 +193,9 @@ One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `Cat
 
 None implemented yet. `ILeadRepository`, `IInspectionRepository`, `IAngebotRepository`, `IAngebotReviewCommentRepository`, `ICatalogItemRepository`, `ICatalogItemQueries`, `IUnitOfWork`, `IAuditService`, `INumberGeneratorService`, `IFileStorage` (placeholder only), `IEmailSender` (placeholder only) are all still contract-only, per the approved dependency map (`PHASE3_PROGRESS.md`). Identity is Slice 15, deliberately last.
 
-### 6.5 Infrastructure Test Coverage (12 tests, `RenoTrack.Infrastructure.Tests`)
+### 6.5 Infrastructure Test Coverage (17 tests, `RenoTrack.Infrastructure.Tests`)
 
-Real SQL Server LocalDB integration tests, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40). `RenoTrackDbContextFixture` (`IAsyncLifetime` + `ICollectionFixture<T>`) creates/drops one shared LocalDB database (`RenoTrackInfrastructureTests`) per test run; every test class shares the `"Infrastructure Database"` xUnit collection, so tests never run in parallel against it. Test classes: `LeadPersistenceTests`, `InspectionPersistenceTests`, `AngebotPersistenceTests`, `CatalogItemPersistenceTests`, `AngebotReviewCommentPersistenceTests` — all under `tests/RenoTrack.Infrastructure.Tests/Persistence/`.
+Real SQL Server LocalDB integration tests, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40). `RenoTrackDbContextFixture` (`IAsyncLifetime` + `ICollectionFixture<T>`) creates/drops one shared LocalDB database (`RenoTrackInfrastructureTests`) per test run; every test class in the shared `"Infrastructure Database"` collection also seeds a real `Lead` row (via a `SeedLeadAsync` helper) before referencing its id, rather than a hardcoded placeholder — needed once real FKs made a coincidental id-match insufficient. Test classes: `LeadPersistenceTests`, `InspectionPersistenceTests`, `AngebotPersistenceTests`, `CatalogItemPersistenceTests`, `AngebotReviewCommentPersistenceTests` (12 tests, `EnsureCreated`-based schema), plus `InitialCreateMigrationTests` (2 tests, its own throwaway database, exercises `Database.MigrateAsync()` and `HasPendingModelChanges()` directly) — all under `tests/RenoTrack.Infrastructure.Tests/Persistence/`.
 
 ---
 
@@ -237,7 +239,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Begin Slice 2 (`InitialCreate` migration)** — Slice 1 (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`) is complete, reviewed, tested, documented, and committed. See `PHASE3_PROGRESS.md` for the full slice order and Slice 1's record. §10 below remains the historical record of Phase 2's closeout.
+**Begin Slice 3 (`IUnitOfWork`)** — Slices 1 and 2 (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate` migration) are both complete, reviewed, tested, documented, and committed. See `PHASE3_PROGRESS.md` for the full slice order and each slice's record. §10 below remains the historical record of Phase 2's closeout.
 
 ---
 

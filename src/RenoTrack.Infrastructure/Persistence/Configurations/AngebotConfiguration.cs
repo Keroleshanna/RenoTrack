@@ -7,8 +7,11 @@ namespace RenoTrack.Infrastructure.Persistence.Configurations;
 
 /// <summary>
 /// CreatedByInspectorId/ReviewedByAdminId have no FK constraint yet — Users table doesn't exist
-/// until the Identity slice. VatBreakdown is ignored: no ERD column exists for it at all
-/// (Architecture.md §6.1 — always computed, variable-shaped, nothing to denormalize).
+/// until the Identity slice. LeadId and InspectionId DO get real FKs — both Leads and
+/// Inspections exist today, so neither is a deferral candidate (a gap caught during Slice 2's
+/// schema review, not a deliberate choice — see ARCHITECTURE_DECISIONS.md). VatBreakdown is
+/// ignored: no ERD column exists for it at all (Architecture.md §6.1 — always computed,
+/// variable-shaped, nothing to denormalize).
 /// </summary>
 public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
 {
@@ -21,6 +24,16 @@ public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
         builder.Property(a => a.InspectionId);
         builder.Property(a => a.AngebotNumber).IsRequired().HasMaxLength(30);
         builder.HasIndex(a => a.AngebotNumber).IsUnique();
+
+        builder.HasOne<Lead>()
+            .WithMany()
+            .HasForeignKey(a => a.LeadId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Inspection>()
+            .WithMany()
+            .HasForeignKey(a => a.InspectionId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(a => a.Status).HasConversion<string>().HasMaxLength(30);
         builder.HasIndex(a => a.Status);
@@ -46,6 +59,7 @@ public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
         builder.HasMany(a => a.Sections)
             .WithOne()
             .HasForeignKey("AngebotId")
+            .IsRequired()
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(a => a.Sections).UsePropertyAccessMode(PropertyAccessMode.Field);

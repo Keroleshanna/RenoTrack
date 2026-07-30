@@ -655,6 +655,44 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D45 — Three Missing FKs Found During Slice 2's Pre-Migration Schema Review
+
+**Problem:** Before generating `InitialCreate`, a deliberate three-way comparison (Domain code ↔ EF configurations ↔ `ERD.md`) was performed, per the user's explicit request, rather than generating the migration straight from Slice 1's configurations. It found `Inspection.LeadId`, `Angebot.LeadId`, and `Angebot.InspectionId` had no FK constraint configured at all — a real gap, not a deliberate deferral. All three reference tables (`Leads`, `Inspections`) that already exist today, so none of them fall under the "Users table doesn't exist yet" reasoning correctly applied to the Identity-referencing columns (D44). This was a straightforward oversight in Slice 1: only the cross-aggregate `CatalogItem`↔`AngebotItem` FKs were added; these three same-table-exists-today relationships were missed.
+
+**Final decision:** Add all three as real FKs, `DeleteBehavior.Restrict` (consistent with every other cross-aggregate FK in the model — `Lead`/`Inspection` are never deleted per the project's "never truly delete a historical record" philosophy, so cascade behavior would never trigger anyway, but `Restrict` is the correct, safe default regardless).
+
+**Why this matters as a process point, not just a bug fix:** this is the concrete payoff of doing a schema review *before* generating a migration rather than after — the gap was caught by comparing three sources deliberately, not by re-reading the same code that already had the bug in it.
+
+**Consequences:** `InspectionConfiguration` and `AngebotConfiguration` updated. `RenoTrack.Infrastructure.Tests` gained explicit FK-rejection tests for all three (`LeadIdForeignKey_RejectsANonExistentLead` in both `InspectionPersistenceTests` and `AngebotPersistenceTests`, `InspectionIdForeignKey_RejectsANonExistentInspection` in `AngebotPersistenceTests`) — and three existing tests that had been using a hardcoded, never-actually-inserted `leadId: 1` were fixed to seed a real `Lead` row first, since they had only been passing by accident (test-class execution order happened to let a different test class create a real `Lead` with `Id == 1` first).
+
+---
+
+## D46 — Owned-Child Shadow FK Columns Were Nullable by Default (Found in the Generated Migration)
+
+**Problem:** Manual review of the first generated `InitialCreate` migration (before applying it anywhere, per the user's explicit "review the migration manually" instruction) found `InspectionPhotos.InspectionId`, `AngebotSections.AngebotId`, and `AngebotItems.SectionId` — the three shadow FK columns for encapsulated child collections — were all generated as `nullable: true`. This is wrong: by Domain design, a photo/section/item always belongs to exactly one parent; the relationship is a required composition, not optional.
+
+**Investigation:** `HasMany(x => x.Children).WithOne()` (no back-navigation, since the child has no reference back to its parent — matching the Domain's own "no FK back-reference" design) defaults EF Core's convention to an *optional* relationship, because there's no non-nullable navigation property anywhere telling EF the relationship is required. `.IsRequired()` must be called explicitly on the relationship builder to get a `NOT NULL` shadow FK column.
+
+**Final decision:** Add `.IsRequired()` to all three `HasMany(...).WithOne()` calls (`InspectionConfiguration.Photos`, `AngebotConfiguration.Sections`, `AngebotSectionConfiguration.Items`), then regenerate `InitialCreate` from scratch (the first, incorrect migration was removed via `dotnet ef migrations remove` before ever being applied to a database — nothing to undo).
+
+**Why chosen:** This is a genuine correctness bug, not a style preference — a nullable FK here would have let a database-level `InspectionPhoto`/`AngebotSection`/`AngebotItem` row exist with no parent at all, silently contradicting the Domain's own invariant that these are always created through their aggregate root.
+
+**Consequences:** All 15 (now 17, with the two new migration tests) `RenoTrack.Infrastructure.Tests` still pass with `.IsRequired()` added — confirming the fix didn't change any tested behavior, only tightened the schema to match what was always true in practice. This is exactly the kind of issue the user's insistence on manually reviewing the generated migration (not just trusting the configuration code) was designed to catch.
+
+---
+
+## D47 — `IDesignTimeDbContextFactory` Added for Migration Tooling, DI Composition Still Deferred
+
+**Problem:** `dotnet ef migrations add` needs to construct `RenoTrackDbContext` at design time, but the real DI composition (`AddInfrastructure()` + `Program.cs` wiring) is deliberately Slice 14 — much later in the approved dependency map. Generating a migration in Slice 2 needed some way to build the context without jumping ahead to Slice 14's work.
+
+**Final decision:** Add `RenoTrackDbContextFactory : IDesignTimeDbContextFactory<RenoTrackDbContext>` in `RenoTrack.Infrastructure` — the standard EF Core pattern for exactly this situation. It hardcodes a LocalDB connection string used only by `dotnet ef` tooling (never by the running application), consistent with `RenoTrack.Infrastructure.Tests`' own fixture. `Microsoft.EntityFrameworkCore.Design` added to both `RenoTrack.Infrastructure` (`PrivateAssets="all"` — dev-time only, never a runtime dependency for consumers) and `RenoTrack.Api` (as the migrations' eventual startup project once Slice 14 lands).
+
+**Why chosen:** Keeps Slice 2 self-contained — generating a migration doesn't require jumping ahead to DI wiring that hasn't been designed yet, and doesn't leave a half-built Slice 14 in place just to unblock tooling.
+
+**Consequences:** `dotnet ef migrations add`/`remove` work today via this factory. Slice 14 will still do the real DI registration for the running application; this factory is never consulted at runtime, only by `dotnet ef` itself.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |

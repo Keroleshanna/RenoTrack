@@ -1,15 +1,27 @@
 using Microsoft.EntityFrameworkCore;
 using RenoTrack.Domain.Entities;
+using RenoTrack.Domain.Enums;
 
 namespace RenoTrack.Infrastructure.Tests.Persistence;
 
 [Collection("Infrastructure Database")]
 public sealed class InspectionPersistenceTests(RenoTrackDbContextFixture fixture)
 {
+    /// <summary>Inspection.LeadId is a real FK — every test needs an actually-persisted Lead row, not a hardcoded placeholder id.</summary>
+    private async Task<int> SeedLeadAsync()
+    {
+        var lead = Lead.Create("Jane Doe", "0176 1234567", "jane@example.com", LeadSource.Phone);
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Leads.Add(lead);
+        await writeContext.SaveChangesAsync();
+        return lead.Id;
+    }
+
     [Fact]
     public async Task AddingAnInspectionWithAPhoto_PersistsAndReloadsThePhotoThroughTheBackingField()
     {
-        var inspection = Inspection.Schedule(leadId: 1, scheduledAt: new DateTime(2026, 8, 15, 10, 0, 0, DateTimeKind.Utc), inspectorId: 5);
+        var leadId = await SeedLeadAsync();
+        var inspection = Inspection.Schedule(leadId, scheduledAt: new DateTime(2026, 8, 15, 10, 0, 0, DateTimeKind.Utc), inspectorId: 5);
         inspection.AddPhoto("inspections/1/front-door.jpg", "Front door");
 
         await using (var writeContext = fixture.CreateContext())
@@ -23,7 +35,7 @@ public sealed class InspectionPersistenceTests(RenoTrackDbContextFixture fixture
             .Include(i => i.Photos)
             .SingleAsync(i => i.Id == inspection.Id);
 
-        Assert.Equal(1, reloaded.LeadId);
+        Assert.Equal(leadId, reloaded.LeadId);
         Assert.Equal(5, reloaded.InspectorId);
         var photo = Assert.Single(reloaded.Photos);
         Assert.Equal("inspections/1/front-door.jpg", photo.FileUrl);
@@ -33,7 +45,8 @@ public sealed class InspectionPersistenceTests(RenoTrackDbContextFixture fixture
     [Fact]
     public async Task CompletingAnInspection_PersistsCompletedAt()
     {
-        var inspection = Inspection.Schedule(1, new DateTime(2026, 8, 16, 9, 0, 0, DateTimeKind.Utc), 5);
+        var leadId = await SeedLeadAsync();
+        var inspection = Inspection.Schedule(leadId, new DateTime(2026, 8, 16, 9, 0, 0, DateTimeKind.Utc), 5);
 
         await using (var writeContext = fixture.CreateContext())
         {
@@ -52,5 +65,16 @@ public sealed class InspectionPersistenceTests(RenoTrackDbContextFixture fixture
         var reloaded = await readContext.Inspections.SingleAsync(i => i.Id == inspection.Id);
 
         Assert.NotNull(reloaded.CompletedAt);
+    }
+
+    [Fact]
+    public async Task LeadIdForeignKey_RejectsANonExistentLead()
+    {
+        var inspection = Inspection.Schedule(leadId: 999_999, new DateTime(2026, 8, 17, 9, 0, 0, DateTimeKind.Utc), inspectorId: 5);
+
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Inspections.Add(inspection);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => writeContext.SaveChangesAsync());
     }
 }

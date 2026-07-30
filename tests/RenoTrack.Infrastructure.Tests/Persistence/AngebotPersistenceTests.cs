@@ -8,10 +8,21 @@ namespace RenoTrack.Infrastructure.Tests.Persistence;
 [Collection("Infrastructure Database")]
 public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
 {
+    /// <summary>Angebot.LeadId is a real FK — every test needs an actually-persisted Lead row, not a hardcoded placeholder id.</summary>
+    private async Task<int> SeedLeadAsync()
+    {
+        var lead = Lead.Create("Jane Doe", "0176 1234567", "jane@example.com", LeadSource.Phone);
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Leads.Add(lead);
+        await writeContext.SaveChangesAsync();
+        return lead.Id;
+    }
+
     [Fact]
     public async Task AddingAnAngebotWithSectionsAndItems_PersistsAndReloadsTheFullTree()
     {
-        var angebot = Angebot.Create(leadId: 1, inspectionId: null, angebotNumber: "ANG-2026-00001", createdByInspectorId: 5);
+        var leadId = await SeedLeadAsync();
+        var angebot = Angebot.Create(leadId, inspectionId: null, angebotNumber: "ANG-2026-00001", createdByInspectorId: 5);
         var section = angebot.AddSection("Pos. 1 Baustelleneinrichtung", sortOrder: 1);
         angebot.AddItemToSection(section, "Bodenbelag", 13.77m, ItemUnit.SquareMeter(), Money.FromExact(18.56m), VatRate.Standard, "Feinsteinzeug");
 
@@ -27,6 +38,7 @@ public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
             .ThenInclude(s => s.Items)
             .SingleAsync(a => a.Id == angebot.Id);
 
+        Assert.Equal(leadId, reloaded.LeadId);
         var reloadedSection = Assert.Single(reloaded.Sections);
         Assert.Equal("Pos. 1 Baustelleneinrichtung", reloadedSection.Title);
         Assert.Equal(1, reloadedSection.SortOrder);
@@ -47,7 +59,8 @@ public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
     [Fact]
     public async Task ReloadedAngebot_NetAndGrossTotalsMatchTheOriginallyComputedValues()
     {
-        var angebot = Angebot.Create(1, null, "ANG-2026-00002", 5);
+        var leadId = await SeedLeadAsync();
+        var angebot = Angebot.Create(leadId, null, "ANG-2026-00002", 5);
         var section = angebot.AddSection("Pos. 1", 1);
         angebot.AddItemToSection(section, "Item", 1m, ItemUnit.Piece(), Money.FromExact(100.00m), VatRate.Standard);
         var expectedNetTotal = angebot.NetTotal;
@@ -69,7 +82,8 @@ public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
     [Fact]
     public async Task AngebotNumber_UniqueConstraint_RejectsADuplicate()
     {
-        var first = Angebot.Create(1, null, "ANG-2026-00003", 5);
+        var firstLeadId = await SeedLeadAsync();
+        var first = Angebot.Create(firstLeadId, null, "ANG-2026-00003", 5);
 
         await using (var writeContext = fixture.CreateContext())
         {
@@ -77,7 +91,8 @@ public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
             await writeContext.SaveChangesAsync();
         }
 
-        var duplicate = Angebot.Create(2, null, "ANG-2026-00003", 5);
+        var secondLeadId = await SeedLeadAsync();
+        var duplicate = Angebot.Create(secondLeadId, null, "ANG-2026-00003", 5);
 
         await using var duplicateContext = fixture.CreateContext();
         duplicateContext.Angebote.Add(duplicate);
@@ -88,9 +103,33 @@ public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
     [Fact]
     public async Task AngebotItem_CatalogItemIdForeignKey_RejectsANonExistentCatalogItem()
     {
-        var angebot = Angebot.Create(1, null, "ANG-2026-00004", 5);
+        var leadId = await SeedLeadAsync();
+        var angebot = Angebot.Create(leadId, null, "ANG-2026-00004", 5);
         var section = angebot.AddSection("Pos. 1", 1);
         angebot.AddItemToSection(section, "Item", 1m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard, catalogItemId: 999_999);
+
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Angebote.Add(angebot);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => writeContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task LeadIdForeignKey_RejectsANonExistentLead()
+    {
+        var angebot = Angebot.Create(leadId: 999_999, null, "ANG-2026-00005", 5);
+
+        await using var writeContext = fixture.CreateContext();
+        writeContext.Angebote.Add(angebot);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => writeContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task InspectionIdForeignKey_RejectsANonExistentInspection()
+    {
+        var leadId = await SeedLeadAsync();
+        var angebot = Angebot.Create(leadId, inspectionId: 999_999, "ANG-2026-00006", 5);
 
         await using var writeContext = fixture.CreateContext();
         writeContext.Angebote.Add(angebot);
