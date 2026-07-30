@@ -282,3 +282,75 @@ None of these are silent gaps; each has a named reason and a named future trigge
 - **Title:** `Phase 2: Application layer — Lead/Inspection/Angebot commands, queries, and guards` (matches `PROJECT_ROADMAP.md`'s own pre-named PR title for this phase, line 92 — no reason to deviate).
 - **Commit range:** `main..feature/phase-2-application-layer`, starting at `ef9bc27` (Slice 1, `CreateLeadCommand`) — 15 vertical-slice commits plus a small number of documentation-only commits (mid-phase handoff docs, closeout docs, and closeout sanity-review corrections). Let `git log main..feature/phase-2-application-layer` at PR-open time be the source of truth for the exact count — it was already drifting across this very closeout review as fix commits landed, which is itself the reason not to hardcode it in prose.
 - **PR description should note explicitly:** `CatalogItem`'s Application layer was an in-scope, justified insertion (needed by `AddAngebotItemCommand`); `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed out of scope (D39), not overlooked.
+
+---
+
+## 11. Phase 3 Closeout Review
+
+Performed 2026-07-30, immediately after Slice 15 (Identity), before opening a PR. Every finding below was checked directly (build/test run, migration CLI, file inspection), not assumed from memory.
+
+### 11.1 Documentation Audit
+
+- **`PROJECT_STATE.md`/`NEXT_STEPS.md`/`PHASE3_PROGRESS.md`** cross-checked for consistency: all three agree all 15 slices are done, all three cite the same decision numbers (D40–D54) for the same facts, none references a "next slice" that's already been built.
+- **`ARCHITECTURE_DECISIONS.md`**: D40 through D54 all present, in order, no gaps (`grep` confirms 15 consecutive headers). Each of D49/D51/D53 (Infrastructure-only placement) and D50/D54 (best-effort/race-tolerant behavior) explicitly references its precedent rather than re-deriving the reasoning from scratch.
+- **`ERD.md`** corrected three times during Phase 3 (D41 — computed properties; D52 — `NumberSequences`' transaction-boundary wording; D53 — `USER`/`ROLE` real Identity schema) — each correction made in the same commit as the code it describes, per `CLAUDE.md` §15's documentation-first discipline, not batched up for this closeout.
+- **`Architecture.md`** §8 corrected (D52) to describe the actual atomic-statement number-generation design rather than literal same-transaction wording that the already-built handler ordering made impossible.
+- **`CLAUDE.md`** §13 remains correct from its Slice 1 correction (D42 — `LocalDiskFileStorage` is Phase 4's); no further correction needed during Slices 2–15.
+- **No stale cross-references found** — spot-checked every `ARCHITECTURE_DECISIONS.md` reference added in Slices 10–15 against the actual decision numbers; all resolve correctly.
+
+### 11.2 Architecture Decision Audit
+
+15 decisions recorded in Phase 3 (D40–D54), grouped by theme:
+
+| Theme | Decisions |
+|---|---|
+| Test infrastructure / migration process | D40 (new test project), D45/D46 (schema-review + migration-review catching two real bugs), D47 (design-time factory) |
+| Documentation corrections (ERD/CLAUDE.md corrected to match confirmed reality) | D41, D42 |
+| EF Core mapping techniques | D43 (backing-field navigation) |
+| Deferred-until-Identity FKs | D44 (deferred), resolved in Slice 15 |
+| `IUnitOfWork` scope | D48 (confirmed thin) |
+| Infrastructure-only persistence models (forced or chosen) | D49 (`AuditLog`, judgment call), D51 (`NumberSequence`, judgment call), D53 (`ApplicationUser`, forced by D1) |
+| Best-effort / race-tolerant behavior patterns | D50 (audit), D52 (number generation), D54 (role seeding) — the same "catch, re-verify, treat as benign" shape reused three times for three genuinely different problems, not copy-pasted blindly each time |
+| DI/composition choices | D54 (`AddIdentityCore` vs `AddIdentity`) |
+
+Every decision that changed already-written documentation (D41, D42, D52, D53) did so in the same commit as the code change — verified by checking each commit's diff includes both.
+
+### 11.3 Migration Audit
+
+Four migrations, applied in this order (verified via `dotnet ef migrations list`, all currently `(Pending)` — none applied to any shared/persistent database, consistent with every prior status note in this file):
+
+1. `InitialCreate` (Slice 1–2) — the 8 core business tables.
+2. `AddAuditLog` (Slice 10) — `AuditLogs`, no FK (deliberately, D50's "no cross-entity linkage").
+3. `AddNumberSequence` (Slice 11) — `NumberSequences`, no FK.
+4. `AddIdentity` (Slice 15) — 7 `AspNetX` tables, plus 5 retroactive FKs on `Leads`/`Inspections`/`Angebote`(×2)/`AngebotReviewComments`.
+
+**`dotnet ef migrations has-pending-model-changes` → "No changes have been made to the model since the last migration."** — confirmed directly, not assumed: the current C# model and the migration history are in sync. Every migration was manually reviewed at the time it was generated (Slice 2 caught two real bugs this way — D45/D46 — proving the review step itself has caught real issues, not just theoretical ones).
+
+### 11.4 DI Audit
+
+`AddInfrastructure()` registers all 11 Infrastructure-implemented Application interfaces — `ILeadRepository`, `IInspectionRepository`, `IAngebotRepository`, `IAngebotReviewCommentRepository`, `ICatalogItemRepository`, `ICatalogItemQueries`, `IUnitOfWork`, `IAuditService`, `INumberGeneratorService`, `IFileStorage`, `IEmailSender` — every one Scoped, verified by direct comparison against every `public interface I...` declared in `Common/Interfaces/` and `CatalogItems/ICatalogItemQueries.cs` (12 found; 11 registered; the 12th, `IOwnershipValidator`, correctly excluded per CLAUDE.md §9 — its implementation lives in `RenoTrack.Application`, not here). `RenoTrackDbContext` registered via `AddDbContext` (Scoped default); `AddIdentityCore<ApplicationUser>().AddRoles<IdentityRole<int>>().AddEntityFrameworkStores<RenoTrackDbContext>()` added alongside with no new composition root. `DependencyInjectionTests` proves this container actually builds with `ValidateOnBuild`/`ValidateScopes` enabled (would fail if any Singleton captured the Scoped `DbContext`) and resolves every registration inside a real scope.
+
+### 11.5 Test Summary
+
+**`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors.** **`dotnet test RenoTrack.slnx` → 371 tests passing, 0 failing:**
+
+| Project | Tests |
+|---|---|
+| `RenoTrack.Domain.Tests` | 153 |
+| `RenoTrack.Application.Tests` | 144 |
+| `RenoTrack.Infrastructure.Tests` | 74 |
+| `RenoTrack.Api.Tests` | 0 (Phase 4 not started) |
+| **Total** | **371** |
+
+`RenoTrack.Infrastructure.Tests`' 74 break down as: 15 Slice-1 persistence tests, 5 migration/schema tests (Slice 2), 3 `UnitOfWork` tests, 4 `LeadRepository`, 5 `InspectionRepository`, 9 `AngebotRepository`, 3 `AngebotReviewCommentRepository`, 5 `CatalogItemRepository`, 3 `CatalogItemQueries`, 4 `AuditService`, 4 `NumberGeneratorService` (including the 50-parallel-caller concurrency proof), 1 `PlaceholderFileStorage`, 3 `LoggingNoOpEmailSender`, 4 `DependencyInjection`, 4 `Identity` (including the 10-concurrent-instance role-seeding race proof) — plus the net effect of Slice 15's real-FK retrofit, which required fixing (not just adding) 19 previously-passing tests across 7 files. Every test class runs against real SQL Server LocalDB except the four classes with genuinely no database concern (`PlaceholderFileStorageTests`, `LoggingNoOpEmailSenderTests`, `DependencyInjectionTests`'s container-build check, and the password-hasher sanity check) — the standing decision (D40) that `RenoTrack.Infrastructure.Tests` never uses the EF Core InMemory provider held for all 15 slices.
+
+### 11.6 Merge Readiness Report
+
+- **Branch:** `feature/phase-3-infrastructure-efcore`, 17 commits ahead of `main`, working tree clean, `origin/main` and local `main` match exactly (`git fetch` confirmed no drift) — safe to open a PR against current `main`.
+- **Build/test:** clean, as above.
+- **Scope:** every item in Phase 3's approved 15-slice dependency map is done — no partial slices, no "configure this later" left anywhere.
+- **Known, deliberate deferrals carried past this phase (not gaps):** real `LocalDiskFileStorage` (Phase 4, D42); real SMTP `IEmailSender` (Phase 9, `CLAUDE.md` §11); `AddApplication()` DI extension for `IOwnershipValidator`/validators/command handlers (Phase 4, since `RenoTrack.Api` has no controllers yet to need them); HTTP status-code mapping for Domain exceptions (Phase 4); authentication/JWT issuance (Phase 4, Architecture.md §7.1) — Slice 15 deliberately stopped at storage.
+- **Recommended PR title:** `Phase 3: Infrastructure layer — EF Core persistence, repositories, and Identity storage` (matches the `Phase N: <layer> — <one-line scope>` pattern Phase 2's PR title established).
+- **Recommended commit range:** `main..feature/phase-3-infrastructure-efcore`, `1edccae` (Slice 1) through `b6d4d48` (Slice 15) — 15 feature commits, one docs-sync commit (`fca7eb8`, mid-phase).
+- **PR description should note explicitly:** the retroactive-FK test breakage in Slice 15 (19 tests, expected and fixed, not a late-discovered bug); the three narrow, explicitly-scoped exceptions to "EF Core only" (raw SQL in `NumberGeneratorService`, D52) and "no custom auth cookies" (`AddIdentityCore`, D54); that `INumberGeneratorService`'s concurrency guarantee (the single highest-risk item flagged since Phase 2, D34) is now proven, not just implemented.
+- **Verdict: ready to open as a PR**, pending the user's own final read-through and explicit go-ahead to push/open.
