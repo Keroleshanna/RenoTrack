@@ -248,6 +248,28 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 ---
 
+## Slice 12 — `UpdateCatalogItemCommand`
+
+**Goal:** Second slice of the CatalogItem Application layer. The first genuine `Update`-shaped command in the whole Application layer — every prior command has been Create or a workflow transition only.
+
+**Design decisions & architectural discussion:**
+- `ICatalogItemRepository` gained `GetByIdAsync` — first use case needing to load an existing `CatalogItem`, following the same on-demand growth as every other repository.
+- `CatalogItem.Update(title, defaultUnit, suggestedUnitPrice, defaultSpecification)`'s own self-guards (`Title` non-empty, price non-negative) confirmed sufficient — the handler does not duplicate them beyond FluentValidation's shape-only check.
+- Explicitly verified `Update` never touches `CreatedFromAngebotItemId`, `CreatedAt`, or `IsRetired` (Domain-level guarantee, `CatalogItem.cs`'s own doc comment) — added a test proving this rather than just trusting the comment.
+- No `IOwnershipValidator` call — same Admin-`F` reasoning as Slice 11, confirmed unchanged.
+- Audit: `AuditAction.CatalogItemUpdated`, target `CatalogItem` — same reasoning as Create.
+- No notification — same as Create.
+
+**New abstractions introduced:** `ICatalogItemRepository.GetByIdAsync`, `AuditAction.CatalogItemUpdated`. No new DTO — reuses `CatalogItemDto`.
+
+**Documentation updates:** None beyond this log entry — no new gap or inconsistency found; this slice exercised decisions already made during Slice 11's design review.
+
+**Tests added:** 7 (`UpdateCatalogItemCommandHandlerTests`) — happy path (DTO shape with updated values), explicit proof that `CreatedFromAngebotItemId`/`CreatedAt`/`IsRetired` are unchanged, save-changes count, audit entry, not-found, validation failure with no side effects (including proof the seeded entity itself is unchanged), negative-price validation failure.
+
+**Final outcome:** 115 Application tests, 153 Domain tests → **268 solution-wide.** Committed.
+
+---
+
 ## Why `AddAngebotItemCommand` Was Intentionally Postponed
 
 `AddAngebotItemCommand` is next in Sequence Diagram §4's literal flow, immediately after `AddAngebotSectionCommand`. It was explicitly **not** built yet, by deliberate user decision, for the following reason:

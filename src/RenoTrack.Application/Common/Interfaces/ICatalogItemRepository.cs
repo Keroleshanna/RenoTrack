@@ -12,4 +12,7 @@ public interface ICatalogItemRepository
 {
     /// <summary>Added for CreateCatalogItemCommand — the first use case for this repository.</summary>
     Task AddAsync(CatalogItem catalogItem, CancellationToken cancellationToken);
+
+    /// <summary>Added for UpdateCatalogItemCommand — the first use case needing to load an existing CatalogItem.</summary>
+    Task<CatalogItem?> GetByIdAsync(int id, CancellationToken cancellationToken);
 }
