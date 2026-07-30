@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RenoTrack.Infrastructure\RenoTrack.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\RenoTrack.Application\RenoTrack.Application.csproj" />
     <ProjectReference Include="..\..\src\RenoTrack.Domain\RenoTrack.Domain.csproj" />
   </ItemGroup>
 

@@ -1,15 +1,15 @@
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using RenoTrack.Infrastructure.Persistence;
+using RenoTrack.Infrastructure;
 
 namespace RenoTrack.Infrastructure.Tests.Identity;
 
 /// <summary>
-/// Builds a real UserManager/RoleManager pair via the same AddIdentityCore(...) chain
-/// DependencyInjection.AddInfrastructure registers, pointed at the shared LocalDB test database
-/// — a DI-built manager, not a hand-constructed one, so these tests exercise the actual
-/// registration shape rather than a parallel approximation of it.
+/// Builds a real UserManager/RoleManager pair via the actual AddInfrastructure() registration
+/// (Slice 14) — not a hand-rolled approximation of it — so these tests exercise the real DI
+/// configuration and can never silently drift from it. The only test-specific override is the
+/// connection string, supplied via configuration exactly like AddInfrastructure already expects
+/// (ConnectionStrings:RenoTrackDb), pointed at the shared Infrastructure test database.
 /// </summary>
 internal static class IdentityTestServices
 {
@@ -18,12 +18,16 @@ internal static class IdentityTestServices
 
     public static ServiceProvider BuildProvider()
     {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:RenoTrackDb"] = ConnectionString,
+            })
+            .Build();
+
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddDbContext<RenoTrackDbContext>(options => options.UseSqlServer(ConnectionString));
-        services.AddIdentityCore<RenoTrack.Infrastructure.Identity.ApplicationUser>()
-            .AddRoles<IdentityRole<int>>()
-            .AddEntityFrameworkStores<RenoTrackDbContext>();
+        services.AddInfrastructure(configuration);
 
         return services.BuildServiceProvider();
     }

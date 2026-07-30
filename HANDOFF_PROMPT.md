@@ -7,113 +7,128 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system —
 public website + admin/inspector dashboard), an existing, actively-developed project. This
-is not a new project. A prior conversation ran out of context and prepared a full handoff
-package so you can continue with zero loss of architectural context. Do not treat anything
-below as optional reading.
+is not a new project. A prior conversation completed Phase 3 in full and prepared this
+handoff package so you can continue with zero loss of architectural context. Do not treat
+anything below as optional reading.
 
 CURRENT STATE AT A GLANCE (verify all of this yourself in steps 1–7 below — do not trust it
 without re-checking):
 
 - Branch: feature/phase-3-infrastructure-efcore (created off main at dc85de1)
-- Latest commit: ff4da09 — "feat(infrastructure): implement UnitOfWork"
-- Phase: Phase 3 — Infrastructure (per PROJECT_ROADMAP.md)
-- Slice: Slices 1–3 of 15 complete (RenoTrackDbContext + entity configurations +
-  RenoTrack.Infrastructure.Tests; InitialCreate migration; IUnitOfWork). Slice 4
-  (ILeadRepository) is the next task.
-- Tests: 317 passing, 0 failing (153 RenoTrack.Domain.Tests, 144 RenoTrack.Application.Tests,
-  20 RenoTrack.Infrastructure.Tests — all against real SQL Server LocalDB, never EF Core
+- Latest commit: 8a2597f — "docs: fix stale Phase 3 'in progress'/'deferred' wording found
+  during final merge-readiness review"
+- Phase: Phase 3 — Infrastructure (per PROJECT_ROADMAP.md) — COMPLETE. All 15 planned slices
+  are done, reviewed, tested, documented, and committed. A Pull Request has been opened
+  (not yet merged as of this writing) — if it has since merged, your branch/next steps are
+  different from what this file assumes; check git log/GitHub before proceeding.
+- Slice: 15 of 15 complete — RenoTrackDbContext + entity configurations +
+  RenoTrack.Infrastructure.Tests; InitialCreate/AddAuditLog/AddNumberSequence/AddIdentity
+  migrations; UnitOfWork; all 6 repositories/queries (Lead, Inspection, Angebot,
+  AngebotReviewComment, CatalogItem ×2); IAuditService; INumberGeneratorService (with a
+  proven concurrency guarantee); IFileStorage/IEmailSender placeholders;
+  AddInfrastructure() DI wiring; Identity storage + role seeding.
+- Tests: 371 passing, 0 failing (153 RenoTrack.Domain.Tests, 144 RenoTrack.Application.Tests,
+  74 RenoTrack.Infrastructure.Tests — all against real SQL Server LocalDB, never EF Core
   InMemory). RenoTrack.Api.Tests still has 0 tests (Phase 4 not started).
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
+- Migrations: 4 total (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity), all
+  currently Pending — none applied to any shared/persistent database yet.
+  `dotnet ef migrations has-pending-model-changes` confirms the model and migration history
+  are in sync.
 - Working tree: clean as of the last commit.
+- A PR review already happened on this branch (lead-reviewer pass covering architectural
+  consistency, migrations, DI, docs, test quality) — three Should-Fix findings were
+  identified and fixed in commit range after the closeout review; no Must-Fix issues were
+  found. See PROJECT_STATE.md §11 for the full closeout/merge-readiness report.
 
 BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
 
 1. Read CLAUDE.md in full. This is the permanent engineering-rules document for this
    repository — every convention in it (Clean Architecture, DDD, CQRS without a mediator
    library, rich domain model, thin handlers, repository-growth-on-demand, ownership vs.
-   role-based authorization, audit policy, notification policy, exception strategy, and —
-   new since Phase 3 started — §21's Infrastructure/EF Core conventions) is an established,
-   binding convention, not a suggestion you're free to deviate from.
+   role-based authorization, audit policy, notification policy, exception strategy, and
+   §21's Infrastructure/EF Core conventions, now covering all 15 Phase 3 slices) is an
+   established, binding convention, not a suggestion you're free to deviate from.
 
-2. Read PROJECT_STATE.md in full. This tells you exactly what exists right now: every
-   aggregate, every repository/service interface and its implementation status, every
-   command, every DTO, every EF Core entity configuration, every test count, every
-   deferred/incomplete piece of work, and the immediate next task.
+2. Read PROJECT_STATE.md in full, including §10 (Phase 2 Closeout, historical) and §11
+   (Phase 3 Closeout Review — documentation/architecture-decision/migration/DI audit, test
+   summary, and merge-readiness report). This tells you exactly what exists right now: every
+   aggregate, every repository/service interface and its implementation, every command,
+   every DTO, every EF Core entity configuration, every test count.
 
 3. Read ARCHITECTURE_DECISIONS.md in full. This is a chronological log of every significant
    decision made on this project, including alternatives considered and rejected, and why.
    Several entries record real bugs caught and fixed (not hypothetical concerns) — read those
-   carefully so you don't reintroduce the same mistakes. Pay particular attention to the most
-   recent ones from Phase 3 (D40–D48): D41/D42 (documentation contradictions found and fixed
-   before Slice 1's code was written), D45 (three missing foreign keys found by a deliberate
-   pre-migration three-way schema review), D46 (a shadow-FK nullability bug found by manually
-   reviewing the generated migration — caught by a different review than D45, proving neither
-   review was redundant with the other), D48 (IUnitOfWork confirmed intentionally thin, with
-   the reasoning recorded, not just the conclusion).
+   carefully so you don't reintroduce the same mistakes. Pay particular attention to the
+   Phase 3 entries (D40–D54): D45/D46 (two independent real bugs caught by two different
+   review steps — a pre-migration schema comparison and a post-generation migration review);
+   D49/D51/D53 (which Infrastructure types are Domain-excluded, and why the reasoning differs
+   between a judgment call and a hard framework constraint); D50/D52/D54 (the same
+   "catch, re-verify, treat as benign" concurrency-safety pattern applied independently to
+   three different problems — best-effort audit logging, atomic number generation, and
+   race-tolerant role seeding, the last two each proven by a real concurrency test, not just
+   asserted).
 
-4. Read PHASE3_PROGRESS.md in full. This is the detailed, non-summarized log of every
-   vertical slice built in Phase 3 so far (Slice 1 through Slice 3) — goals, design
-   discussions, what was introduced, what documentation was updated, what tests were added,
-   and the final outcome of each. (PHASE2_PROGRESS.md is historical background at this point —
-   read it only if you need context on a specific Phase 2 decision; it is not required for
-   resuming Phase 3 work.)
+4. Read PHASE3_PROGRESS.md in full. This is the detailed, non-summarized log of all 15
+   vertical slices built in Phase 3 — goals, design discussions, what was introduced, what
+   documentation was updated, what tests were added, and the final outcome of each.
+   (PHASE2_PROGRESS.md is historical background at this point — read it only if you need
+   context on a specific Phase 2 decision.)
 
-5. Read NEXT_STEPS.md in full. This tells you precisely what to do next (§1b has the full
-   15-slice Phase 3 order with each completed slice's one-line summary), what NOT to change,
-   which decisions are considered final, and which questions genuinely remain open.
+5. Read NEXT_STEPS.md in full. §1b confirms all 15 Phase 3 slices are done. This file also
+   tells you what NOT to change, which decisions are considered final, and which questions
+   genuinely remain open.
 
 6. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself. Confirm the
-   test counts match what PROJECT_STATE.md states (as of this handoff: 317 tests passing —
-   153 Domain, 144 Application, 20 Infrastructure — 0 warnings, 0 errors). RenoTrack.Infrastructure.Tests
-   requires a real SQL Server LocalDB instance to be available on the machine
-   (`sqllocaldb info` should list MSSQLLocalDB) — if it's not available, that is itself
-   something to flag before proceeding, not something to work around with a different provider.
-   If the counts don't match, stop and investigate before writing any code — something changed
-   since this handoff was written, and the discrepancy itself is information you need first.
+   test counts match what's stated above (371 tests — 153 Domain, 144 Application,
+   74 Infrastructure — 0 warnings, 0 errors). RenoTrack.Infrastructure.Tests requires a real
+   SQL Server LocalDB instance to be available on the machine (`sqllocaldb info` should list
+   MSSQLLocalDB) — if it's not available, that is itself something to flag before proceeding.
+   Also run `dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure
+   --startup-project src/RenoTrack.Infrastructure` and confirm it reports no pending changes.
+   If any of this doesn't match, stop and investigate before writing any code — something
+   changed since this handoff was written, and the discrepancy itself is information you need
+   first.
 
-7. Run `git status`, `git branch --show-current`, and `git log --oneline -10`. Confirm you
-   are on `feature/phase-3-infrastructure-efcore` at commit `ff4da09` (or later, if more
-   slices have landed since this was written), and that this branch has not yet been pushed
-   or opened as a PR.
+7. Run `git status`, `git branch --show-current`, `git log --oneline -20`, and check whether
+   the Phase 3 PR has been merged (via `gh pr view` or the GitHub UI) — do not assume the
+   state this file describes still holds. If the PR has merged, your branch and next task are
+   different from everything below (most likely: start Phase 4 from an up-to-date `main`,
+   not continue on `feature/phase-3-infrastructure-efcore`).
 
-COMPLETED WORK (verify against PROJECT_STATE.md / PHASE3_PROGRESS.md, don't just trust this
-summary):
+WHAT PHASE 3 DELIVERED (verify against PROJECT_STATE.md / PHASE3_PROGRESS.md / ARCHITECTURE_DECISIONS.md,
+don't just trust this summary):
 
-- Phase 0, 1, 1b, 2 are all merged to main. Phase 2 merged via PR #5 (merge commit dc85de1).
-- Phase 3 Slice 1: RenoTrackDbContext + one IEntityTypeConfiguration<T> per existing Domain
-  entity (Lead, Inspection, InspectionPhoto, Angebot, AngebotSection, AngebotItem,
-  CatalogItem, AngebotReviewComment) + MoneyConverter/ItemUnitConverter value converters.
-  New RenoTrack.Infrastructure.Tests project (a deliberate addition beyond Architecture.md's
-  originally-documented 3-test-project structure, D40).
-- Phase 3 Slice 2: InitialCreate migration, generated via RenoTrackDbContextFactory
-  (IDesignTimeDbContextFactory, design-time only — real DI composition is still Slice 14).
-  Not yet applied to any shared/persistent database.
-- Phase 3 Slice 3: UnitOfWork — a one-line wrapper over SaveChangesAsync, confirmed
-  intentionally thin by explicit design review (D48).
+- Phases 0, 1, 1b, 2 are all merged to main (Phase 2 via PR #5, merge commit dc85de1).
+- Phase 3: full EF Core persistence for every existing Domain aggregate, all 6
+  repository/query implementations, IUnitOfWork, IAuditService (Best-Effort Audit strategy,
+  D50), INumberGeneratorService (atomic, proven-concurrent-safe number generation, D52),
+  IFileStorage/IEmailSender placeholders (D42/CLAUDE.md §11 — real implementations remain
+  Phase 4/Phase 9), AddInfrastructure() DI composition, and ASP.NET Core Identity storage +
+  role seeding (D53/D54) with the five FKs deferred since D44 now real constraints.
 
-REMAINING WORK — Phase 3's approved slice order (Identity deliberately last, so repository
-work stays independent of it):
+IF THE PR HAS ALREADY MERGED — YOUR FIRST TASK IS PHASE 4:
 
-4. ILeadRepository        <- YOU ARE HERE (next task)
-5. IInspectionRepository
-6. IAngebotRepository
-7. IAngebotReviewCommentRepository
-8. ICatalogItemRepository
-9. ICatalogItemQueries
-10. IAuditService
-11. INumberGeneratorService (+ a real concurrency test — the single highest-risk unverified
-    assumption carried since Phase 2, D34 — do not skip this test)
-12. IFileStorage placeholder (the REAL LocalDiskFileStorage belongs to Phase 4, not Phase 3 —
-    CLAUDE.md was corrected on this exact point during Phase 3's design review, D42; do not
-    reopen that scope question)
-13. IEmailSender placeholder (the real SMTP-backed implementation is Phase 9's, CLAUDE.md §11)
-14. AddInfrastructure() DI extension + Program.cs wiring
-15. Identity storage + role seeding (Admin/Inspector) — deliberately last
+Phase 4 is the API layer (per PROJECT_ROADMAP.md) — controllers, the AddApplication() DI
+extension (IOwnershipValidator, FluentValidation validators, command handlers — none of
+these are wired into DI yet, deliberately deferred since RenoTrack.Api had no controllers to
+need them), authentication/JWT issuance (Architecture.md §7.1 — Phase 3 built storage only,
+no [Authorize] attributes or login endpoints exist yet), HTTP status-code mapping for Domain
+exceptions (RFC 7807 ProblemDetails, Architecture.md §5.3), and the real LocalDiskFileStorage
+(D42). Also worth an explicit early decision, not a silent default: how/when migrations get
+applied to a real database — nothing in the codebase does this yet (no Database.MigrateAsync()
+call, no CI/CD step), so the first real run against a fresh database will fail at Identity
+role-seeding with an unhelpful raw SQL error until this is decided.
 
-After Slice 15, Phase 3 should get the same closeout review Phase 2 got before opening a PR
-(verify every roadmap item complete, every deferred item has a reason, docs are consistent,
-test count, build status, recommended PR title/commit range) — do not skip that step just
-because it isn't explicitly numbered as a slice.
+Do not start Phase 4 code without a design review and explicit user sign-off first, exactly
+as every Phase 2/3 slice was handled — read CLAUDE.md's process conventions again before
+assuming you know the expected workflow.
+
+IF THE PR HAS NOT YET MERGED:
+
+Confirm with the user whether to proceed with the merge (do not force-push, do not merge
+without explicit instruction), or whether there's new feedback to address on the branch
+first. Do not start Phase 4 work on an unmerged branch.
 
 OUTSTANDING DECISIONS / OPEN QUESTIONS (do not assume an answer to any of these):
 
@@ -121,14 +136,14 @@ OUTSTANDING DECISIONS / OPEN QUESTIONS (do not assume an answer to any of these)
 - The exact HTTP status-code mapping for Domain's ArgumentException/InvalidOperationException
   (likely 400/409) — deferred to Phase 4's API middleware design.
 - SaveAngebotItemAsCatalogItemCommand's eventual lookup design (how to resolve an AngebotItem's
-  owning Angebot from the item's id alone) — deferred out of Phase 2's scope entirely (D39);
-  not Phase 3's concern unless a future phase's design review decides otherwise.
+  owning Angebot from the item's id alone) — deferred out of Phase 2's scope (D39); real EF
+  ids now exist (Phase 3 is done), which resolves the original blocker, but the command
+  itself still hasn't been built — revisit only with an explicit decision to do so.
 - OQ-1 through OQ-4 from SRS.md §10 remain open at the SRS level — check SRS.md before
   assuming an answer to any of them.
-- User-referencing FK constraints (AssignedInspectorId, InspectorId, CreatedByInspectorId,
-  ReviewedByAdminId, AdminUserId) are deliberately unconstrained until Slice 15 adds a Users
-  table (D44) — this is settled, not open, but easy to mistake for an oversight if you don't
-  read D44 first.
+- Migration-application strategy for real environments (auto-migrate at startup vs.
+  CI/CD-driven `dotnet ef database update`) — not yet decided, flagged above as a likely
+  early Phase 4 item.
 
 CRITICAL WORKING RULES — THESE ARE NOT OPTIONAL:
 
@@ -138,48 +153,30 @@ CRITICAL WORKING RULES — THESE ARE NOT OPTIONAL:
   not a fresh stylistic opinion arrived at by re-reading the same documents.
 - Never force-push to `main`. Always `git fetch origin` before any push and verify actual
   remote state — do not assume your local view of `origin/main` is current (ARCHITECTURE_DECISIONS.md D5).
-- Never commit directly to `main`. All work happens on feature/phase-3-infrastructure-efcore
-  until Phase 3 is closed out and merged via PR, exactly like every prior phase.
+- Never commit directly to `main`. All work happens on its own feature branch, merged via PR,
+  exactly like every prior phase.
 - Follow the same process every prior slice in this project used: for anything touching new
   architectural territory, do analysis and get explicit user sign-off on the design BEFORE
   writing code — do not implement first and explain after.
-- Grow repositories, interfaces, DTOs, and EF Core schema strictly on demand — add a
-  method/field/table only when one specific, real command or entity you are currently
-  building actually needs it. This applies to Infrastructure exactly as much as it did to
-  Application in Phase 2: no DbSet, no FK, no repository method "while you're at it."
+- Grow repositories, interfaces, DTOs, and schema strictly on demand — add a
+  method/field/table only when one specific, real command or entity actually needs it.
   No generic Repository<TEntity> base class, ever (same anti-generic-abstraction stance
   as IOwnershipValidator, D28).
-- Before generating ANY new migration, perform the same three-way comparison Slice 2
-  established: Domain code <-> EF configurations <-> ERD.md. After generating it, manually
-  review the migration's Up/Down methods before considering it complete — check every
-  operation is expected, no accidental cascade deletes, no unnecessary columns, no
-  unexpected tables, nothing missing. If the model changes after a migration already exists,
-  fix the configuration and regenerate (dotnet ef migrations remove, then re-add) — never
-  hand-edit a generated migration file. (Only remove a migration that has never been applied
-  to a shared database; once applied, add a new migration instead.)
-- Every Infrastructure slice is vertically complete before moving to the next: design review
-  -> implementation -> RenoTrack.Infrastructure.Tests integration tests (real LocalDB, never
-  EF Core InMemory) -> documentation updates (PROJECT_STATE.md, NEXT_STEPS.md,
-  PHASE3_PROGRESS.md, and ARCHITECTURE_DECISIONS.md if a genuine decision was made) -> commit.
-  No partially-finished infrastructure, no "configure this later."
+- Before generating ANY new migration, perform the same three-way comparison established in
+  Phase 3: Domain code <-> EF configurations <-> ERD.md. After generating it, manually review
+  the migration's Up/Down methods before considering it complete. If the model changes after
+  a migration already exists, fix the configuration and regenerate (dotnet ef migrations
+  remove, then re-add) — never hand-edit a generated migration file. (Only remove a migration
+  that has never been applied to a shared database; once applied, add a new migration instead.)
 - Documentation is updated in the same commit as the code that depends on it, whenever a
   design review or implementation reveals a genuine gap or contradiction — never left for
-  "later."
+  "later." (A real example from this exact branch: a final pre-merge review found CLAUDE.md
+  and PROJECT_STATE.md still describing Phase 3 as "in progress"/certain FKs as "deferred"
+  after they'd actually shipped — fixed immediately, not left for a future cleanup pass.)
 
 YOUR FIRST TASK:
 
-Begin with a short design review for ILeadRepository (Phase 3, Slice 4) covering at least:
-the exact shape of the interface it must implement (ILeadRepository already exists in
-RenoTrack.Application.Common.Interfaces — read it, don't guess its members), how GetByIdAsync
-should load the aggregate (Lead has no child entities, so this should be the simplest
-repository in the whole set), and what — if anything — an integration test needs to prove
-beyond what Slice 1's LeadPersistenceTests in RenoTrack.Infrastructure.Tests already covers
-(don't duplicate Slice 1's round-trip proof; the new tests should be about the repository
-class's own behavior, e.g. AddAsync/GetByIdAsync contract behavior including the not-found
-case). Do not write any code until that design has been reviewed and explicitly approved by
-the user, exactly as every previous slice in both Phase 2 and Phase 3 has been handled.
-
-Confirm you have completed steps 1–7 above, and give a brief summary (not a re-summary of
-history — the user was there for all of it) of your understanding of exactly where the
-project stands, before beginning the ILeadRepository design review.
+Confirm you have completed steps 1–7 above, determine whether the Phase 3 PR has merged, and
+give a brief summary (not a re-summary of history — the user was there for all of it) of
+exactly where the project stands before proposing what to work on next.
 ```
