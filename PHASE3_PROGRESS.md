@@ -221,3 +221,29 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 4 (`AuditServiceTests`) — `LogAsync_PersistsAllFieldsCorrectly`, `LogAsync_WithNoPerformingUserAndNoDetails_PersistsBothAsNull`, `LogAsync_CommitsIndependently_WithNoUnitOfWorkInvolved` (proves `LogAsync` persists without any `IUnitOfWork` call, confirming the D50 consequence), `LogAsync_WhenTheUnderlyingWriteFails_DoesNotThrow` (a disposed `DbContext` deterministically fails the write; proves the Best-Effort Audit strategy's swallow-and-log behavior for real, not just by code review).
 
 **Final outcome:** 53 Infrastructure tests, alongside 153 Domain + 144 Application → **350 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 11 — `INumberGeneratorService`
+
+**Goal:** The single highest-risk unverified assumption carried since Phase 2 (D34) — Angebot number generation must be atomic and collision-free under real concurrent load. Full design review returned to, focused on correctness (concurrency, locking, transaction boundaries), not implementation detail — with an explicit instruction not to assume correctness, but prove it.
+
+**A real documentation/reality mismatch was found, not assumed away:** `Architecture.md` §8 and `ERD.md` both stated the sequence increment happens "inside the same DB transaction as the Angebot creation." Re-checking the actual, already-built `CreateAngebotCommandHandler` (`CreateAngebotCommandHandler.cs:43-50`) showed `NextAngebotNumberAsync` is awaited and returns a plain `string` **before** the `Angebot` entity even exists in memory — true same-transaction participation is not achievable without restructuring an already-approved Phase 2 handler (not permitted without a genuine bug). Both documents corrected in this commit to describe the actual, provably-safe design.
+
+**Two new architectural decisions recorded (`ARCHITECTURE_DECISIONS.md` D51–D52):**
+- **D51 — `NumberSequence` is an Infrastructure persistence model, not a Domain entity.** Same reasoning as `AuditLog` (D49) — a technical counter with no business invariant referenced anywhere.
+- **D52 — Atomic single-statement increment, decoupled from the Angebot's own transaction; raw SQL deliberately, narrowly introduced.** The requirement is atomic increment-and-return of a single counter row. EF Core's read/track/write model cannot express this as one database round trip — even load-then-increment-then-`SaveChangesAsync` is two round trips with an in-memory gap between them, a real concurrent-duplicate race (this was explicitly analyzed and rejected, not assumed safe). A single `UPDATE ... OUTPUT INSERTED.LastValue` raw SQL statement, executed via `DbContext.Database.SqlQueryRaw<int>(...)` with no ambient/explicit EF transaction, runs as one SQL Server auto-commit unit — a row-level exclusive lock held only for that one statement (sub-millisecond), not across the rest of the handler. This is a **deliberate, narrowly-scoped exception** to the project's EF-Core-only Infrastructure convention, confined entirely to `NumberGeneratorService` — nowhere else in Infrastructure uses raw SQL. A first-of-year fallback (`INSERT ... OUTPUT`) handles a new `(SequenceType, Year)`; a losing race on that `INSERT` (caught via the unique-constraint violation, SQL error 2601/2627) triggers exactly one bounded retry of the `UPDATE`, guaranteed to succeed. Gaps in Angebot numbering confirmed acceptable — `BusinessRules.md`/`SRS.md` searched directly: BR-9's "never skip or reuse" requirement is Invoice-specific (a §14 UStG legal requirement), with no equivalent rule for Angebot numbers.
+
+**Documentation corrections (`CLAUDE.md` §15's documentation-first discipline):** `Architecture.md` §8 and `ERD.md`'s `NumberSequences` row both corrected to describe the actual atomic-statement design, not literal same-transaction participation.
+
+**Concurrency proven, not assumed:** the integration test suite includes a 50-way parallel-request test (`Task.WhenAll`, each caller with its own `DbContext` — a `DbContext` is not thread-safe, so this genuinely exercises SQL Server's own row locking) against the same year, asserting all 50 returned numbers are distinct and form the exact expected `00001`–`00050` sequence. This is real proof against actual LocalDB, not a code-review claim.
+
+**New abstractions introduced:** `NumberSequence` (`src/RenoTrack.Infrastructure/Persistence/Entities/NumberSequence.cs`), `NumberSequenceConfiguration`, `NumberGeneratorService : INumberGeneratorService` (`src/RenoTrack.Infrastructure/Persistence/NumberGeneratorService.cs`), `AddNumberSequence` migration.
+
+**Migration review:** exactly one `CreateTable` (`NumberSequences`, 4 columns matching the configuration), one unique `CreateIndex` on `(SequenceType, Year)`, no FK constraints, clean `Down()`. Matches the reviewed design exactly.
+
+**Documentation updates:** `ARCHITECTURE_DECISIONS.md` (D51, D52, plus two new rejected-alternatives entries); `Architecture.md` §8; `ERD.md`'s `NumberSequences` row; this entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 4 (`NumberGeneratorServiceTests`) — `NextAngebotNumberAsync_ForANewYear_ReturnsSequenceOne`, `NextAngebotNumberAsync_CalledTwiceSequentially_Increments`, `NextAngebotNumberAsync_DifferentYears_EachStartsItsOwnSequenceAtOne`, `NextAngebotNumberAsync_ManyConcurrentCallsForTheSameYear_NeverReturnsADuplicate` (the concurrency proof — 50 parallel callers).
+
+**Final outcome:** 57 Infrastructure tests, alongside 153 Domain + 144 Application → **354 solution-wide.** Build clean (0 warnings, 0 errors). Committed.

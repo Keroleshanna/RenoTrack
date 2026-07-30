@@ -236,7 +236,7 @@ erDiagram
 | InvoiceLines | Id | InvoiceId → Invoices | — | Optional finer breakdown; an Invoice can exist with just header-level Net/VAT/Gross amounts if lines aren't needed |
 | Payments | Id | InvoiceId → Invoices, RecordedByAdminId → Users | — | Manual v1; future gateway integration adds columns here, not a schema redesign (SRS FR-8.5) |
 | TokenLinks | Id | (polymorphic: EntityType + EntityId, no DB-level FK) | Token | Polymorphic reference is intentional — one table serves both Angebot and Invoice links (Architecture §7.2) |
-| NumberSequences | Id | — | (SequenceType, Year) | Incremented inside the same transaction as the entity it numbers, to avoid collisions under concurrent writes (Architecture §8) |
+| NumberSequences | Id | — | (SequenceType, Year) | Incremented via a single atomic `UPDATE ... OUTPUT` statement, independently committed (not inside the same transaction as the entity it numbers — not achievable given `CreateAngebotCommandHandler`'s call order). Row-level lock scoped to that one statement avoids collisions under concurrent writes (Architecture §8, `ARCHITECTURE_DECISIONS.md` D52) |
 | AuditLogs | Id | PerformedByUserId → Users (nullable) | — | Nullable user = system-triggered action (e.g. scheduled Overdue transition) |
 
 ---
