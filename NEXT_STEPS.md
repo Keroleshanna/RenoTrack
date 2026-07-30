@@ -4,11 +4,11 @@
 
 ---
 
-## 1. Phase 2 — Complete, Pending PR
+## 1. Phase 2 — Complete and Merged
 
-All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command list: `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand`) is done — 15 vertical slices, full record in `PHASE2_PROGRESS.md`. `CatalogItem`'s Application layer (`CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` — Slices 11–14) was a deliberate, justified insertion into this branch, needed by `AddAngebotItemCommand`.
+All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command list: `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand`) is done — 15 vertical slices, full record in `PHASE2_PROGRESS.md`. `CatalogItem`'s Application layer (`CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` — Slices 11–14) was a deliberate, justified insertion into this branch, needed by `AddAngebotItemCommand`. **Merged to `main` via PR #5 (merge commit `dc85de1`).** `feature/phase-2-application-layer` is no longer the active branch.
 
-**Immediate next step:** open the Phase 2 PR (see `PROJECT_STATE.md` for the closeout review — build/test status, commit range, recommended PR title). After the PR, Phase 3 (Infrastructure — EF Core, repositories, Identity) begins.
+**Immediate next step:** Phase 3 (Infrastructure — EF Core, repositories, Identity). A design review is required before any Infrastructure code is written (per the standing "design → review → implementation" process this project has used throughout).
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -63,6 +63,6 @@ All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command l
 ## 6. How to Start Your First Message in a Resumed Conversation
 
 1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE2_PROGRESS.md`, and this file, in that order, in full.
-2. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold. If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
-3. Run `git status`, `git branch --show-current`, and `git log --oneline -15` to confirm you're on `feature/phase-2-application-layer` with the expected commits, and that `main` matches what `PROJECT_STATE.md` §2 describes.
-4. Phase 2 is complete and pending its PR (§1 above). If the PR hasn't been opened yet, that's the next action. If it has been merged, begin Phase 3 (Infrastructure) — read `PROJECT_ROADMAP.md`'s Phase 3 section first, and remember `INumberGeneratorService`'s atomic-transaction requirement is the single highest-risk unverified assumption carried into it (`CLAUDE.md` §18).
+2. `git fetch origin`, `git checkout main`, `git pull origin main` — confirm local `main` matches `origin/main`.
+3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold. If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
+4. Phase 2 is merged (§1 above). Begin Phase 3 (Infrastructure) — read `PROJECT_ROADMAP.md`'s Phase 3 section first, and remember `INumberGeneratorService`'s atomic-transaction requirement is the single highest-risk unverified assumption carried into it (`CLAUDE.md` §18). Do not write Infrastructure code before a design review is presented and approved.

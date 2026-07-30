@@ -4,7 +4,7 @@
 
 **Process convention followed for every slice (see also `CLAUDE.md`):** analyze → (for slices touching new architectural territory) design review with the user before any code → implement → present code for review → write tests → verify full-solution build/test → commit. Not every slice triggered a full design-review round — simpler, precedent-following slices moved faster once the pattern was established.
 
-All work in this log lives on branch `feature/phase-2-application-layer`, not yet merged or pushed as of this writing.
+All work in this log lived on branch `feature/phase-2-application-layer` during development; it was merged to `main` via PR #5 (merge commit `dc85de1`) once Phase 2's roadmap-defined scope was complete.
 
 ---
 

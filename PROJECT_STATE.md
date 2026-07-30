@@ -1,26 +1,25 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30 — Phase 2 closeout. `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed **not** part of Phase 2's roadmap-defined scope (`ARCHITECTURE_DECISIONS.md` D39); Phase 2's actual scope (`PROJECT_ROADMAP.md`'s nine-command list) is fully complete as of Slice 15. Ready for PR.
+**Last updated:** 2026-07-30 — Phase 2 merged to `main` (PR #5, merge commit `dc85de1`). `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed **not** part of Phase 2's roadmap-defined scope (`ARCHITECTURE_DECISIONS.md` D39); Phase 2's actual scope (`PROJECT_ROADMAP.md`'s nine-command list) is fully complete as of Slice 15. Phase 3 kickoff in progress.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 2 — Application Layer**, per `PROJECT_ROADMAP.md`. **Roadmap-defined scope complete; ready for PR.**
+**Phase 3 — Infrastructure**, per `PROJECT_ROADMAP.md`. Kickoff/planning in progress; no Infrastructure code written yet.
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
-- **Phase 2 (Application layer) — ✅ scope complete, not yet merged/pushed**, on branch `feature/phase-2-application-layer` (15 vertical slices committed locally; see §5). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion.
-- Phase 3 onward — not started.
+- **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
+- **Phase 3 (Infrastructure) — 🔶 planning.** Design review in progress; see the Phase 3 design-review document once approved.
 
 ## 2. Current Branch State
 
-- Active branch: `feature/phase-2-application-layer`.
-- This branch is **not yet pushed** to `origin`. It contains 15 vertical-slice commits plus a handful of documentation-only commits (a mid-phase handoff commit, plus closeout/sanity-review corrections), per the established convention of accumulating a phase's slices before opening one PR — see `CLAUDE.md` §19. Commit range for the PR: `main..feature/phase-2-application-layer` (starts at `ef9bc27`, Slice 1) — let the PR tooling report the exact count/diff rather than hardcoding it here, since any further doc-only fix commit would immediately make a hardcoded count stale again.
-- `main` is up to date locally as of the last `git fetch`/`merge --ff-only` performed after Phase 1b's PR was merged.
-- **Next git action when resuming:** open the Phase 2 PR (see §9 below for the recommended title and full closeout review). Do not push until instructed.
+- Active branch: `main`. `feature/phase-2-application-layer` was merged via PR #5 (merge commit `dc85de1`) and is no longer the active working branch.
+- Local `main` is confirmed up to date with `origin/main` (`git fetch origin` + `git pull origin main`, both at `dc85de1`) as of this writing.
+- **Next git action when resuming:** once Phase 3's design is approved, `git fetch origin` and create a new branch (e.g. `feature/phase-3-infrastructure-efcore`, matching `PROJECT_ROADMAP.md`'s naming) off current `main` before any Infrastructure code is written.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
@@ -202,7 +201,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 8. Immediate Next Step
 
-**Open the Phase 2 PR.** See §9 below for the full closeout review (roadmap-item verification, deferred-item audit, doc consistency, test/build confirmation, recommended PR title and commit range). After the PR, Phase 3 (Infrastructure) begins.
+**Phase 2 is merged (§1/§2 above). Phase 3 (Infrastructure) design review is in progress** — no Infrastructure code has been written yet; a full design review (objectives, implementation order, repository/EF Core/DbContext/Identity/file-storage/number-generator/migration/testing strategy, risks) is being produced for approval before any code is written. §9 below remains the historical record of Phase 2's closeout.
 
 ---
 
