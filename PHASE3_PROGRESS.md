@@ -247,3 +247,19 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 4 (`NumberGeneratorServiceTests`) — `NextAngebotNumberAsync_ForANewYear_ReturnsSequenceOne`, `NextAngebotNumberAsync_CalledTwiceSequentially_Increments`, `NextAngebotNumberAsync_DifferentYears_EachStartsItsOwnSequenceAtOne`, `NextAngebotNumberAsync_ManyConcurrentCallsForTheSameYear_NeverReturnsADuplicate` (the concurrency proof — 50 parallel callers).
 
 **Final outcome:** 57 Infrastructure tests, alongside 153 Domain + 144 Application → **354 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 12 — `IFileStorage` Placeholder
+
+**Goal:** Register a minimal placeholder implementation only — the real `LocalDiskFileStorage` is Phase 4's deliverable, already settled (D42). No design review needed beyond confirming the placeholder satisfies the interface, can't be silently used in production, and clearly communicates it isn't the real implementation.
+
+**Implementation choice:** `PlaceholderFileStorage.SaveAsync` always throws `NotImplementedException`, rather than a silent no-op — a no-op would be far worse (uploaded photos would appear to succeed while actually being dropped, with no error anywhere). Throwing loudly guarantees it cannot be accidentally relied upon before Phase 4 lands. Lives in a new `RenoTrack.Infrastructure/FileStorage/` folder (not `Persistence/`, since it has no EF Core/`DbContext` involvement at all — named `FileStorage`, not `Storage`, to avoid colliding with `.gitignore`'s pre-existing `storage/` rule for local runtime file storage, Architecture.md §9).
+
+**New abstractions introduced:** `PlaceholderFileStorage : IFileStorage` (`src/RenoTrack.Infrastructure/FileStorage/PlaceholderFileStorage.cs`).
+
+**Documentation updates:** This entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b.
+
+**Tests added:** 1 (`PlaceholderFileStorageTests`) — `SaveAsync_AlwaysThrowsNotImplementedException`. No database involved, so no `[Collection("Infrastructure Database")]` — lives under `tests/RenoTrack.Infrastructure.Tests/FileStorage/`, a new folder parallel to `Persistence/`.
+
+**Final outcome:** 58 Infrastructure tests, alongside 153 Domain + 144 Application → **355 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
