@@ -270,6 +270,29 @@ All work in this log lives on branch `feature/phase-2-application-layer`, not ye
 
 ---
 
+## Slice 13 — `RetireCatalogItemCommand`
+
+**Goal:** Third slice of the CatalogItem Application layer. Before implementing, the user asked for a short, explicit Domain-behavior verification rather than assuming the existing `Retire()` design was sufficient.
+
+**Design decisions & architectural discussion:**
+- **Explicit pre-implementation verification (requested by the user), all four confirming the existing design with no changes needed:**
+  1. `CatalogItem.Retire()` is intentionally idempotent — no guard, `IsRetired = true` unconditionally; confirmed by its own doc comment and `CatalogItemTests.Retire_IsIdempotent`.
+  2. No path exists for a retired item to become active again — `IsRetired` has a `private set` written only by `Retire()`, one-directional.
+  3. No current or planned use case needs "Unretire" — checked `SRS.md`, `Wireframes.md`, `PermissionMatrix.md`, `BusinessRules.md`, `ERD.md`; zero mentions anywhere.
+  4. No business rule should block retirement based on historical `AngebotItem` references — BR-8's copy-on-create semantics mean past `AngebotItem`s are structurally indifferent to a `CatalogItem`'s later edits or retirement, proven by `CatalogItemTests.UpdatingACatalogItem_DoesNotAffectAnAngebotItemAlreadyCreatedFromIt_BR8`. A retirement guard here would contradict BR-8's own point.
+- Handler is the simplest of the three CatalogItem commands: load → `Retire()` (no parameters, no guard failure possible) → persist → audit. No Domain guard-failure test exists for the same reason `ApproveAngebotCommandHandler` has none — there's no invalid "from" state.
+- No `IOwnershipValidator`, no notification — same reasoning as Create/Update, re-confirmed unchanged.
+
+**New abstractions introduced:** `AuditAction.CatalogItemRetired` only. No new repository method (`GetByIdAsync` already existed from Slice 12), no new DTO.
+
+**Documentation updates:** None beyond this log entry — the pre-implementation verification confirmed the existing Domain design rather than surfacing a gap.
+
+**Tests added:** 7 (`RetireCatalogItemCommandHandlerTests`) — happy path (`IsRetired` true in the returned DTO), save-changes count, audit entry, **explicit idempotency proof** (retiring an already-retired item succeeds without error), not-found, validation failures (two invalid-id/user-id cases).
+
+**Final outcome:** 122 Application tests, 153 Domain tests → **275 solution-wide.** Committed.
+
+---
+
 ## Why `AddAngebotItemCommand` Was Intentionally Postponed
 
 `AddAngebotItemCommand` is next in Sequence Diagram §4's literal flow, immediately after `AddAngebotSectionCommand`. It was explicitly **not** built yet, by deliberate user decision, for the following reason:

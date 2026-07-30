@@ -21,4 +21,5 @@ public enum AuditAction
     AngebotChangesRequested,
     CatalogItemCreated,
     CatalogItemUpdated,
+    CatalogItemRetired,
 }
