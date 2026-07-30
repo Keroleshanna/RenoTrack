@@ -197,3 +197,27 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Tests added:** 3 (`CatalogItemQueriesTests`) — `SearchAsync_ReturnsAllFieldsCorrectlyProjected` (also the concrete proof the projection expression is translatable), `SearchAsync_ExcludesRetiredItems`, `SearchAsync_AfterAddingANewCatalogItem_IncludesItInTheResultCount`.
 
 **Final outcome:** 49 Infrastructure tests, alongside 153 Domain + 144 Application → **346 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
+
+---
+
+## Slice 10 — `IAuditService`
+
+**Goal:** First slice to add a new table since the `InitialCreate` migration itself. Full design review returned to (per the user's request), covering all 8 points: `AuditLog`'s responsibilities, Domain-vs-Infrastructure placement, what data to persist, FK strategy, transaction participation, failure behavior, migration review, and test strategy.
+
+**Two new architectural decisions recorded (`ARCHITECTURE_DECISIONS.md` D49–D50), both by explicit user instruction:**
+- **D49 — `AuditLog` is an Infrastructure persistence model, not a Domain entity.** No `BusinessRules.md` rule references it; it protects no invariant beyond having its fields set; it represents technical instrumentation, not business behavior. The first EF-mapped type in this project with no Domain-entity counterpart, living in a new `Persistence/Entities/` folder.
+- **D50 — Best-Effort Audit strategy.** Every handler already calls `IUnitOfWork.SaveChangesAsync()` (the business commit) before `auditService.LogAsync(...)`, with no `SaveChangesAsync` call afterward — meaning `LogAsync` must commit its own write independently. Formalized: business consistency never depends on audit persistence; the business transaction always commits first; audit logging executes afterward as a separate, best-effort write; audit failures are logged as warnings (`ILogger<AuditService>`), never rethrown; an audit failure can never invalidate an already-committed business operation. Requires no change to `IAuditService`'s existing signature — entirely internal to the Infrastructure implementation.
+
+**FK strategy (not a new decision, applying Architecture.md §11's already-documented rule):** no FK to any business entity — `AuditLog` has "no cross-entity linkage," only `EntityType`/`EntityId`, since one table logs against `Lead`/`Inspection`/`Angebot`/`CatalogItem` interchangeably. `PerformedByUserId` gets the same no-FK-until-Identity-slice treatment as every other user-reference column (D44).
+
+**What data is persisted:** exactly `IAuditService.LogAsync`'s own parameters (`EntityType`, `EntityId`, `Action`, `PerformedByUserId`, `Details`) plus `CreatedAt` — nothing speculative (no IP address, user agent, request id; none documented anywhere).
+
+**Migration review:** three-way comparison performed (no Domain entity per D49; `AuditLogConfiguration` ↔ `ERD.md`'s already-documented `AuditLogs` row/index at `ERD.md:240`/`:254`) before generating. Generated migration (`AddAuditLog`) manually reviewed: exactly one `CreateTable` (`AuditLogs`, 7 columns matching the configuration exactly) and one `CreateIndex` on `(EntityType, EntityId)`, no FK constraints (correct — no cross-entity linkage), no cascade behavior, clean `Down()`. Nothing unexpected.
+
+**New abstractions introduced:** `AuditLog` (`src/RenoTrack.Infrastructure/Persistence/Entities/AuditLog.cs`), `AuditLogConfiguration`, `AuditService : IAuditService` (`src/RenoTrack.Infrastructure/Persistence/AuditService.cs`), `AddAuditLog` migration.
+
+**Documentation updates:** `ARCHITECTURE_DECISIONS.md` (D49, D50, plus two new rejected-alternatives entries); this entry (`PHASE3_PROGRESS.md`); `PROJECT_STATE.md` §6.4/§9; `NEXT_STEPS.md` §1b. `ERD.md` needed no correction — the already-documented `AuditLogs` row/index matched the implementation exactly.
+
+**Tests added:** 4 (`AuditServiceTests`) — `LogAsync_PersistsAllFieldsCorrectly`, `LogAsync_WithNoPerformingUserAndNoDetails_PersistsBothAsNull`, `LogAsync_CommitsIndependently_WithNoUnitOfWorkInvolved` (proves `LogAsync` persists without any `IUnitOfWork` call, confirming the D50 consequence), `LogAsync_WhenTheUnderlyingWriteFails_DoesNotThrow` (a disposed `DbContext` deterministically fails the write; proves the Best-Effort Audit strategy's swallow-and-log behavior for real, not just by code review).
+
+**Final outcome:** 53 Infrastructure tests, alongside 153 Domain + 144 Application → **350 solution-wide.** Build clean (0 warnings, 0 errors). Committed.

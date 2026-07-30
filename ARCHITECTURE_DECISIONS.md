@@ -712,6 +712,41 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D49 — `AuditLog` Is an Infrastructure Persistence Model, Not a Domain Entity
+
+**Problem:** Every persisted type built so far (`Lead`, `Inspection`, `InspectionPhoto`, `Angebot`, `AngebotSection`, `AngebotItem`, `CatalogItem`, `AngebotReviewComment`) is a Domain entity, following the project's rich-domain-model convention: private constructor, static factory, self-guarded invariants (`CLAUDE.md` §2). `IAuditService` (Phase 2, `Application.Common.Interfaces`) needs a real persisted record in Phase 3, Slice 10 — raising the question of whether that record should be built the same way.
+
+**Investigation:** `AuditLog` has no business invariant discussed anywhere in `BusinessRules.md`/`StateMachine.md` — no `BR-n` references it. `Architecture.md` §11 and `CLAUDE.md` §10 both describe it purely as cross-cutting instrumentation ("written by a small `IAuditService` called from handlers at key transition points"), not as a business concept with Domain behavior. Its only Application-layer contact point, `IAuditService`, is a plain logging-shaped interface (`LogAsync(entityType, entityId, action, performedByUserId, details, ct)`), not a repository over an aggregate — structurally closer to the notification models in `Application.Common.Notifications` (D23: pure data conveying a fact, no Domain behavior) than to any existing aggregate root, except that it is persisted rather than transient.
+
+**Alternatives considered:** (a) Build `AuditLog` as a Domain entity, matching every other persisted type's convention, for structural consistency. (b) Build `AuditLog` as an Infrastructure-only persistence model with no Domain counterpart at all — the first EF-mapped type in this project without one.
+
+**Final decision:** (b), by explicit user instruction.
+
+**Why chosen:** `AuditLog` represents technical instrumentation, not business behavior — it protects no invariant beyond having its fields set at construction (there is no meaningful "invalid state" the way `Lead.Create` prevents an empty name), never transitions, and is never read back through any Domain rule. Applying the rich-domain-model machinery (private constructor, static factory, self-guards, `CLAUDE.md` §2) to a type with no actual invariants to protect would be ceremony without purpose, and would incorrectly imply `AuditLog` is a business concept participating in the ubiquitous language the way `Lead`/`Angebot`/`CatalogItem` do.
+
+**Consequences:** `AuditLog` lives in `RenoTrack.Infrastructure/Persistence/Entities/AuditLog.cs` as a plain sealed class with a normal (not private) constructor — `RenoTrack.Application`/`RenoTrack.Domain` never reference this type at all, only `IAuditService`'s interface (primitives + `AuditAction` in, `Task` out). This is a precedent: if a future Infrastructure-only technical record is ever needed (a cache entry, a rate-limit counter, etc.), the same reasoning — no Domain business rule references it, purely cross-cutting — determines whether it belongs in `Domain` or stays Infrastructure-only, rather than defaulting to the rich-domain-model pattern for every persisted row.
+
+---
+
+## D50 — `IAuditService`: Best-Effort Audit Strategy — Business Consistency Never Depends on Audit Persistence
+
+**Problem:** Every handler already follows `CLAUDE.md` §6's canonical shape: `IUnitOfWork.SaveChangesAsync()` (step 5, the business commit) happens *before* `auditService.LogAsync(...)` (step 6), and no handler calls `SaveChangesAsync` again afterward. This is pre-existing Phase 2 behavior, not reopened here — but it has a real, previously-unaddressed consequence: since audit logging happens strictly after the business transaction has already committed, it cannot participate in that transaction, and the Infrastructure implementation of `LogAsync` must independently persist its own write (calling `SaveChangesAsync` on the shared `DbContext` itself, since nothing else will). Every handler `await`s `LogAsync(...)` directly with no `try/catch` — so if that independent write throws (e.g. a transient DB fault), the exception propagates out of an already-successful handler, and the caller would receive an error response for a business operation that in fact already succeeded and is durably saved.
+
+**Alternatives considered:** (a) Let audit-write exceptions propagate normally — simplest, but produces a false "failed" response for data that was actually committed, and makes the reliability of every business command hostage to the audit table's own health. (b) Adopt an explicit **Best-Effort Audit** strategy: catch any exception inside the Infrastructure `AuditService.LogAsync`, log it as a warning (`ILogger<AuditService>`), and never rethrow — audit failures are recorded for operational visibility but never surface to the caller or affect the business result.
+
+**Final decision:** (b), by explicit user instruction, named and documented as the **Best-Effort Audit strategy**:
+- Business consistency never depends on audit persistence.
+- The business transaction (`IUnitOfWork.SaveChangesAsync()`) is always committed first, independently of audit logging.
+- Audit logging executes afterward, as a separate, best-effort write.
+- Audit failures are logged as warnings (`ILogger<AuditService>`), not thrown.
+- Audit failures never invalidate an already-committed business operation — `LogAsync` never lets an exception propagate to its caller.
+
+**Why chosen:** `CLAUDE.md` §10 already frames audit as being for "business milestones a reviewer would want to see" — valuable operational/observability data, not a correctness-critical invariant on the level of `Money`/BR-11. A transient failure writing one audit row is an acceptable, recoverable loss; reporting an already-persisted business operation as failed because of it is a strictly worse outcome, and would make every command's reliability depend on a secondary, non-essential write path. This requires no change to `IAuditService`'s existing signature (`Task`, no result) — the swallow-and-log behavior is entirely internal to the Infrastructure implementation, invisible to callers by design.
+
+**Consequences:** `AuditService.LogAsync` wraps its own `DbContext.AuditLogs.Add(...)` + `SaveChangesAsync(...)` in a `try/catch`, logging any exception via `ILogger<AuditService>.LogWarning(...)` and returning normally either way. No handler code changes — this is purely an Infrastructure-side guarantee. A future reader should not expect `LogAsync` to ever throw, and should not add `try/catch` around it in handler code — that defensive layer already exists inside the implementation itself.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -735,3 +770,5 @@ Numbering is chronological across the whole project, not per-phase.
 | Adding `RenoTrack.Infrastructure` reference to `RenoTrack.Api.Tests` instead of a new test project | D40 | Would make `Api.Tests` depend on Infrastructure before `Api` itself does — backwards dependency direction |
 | Keeping `ERD.md`'s `Subtotal`/`LineTotal`/`DecisionResult` columns and adding them to the schema | D41 | Would resurrect settled Phase 1 decisions (computed-only properties, D16) without new evidence |
 | Building `LocalDiskFileStorage` for real in Phase 3 | D42 | `PROJECT_ROADMAP.md`'s Phase 4 deliverable list explicitly owns it; `CLAUDE.md`'s "(Phase 3)" was a stale forward-reference |
+| `AuditLog` as a rich Domain entity (private constructor, static factory, self-guards) | D49 | No business invariant references it anywhere; ceremony without purpose for a type with nothing to protect |
+| Letting `AuditService.LogAsync` exceptions propagate to the caller | D50 | Would report an already-committed business operation as failed; audit is best-effort instrumentation, not a correctness invariant |
