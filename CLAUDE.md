@@ -12,7 +12,7 @@
 - **Domain-Driven Design**, with a **rich domain model**: entities own their invariants and expose behavior (named methods), never public setters or anemic property bags manipulated externally.
 - **CQRS-lite without a mediator library.** No MediatR. See §3.
 - Front-end projects (`RenoTrack.Website`, `RenoTrack.Dashboard`) never reference any backend project — they talk to the API over HTTP only.
-- Test projects mirror the same isolation: `RenoTrack.Domain.Tests` references only `RenoTrack.Domain`; `RenoTrack.Application.Tests` references `RenoTrack.Application` **and** `RenoTrack.Domain` explicitly (tests assert on resulting Domain state, so this reference is real, not transitive-only).
+- Test projects mirror the same isolation: `RenoTrack.Domain.Tests` references only `RenoTrack.Domain`; `RenoTrack.Application.Tests` references `RenoTrack.Application` **and** `RenoTrack.Domain` explicitly (tests assert on resulting Domain state, so this reference is real, not transitive-only). `RenoTrack.Infrastructure.Tests` (added Phase 3) references `RenoTrack.Infrastructure` **and** `RenoTrack.Domain`, and is the one test project that talks to a real database (LocalDB) rather than in-memory fakes — see §14.
 
 ---
 
@@ -183,7 +183,7 @@ Every command handler follows this shape, with no deviation unless explicitly ju
 
 ## 13. File Storage Principles
 
-- **`IFileStorage` lives in `RenoTrack.Application.Common.Interfaces`**, implemented by `LocalDiskFileStorage` in `RenoTrack.Infrastructure` (Phase 3), swappable later for Azure Blob/S3 with zero change to calling code (Architecture.md §9).
+- **`IFileStorage` lives in `RenoTrack.Application.Common.Interfaces`**, implemented by `LocalDiskFileStorage` in `RenoTrack.Infrastructure` (Phase 4 — `PROJECT_ROADMAP.md`'s Phase 4 deliverable list, not Phase 3; corrected during Phase 3's design review, see `ARCHITECTURE_DECISIONS.md`), swappable later for Azure Blob/S3 with zero change to calling code (Architecture.md §9). Phase 3 registers only a minimal placeholder so DI composition succeeds.
 - **Starts with only `SaveAsync(Stream content, string fileUrl, CancellationToken ct)`.** `GetAsync`/`DeleteAsync` (both named in Architecture §9's original description) are deliberately not built yet — no current command/query needs them. Add them only when one does, per the general repository-growth discipline (§4) applied to this interface too.
 - **The caller determines the `fileUrl`/key up front** — see §12. `IFileStorage` never invents an identifier.
 
@@ -197,6 +197,7 @@ Every command handler follows this shape, with no deviation unless explicitly ju
 - **Aggregate-boundary claims are verified by reflection-based tests, not just by convention/comment.** E.g. `InspectionPhoto`/`AngebotSection` have tests asserting `GetConstructors(BindingFlags.Public | BindingFlags.Instance)` is empty, and that a would-be public mutator method cannot be resolved via `GetMethod(name, BindingFlags.Public | BindingFlags.Instance)`. Independent-aggregate separation (e.g. `AngebotReviewComment` vs. `Angebot`) is verified by asserting neither type's properties/fields (including generic type arguments, to catch a hidden `List<T>`) reference the other's type.
 - **A guarded state machine is tested exhaustively, not just for the happy path.** The established pattern (`Lead`, `Angebot`) is: drive the aggregate to every possible state via its own real transition methods (never a backdoor), then assert a given transition method succeeds from exactly its documented "from" state and throws `InvalidOperationException` (naming both the actual and expected state in the message) from every other state.
 - **A failing test that reveals a mistake in the test's own expectation (not the code) is still valuable — fix the assertion, don't discard the test.** Example: `AngebotItemTests`'s first realistic `LineTotal` example had an arithmetic error in the expected value (`255.5112` instead of the correct `255.5712`); the test caught it immediately, proving the production code was already correct.
+- **`RenoTrack.Infrastructure.Tests` (Phase 3) runs real integration tests against SQL Server LocalDB — never the EF Core InMemory provider.** InMemory doesn't enforce real SQL constraints/types (unique indexes, foreign keys, `decimal(18,2)` precision), which is exactly what this layer exists to verify. Tests share one LocalDB database per test run via an `ICollectionFixture`, forcing xUnit to run them serially (never in parallel against the same database) rather than isolating per-class.
 - **`dotnet build` must show 0 Warnings, 0 Errors and `dotnet test` must show 100% passing before any slice is considered complete or committed.** `TreatWarningsAsErrors` is enabled solution-wide (`Directory.Build.props`), with a narrow, explicit `WarningsNotAsErrors` escape hatch for specific NuGet advisory IDs only when consciously accepted.
 
 ---

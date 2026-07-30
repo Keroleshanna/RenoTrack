@@ -1,33 +1,34 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30 — Phase 2 merged to `main` (PR #5, merge commit `dc85de1`). `SaveAngebotItemAsCatalogItemCommand` was reviewed and confirmed **not** part of Phase 2's roadmap-defined scope (`ARCHITECTURE_DECISIONS.md` D39); Phase 2's actual scope (`PROJECT_ROADMAP.md`'s nine-command list) is fully complete as of Slice 15. Phase 3 kickoff in progress.
+**Last updated:** 2026-07-30 — Phase 3, Slice 1 complete (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`). Phase 2 merged to `main` (PR #5, merge commit `dc85de1`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 3 — Infrastructure**, per `PROJECT_ROADMAP.md`. Kickoff/planning in progress; no Infrastructure code written yet.
+**Phase 3 — Infrastructure**, per `PROJECT_ROADMAP.md`. In progress, on branch `feature/phase-3-infrastructure-efcore`, not yet merged.
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
-- **Phase 3 (Infrastructure) — 🔶 planning.** Design review in progress; see the Phase 3 design-review document once approved.
+- **Phase 3 (Infrastructure) — 🔶 in progress.** Design review + dependency map approved; Slice 1 (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`) complete. See `PHASE3_PROGRESS.md`.
 
 ## 2. Current Branch State
 
-- Active branch: `main`. `feature/phase-2-application-layer` was merged via PR #5 (merge commit `dc85de1`) and is no longer the active working branch.
-- Local `main` is confirmed up to date with `origin/main` (`git fetch origin` + `git pull origin main`, both at `dc85de1`) as of this writing.
-- **Next git action when resuming:** once Phase 3's design is approved, `git fetch origin` and create a new branch (e.g. `feature/phase-3-infrastructure-efcore`, matching `PROJECT_ROADMAP.md`'s naming) off current `main` before any Infrastructure code is written.
+- Active branch: `feature/phase-3-infrastructure-efcore`, created off `main` (at `dc85de1`) per `CLAUDE.md` §19 — no direct commits to `main` after Phase 0's bootstrap.
+- `feature/phase-2-application-layer` was merged via PR #5 and is no longer the active working branch.
+- **Next git action when resuming:** continue committing additional Infrastructure slices to this same branch, in the approved dependency-map order (see `PHASE3_PROGRESS.md`). Do not open a PR or push until instructed.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
 As of the last verified run in this conversation:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **297 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **309 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
+  - `RenoTrack.Infrastructure.Tests`: **12 tests** (real SQL Server LocalDB integration tests — new in Phase 3).
   - `RenoTrack.Api.Tests`: 0 tests (project exists, empty — Phase 4 not started).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
@@ -163,15 +164,48 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 
 ---
 
-## 6. Documentation State
+## 6. Infrastructure Layer — Complete Inventory (Phase 3, in progress)
+
+### 6.1 `RenoTrackDbContext` (`src/RenoTrack.Infrastructure/Persistence/RenoTrackDbContext.cs`)
+
+One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `CatalogItems`, `AngebotReviewComments`. No `DbSet` for child entities (`AngebotSection`, `AngebotItem`, `InspectionPhoto`) — reachable only through their aggregate root's navigation. `OnModelCreating` calls `ApplyConfigurationsFromAssembly` — no configuration inlined there. No `NumberSequence`/`AuditLog`/Identity `DbSet`s yet — added in their own later slices (§8 below), not speculatively now.
+
+### 6.2 Entity Configurations (`src/RenoTrack.Infrastructure/Persistence/Configurations/`)
+
+| Configuration | Notes |
+|---|---|
+| `LeadConfiguration` | `Source`/`Status` stored as string enums (ERD.md's own stated reason: readability in raw SQL). Index on `(Status, AssignedInspectorId)` for pipeline filtering. `AssignedInspectorId` has no FK yet (Identity slice). |
+| `InspectionConfiguration` | `Photos` navigation bound to its backing field (`PropertyAccessMode.Field`) — see D43. `InspectorId` has no FK yet. |
+| `InspectionPhotoConfiguration` | `InspectionId` FK is a shadow property. |
+| `AngebotConfiguration` | `AngebotNumber` unique index; `Status` index; `Status` stored as string. `NetTotal`/`GrossTotal` via `MoneyConverter`, `decimal(18,2)`. `VatBreakdown` ignored (no ERD column, always computed). `Sections` navigation bound to its backing field. `CreatedByInspectorId`/`ReviewedByAdminId` have no FK yet. |
+| `AngebotSectionConfiguration` | `Subtotal` ignored — computed property, no column (D41). `Items` navigation bound to its backing field. |
+| `AngebotItemConfiguration` | `LineTotal` ignored (D41). `Unit` via `ItemUnitConverter`; `UnitPrice` via `MoneyConverter`; `VatRate` uses EF's default enum-to-int mapping. `CatalogItemId` **has** a real FK to `CatalogItems` (`DeleteBehavior.Restrict`) — both tables exist today, unlike the Users-referencing columns. |
+| `CatalogItemConfiguration` | `DefaultUnit`/`SuggestedUnitPrice` via the same converters. `CreatedFromAngebotItemId` **has** a real FK to `AngebotItems` (`DeleteBehavior.Restrict`). |
+| `AngebotReviewCommentConfiguration` | `AngebotId` **has** a real FK to `Angebote` (`DeleteBehavior.Restrict`). `AdminUserId` has no FK yet. |
+
+### 6.3 Value Converters (`src/RenoTrack.Infrastructure/Persistence/ValueConverters/`)
+
+`MoneyConverter` (`Money` ↔ `decimal`, via `.Amount`/`Money.FromExact`), `ItemUnitConverter` (`ItemUnit` ↔ `string`, via `.Code`/`ItemUnit.FromCode` — the exact round-trip surface `ItemUnit`'s own Domain doc comment anticipated).
+
+### 6.4 Repository & Service Interfaces — Implementation Status
+
+None implemented yet. `ILeadRepository`, `IInspectionRepository`, `IAngebotRepository`, `IAngebotReviewCommentRepository`, `ICatalogItemRepository`, `ICatalogItemQueries`, `IUnitOfWork`, `IAuditService`, `INumberGeneratorService`, `IFileStorage` (placeholder only), `IEmailSender` (placeholder only) are all still contract-only, per the approved dependency map (`PHASE3_PROGRESS.md`). Identity is Slice 15, deliberately last.
+
+### 6.5 Infrastructure Test Coverage (12 tests, `RenoTrack.Infrastructure.Tests`)
+
+Real SQL Server LocalDB integration tests, never the EF Core InMemory provider (`ARCHITECTURE_DECISIONS.md` D40). `RenoTrackDbContextFixture` (`IAsyncLifetime` + `ICollectionFixture<T>`) creates/drops one shared LocalDB database (`RenoTrackInfrastructureTests`) per test run; every test class shares the `"Infrastructure Database"` xUnit collection, so tests never run in parallel against it. Test classes: `LeadPersistenceTests`, `InspectionPersistenceTests`, `AngebotPersistenceTests`, `CatalogItemPersistenceTests`, `AngebotReviewCommentPersistenceTests` — all under `tests/RenoTrack.Infrastructure.Tests/Persistence/`.
+
+---
+
+## 7. Documentation State
 
 All eight original spec documents live in the repo root and have been actively maintained (not just written once in Phase 0):
 
 | Document | Modified during Phase 1/2? | What changed |
 |---|---|---|
 | `SRS.md` | No | Unmodified since Phase 0 |
-| `Architecture.md` | **Yes, extensively** | §6.1/§6.2 (Domain design decisions), §7.3 (role vs. ownership — new), §9 (stable external resource identifiers — new), §11 (audit-target principle — new) |
-| `ERD.md` | **Yes** | `CatalogItem.IsRetired` column added (BR-12) |
+| `Architecture.md` | **Yes, extensively** | §6.1/§6.2 (Domain design decisions), §7.3 (role vs. ownership — new), §9 (stable external resource identifiers — new), §11 (audit-target principle — new). Phase 3: §3's solution structure updated to add `RenoTrack.Infrastructure.Tests` |
+| `ERD.md` | **Yes** | `CatalogItem.IsRetired` column added (BR-12). Phase 3: `Subtotal`/`LineTotal`/`DecisionResult` removed to match confirmed Domain state (D41); notes added on which FKs are deferred until the Identity slice (D44) |
 | `Sequence Diagram.md` | **Yes** | §4 corrected (added missing AuditLog step for Angebot creation; fixed stale `CreateDraft` → `Create` reference) |
 | `StateMachine.md` | **Yes** | §1.3 `ScheduleInspection` row's side-effects updated for BR-13 |
 | `BusinessRules.md` | **Yes, extensively** | BR-10, BR-11, BR-12, BR-13, BR-14 all added, each with a Changelog row |
@@ -179,13 +213,13 @@ All eight original spec documents live in the repo root and have been actively m
 | `Wireframes.md` | No | Unmodified since Phase 0 |
 | `PROJECT_ROADMAP.md` | No (but see below) | Still reflects the original phase plan; **does not yet reflect** that AngebotReviewComment work happened inside Phase 2 rather than a dedicated earlier phase, or that Phase 2's Angebot-workflow ordering deferred `AddAngebotItemCommand`. Notably, its own Phase 2 command list is what the Slice 15 closeout review used to confirm `SaveAngebotItemAsCatalogItemCommand` was never in scope — this document's original scoping held up under scrutiny. |
 
-**New permanent documentation (this handoff):** `CLAUDE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE2_PROGRESS.md`, `NEXT_STEPS.md`, this file, and `HANDOFF_PROMPT.md`.
+**New permanent documentation (this handoff):** `CLAUDE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE2_PROGRESS.md`, `PHASE3_PROGRESS.md`, `NEXT_STEPS.md`, this file, and `HANDOFF_PROMPT.md`.
 
 Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from original SRS extraction; BR-10–BR-14 added during Phase 1/Phase 2).
 
 ---
 
-## 7. Deferred / Known-Incomplete Work (do not treat these as bugs — they are intentional, documented deferrals)
+## 8. Deferred / Known-Incomplete Work (do not treat these as bugs — they are intentional, documented deferrals)
 
 1. **`AddAngebotItemCommand` — ✅ complete (Slice 15).** Both the Catalog-sourced and custom-item paths implemented from the start, per the standing decision. See `PHASE2_PROGRESS.md` Slice 15 for the full design-review record, including BR-14 and the `NEXT_STEPS.md` §2 wording correction.
 2. **CatalogItem Application layer — ✅ complete.** `CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` all done (Slices 11–14).
@@ -194,18 +228,20 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 5. **`IFileStorage.GetAsync`/`DeleteAsync`** — not built (§4's repository-growth discipline applies here too).
 6. **`Angebot.Send()`, `RecordCustomerApproval()`, `RecordCustomerRejection()`** exist in the Domain (built in Phase 1) but have **no Application-layer commands yet** — deliberately deferred to Phase 6 (Token-link mechanism) per `PROJECT_ROADMAP.md`, since they depend on `ITokenLinkService`, which doesn't exist yet.
 7. **`AngebotItem` has no update/remove method** — an open question, not a bug (see `CLAUDE.md` §2). Revisit only if real evidence (a documented endpoint or explicit business decision) appears.
-8. **No Infrastructure project code exists at all yet** (`RenoTrack.Infrastructure` is still the Phase 0 empty skeleton). Every interface listed in §5.2 has zero concrete implementation. This is expected — Phase 3 is Infrastructure.
-9. **`INumberGeneratorService`'s atomic-transaction requirement (Architecture §8) is unverified** — flagged as the single highest-risk assumption to explicitly test once Phase 3 builds a real implementation.
+8. **Infrastructure project — 🔶 in progress (Slice 1 of 15 done).** `RenoTrackDbContext` + entity configurations exist and are tested against real LocalDB; every repository/service interface listed in §5.2 still has zero concrete implementation (Slices 3–13 build those; see §6.4 and `PHASE3_PROGRESS.md`).
+9. **`INumberGeneratorService`'s atomic-transaction requirement (Architecture §8) is unverified** — flagged as the single highest-risk assumption; due for its concurrency test at Slice 11.
+10. **`LocalDiskFileStorage`/real `IEmailSender` — deliberately deferred**, not gaps: `LocalDiskFileStorage` is Phase 4's (confirmed against `PROJECT_ROADMAP.md`, `CLAUDE.md` §13 corrected — D42); `IEmailSender`'s real SMTP-backed implementation is Phase 9's (`CLAUDE.md` §11). Phase 3 registers placeholder-only implementations of both (Slices 12–13) purely so DI composition succeeds.
+11. **User-referencing FK constraints** (`Lead.AssignedInspectorId`, `Inspection.InspectorId`, `Angebot.CreatedByInspectorId`/`ReviewedByAdminId`, `AngebotReviewComment.AdminUserId`) — deliberately deferred until the Identity slice (Slice 15) adds a `Users` table (`ARCHITECTURE_DECISIONS.md` D44), not an oversight.
 
 ---
 
-## 8. Immediate Next Step
+## 9. Immediate Next Step
 
-**Phase 2 is merged (§1/§2 above). Phase 3 (Infrastructure) design review is in progress** — no Infrastructure code has been written yet; a full design review (objectives, implementation order, repository/EF Core/DbContext/Identity/file-storage/number-generator/migration/testing strategy, risks) is being produced for approval before any code is written. §9 below remains the historical record of Phase 2's closeout.
+**Begin Slice 2 (`InitialCreate` migration)** — Slice 1 (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`) is complete, reviewed, tested, documented, and committed. See `PHASE3_PROGRESS.md` for the full slice order and Slice 1's record. §10 below remains the historical record of Phase 2's closeout.
 
 ---
 
-## 9. Phase 2 Closeout Review
+## 10. Phase 2 Closeout Review
 
 Performed 2026-07-30, immediately before opening the PR.
 

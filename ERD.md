@@ -73,7 +73,6 @@ erDiagram
         decimal GrossTotal
         datetime SentAt "nullable"
         datetime DecisionAt "nullable"
-        string DecisionResult "nullable: Approved | Rejected"
         datetime CreatedAt
     }
 
@@ -90,7 +89,6 @@ erDiagram
         int AngebotId FK
         string Title
         int SortOrder
-        decimal Subtotal
     }
 
     ANGEBOTITEM {
@@ -103,7 +101,6 @@ erDiagram
         string Unit "m2 | Stk | lfm | pauschal | m"
         decimal UnitPrice
         decimal VatRate "0 | 7 | 16 | 19"
-        decimal LineTotal
     }
 
     CATALOGITEM {
@@ -224,14 +221,14 @@ erDiagram
 | Table | Primary Key | Notable Foreign Keys | Unique Constraints | Notes |
 |---|---|---|---|---|
 | Users | Id (int, identity) | — | Email | Password hashed at rest; never stored/logged in plaintext |
-| Leads | Id | AssignedInspectorId → Users | — | Status stored as string enum for readability in raw SQL during support/debugging |
+| Leads | Id | AssignedInspectorId → Users | — | Status stored as string enum for readability in raw SQL during support/debugging. `AssignedInspectorId` has no FK constraint until the Identity slice adds a `Users` table (Phase 3). |
 | ContactMessages | Id | LeadId → Leads | — | Raw form submissions kept even if the Lead is later edited |
-| Inspections | Id | LeadId → Leads, InspectorId → Users | — | One Lead usually has one Inspection (SRS notes this could be relaxed later) |
+| Inspections | Id | LeadId → Leads, InspectorId → Users | — | One Lead usually has one Inspection (SRS notes this could be relaxed later). `InspectorId` has no FK constraint until the Identity slice. |
 | InspectionPhotos | Id | InspectionId → Inspections | — | FileUrl points into the storage abstraction (Architecture §9), not a raw disk path exposed to clients |
-| Angebote | Id | LeadId → Leads, InspectionId → Inspections (nullable), CreatedByInspectorId → Users, ReviewedByAdminId → Users (nullable) | AngebotNumber | NetTotal/GrossTotal are cached/denormalized for fast list-page rendering; recalculated from AngebotItems on every edit (BR-6, Architecture §6.1) |
-| AngebotReviewComments | Id | AngebotId → Angebote, AdminUserId → Users | — | Append-only log of the review loop (SRS FR-5.4) |
-| AngebotSections | Id | AngebotId → Angebote | — | Subtotal is cached, recalculated whenever a child item changes |
-| AngebotItems | Id | SectionId → AngebotSections, CatalogItemId → CatalogItems (nullable) | — | CatalogItemId is a **trace link only** — never joined live for display (BR-8) |
+| Angebote | Id | LeadId → Leads, InspectionId → Inspections (nullable), CreatedByInspectorId → Users, ReviewedByAdminId → Users (nullable) | AngebotNumber | NetTotal/GrossTotal are cached/denormalized for fast list-page rendering; recalculated from AngebotItems on every edit (BR-6, Architecture §6.1). **No `DecisionResult` column** — removed from the Domain entirely as a presentation-mapping concern, not a stored fact (`ARCHITECTURE_DECISIONS.md` D16); derivable from `Status` (`CustomerApproved`/`CustomerRejected`) wherever it's needed. `CreatedByInspectorId`/`ReviewedByAdminId` have no FK constraint until the Identity slice adds a `Users` table (Phase 3). |
+| AngebotReviewComments | Id | AngebotId → Angebote, AdminUserId → Users | — | Append-only log of the review loop (SRS FR-5.4). `AdminUserId` has no FK constraint until the Identity slice. |
+| AngebotSections | Id | AngebotId → Angebote | — | **No `Subtotal` column** — it's a pure computed property in the Domain (`AngebotSection.Subtotal`, a `=>` expression with no backing field), never persisted. Recomputed from live child data on every access instead. |
+| AngebotItems | Id | SectionId → AngebotSections, CatalogItemId → CatalogItems (nullable) | — | CatalogItemId is a **trace link only** — never joined live for display (BR-8), but still a real FK constraint for data integrity. **No `LineTotal` column** — same reasoning as `AngebotSection.Subtotal`, a pure computed property. |
 | CatalogItems | Id | CreatedFromAngebotItemId → AngebotItems (nullable) | — | Grows either via Admin curation or Inspector "save as catalog item" (SRS FR-4.10). Never hard-deleted — PermissionMatrix.md §6's "Delete/retire" action sets `IsRetired = true` instead, preserving the `CatalogItemId` traceability link on any AngebotItem created from it (BR-8, BR-12) |
 | Customers | Id | LeadId → Leads | LeadId | One Customer per Lead — created at Project-conversion time |
 | Projects | Id | CustomerId → Customers, AngebotId → Angebote | AngebotId | AgreedTotal is a snapshot of Angebot.GrossTotal at conversion time (doesn't move if the Angebot were ever re-opened, which the workflow doesn't currently allow) |

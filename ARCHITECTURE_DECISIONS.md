@@ -583,6 +583,78 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D40 — `RenoTrack.Infrastructure.Tests`: A New, Deliberate Test Project (Phase 3)
+
+**Problem:** `Architecture.md` §3's solution structure named exactly three test projects (`Domain.Tests`, `Application.Tests`, `Api.Tests`). None can exercise real EF Core/repository behavior: `Domain.Tests`/`Application.Tests` are deliberately isolated from any database (in-memory fakes only), and `Api.Tests` only references `RenoTrack.Api` — Phase 4 hasn't built any endpoints yet, so there's nothing to test through.
+
+**Alternatives considered:** (a) temporarily add a direct `RenoTrack.Infrastructure` reference to `RenoTrack.Api.Tests` ahead of Phase 4. (b) introduce a new `RenoTrack.Infrastructure.Tests` project, referencing `RenoTrack.Infrastructure` and `RenoTrack.Domain` only, mirroring `Domain.Tests`'/`Application.Tests`' own "reference only what's needed" discipline.
+
+**Final decision:** (b), with the user's explicit sign-off (this is a real deviation from `Architecture.md`'s documented structure, not something to add silently).
+
+**Why chosen:** (a) would make `Api.Tests` depend on Infrastructure before `Api` itself does — backwards from the intended dependency direction, and confusing for anyone reading the project reference graph. A dedicated project keeps the graph honest and gives Infrastructure integration tests a home that doesn't presuppose Phase 4 exists yet.
+
+**Consequences:** `Architecture.md` §3 updated to list the new project and explain why it's an addition, not part of the original Phase 0 structure. Tests use real SQL Server LocalDB, never the EF Core InMemory provider (D-established in the Phase 3 design review — InMemory doesn't enforce the constraints/types this layer exists to verify). All tests in the project share one `ICollectionFixture`-backed LocalDB database and run serially against it (xUnit collections never parallelize against each other), avoiding interference between tests that share real, persistent state.
+
+---
+
+## D41 — `ERD.md` Corrected to Match Confirmed Domain State (`Subtotal`/`LineTotal`/`DecisionResult`)
+
+**Problem:** While designing Phase 3's entity configurations, `ERD.md` was found to still list `AngebotSection.Subtotal`, `AngebotItem.LineTotal` as physical columns ("Subtotal is cached, recalculated whenever a child item changes"), and `Angebot.DecisionResult` as a nullable column — none of which exist in the actual Domain code. `AngebotSection.Subtotal`/`AngebotItem.LineTotal` are pure `=>` computed properties with no backing field (`CLAUDE.md` §2 already states this explicitly and deliberately); `Angebot.DecisionResult` was removed from the Domain entirely back in Phase 1 (D16 — "a presentation-mapping concern, not a Domain concept, out of scope for Domain").
+
+**Investigation:** Confirmed directly against the live C# source (not just documentation) that all three properties either don't exist (`DecisionResult`) or have no backing field to persist (`Subtotal`/`LineTotal`). `ERD.md` predates these Phase 1 decisions and was never updated to match — a real, load-bearing documentation gap, since Phase 3's entity configurations literally cannot proceed without deciding whether these get columns.
+
+**Alternatives considered:** (a) Add columns for all three anyway, matching `ERD.md` literally, treating the Domain as the thing that needs to catch up. (b) Trust the Domain code and `CLAUDE.md` (both more recent and more authoritative per `PROJECT_STATE.md`'s own stated precedence rule) and correct `ERD.md` to match.
+
+**Final decision:** (b), confirmed explicitly by the user rather than assumed unilaterally.
+
+**Why chosen:** `CLAUDE.md` §2 doesn't just fail to mention these fields being stored — it explicitly and reasonedly states they're computed-only ("No ERD-stated performance reason applies at that granularity"), and D16 explicitly removed `DecisionResult` as a deliberate decision, not an oversight. Reintroducing columns for either would resurrect settled Phase 1 decisions without new evidence, which `NEXT_STEPS.md`/`CLAUDE.md` both prohibit.
+
+**Consequences:** `ERD.md`'s diagram and Physical Schema Notes updated in the same commit as the entity configurations that implement this (`CLAUDE.md` §15's documentation-first discipline). `AngebotSectionConfiguration`/`AngebotItemConfiguration`/`AngebotConfiguration` explicitly `.Ignore()` these three properties rather than silently omitting a mapping for them — makes the exclusion visible in code, not just absent.
+
+---
+
+## D42 — `LocalDiskFileStorage` Reassigned to Phase 4 (`CLAUDE.md` Corrected)
+
+**Problem:** `CLAUDE.md` §13 stated `LocalDiskFileStorage` is implemented "in `RenoTrack.Infrastructure` (Phase 3)." `PROJECT_ROADMAP.md`'s Phase 4 deliverable list explicitly includes it; Phase 3's own deliverable list does not mention it at all. A direct contradiction between two documents, surfaced during Phase 3's design review.
+
+**Investigation:** `PROJECT_ROADMAP.md` has been the authoritative, execution-driving document for every phase so far — branch names, PR titles, and (immediately prior to this) the entire basis for confirming `SaveAngebotItemAsCatalogItemCommand` was out of Phase 2's scope (D39). `CLAUDE.md` §13's "(Phase 3)" reads like a forward-reference written speculatively during Phase 2, never re-verified against the roadmap once Phase 3 was actually scoped.
+
+**Alternatives considered:** (a) Build `LocalDiskFileStorage` for real in Phase 3, per `CLAUDE.md`'s stated (but unverified) claim. (b) Defer it to Phase 4 per `PROJECT_ROADMAP.md`, registering only a minimal placeholder in Phase 3 so DI composition succeeds for `UploadInspectionPhotoCommand`.
+
+**Final decision:** (b), confirmed explicitly by the user.
+
+**Why chosen:** Same reasoning as D39 — `PROJECT_ROADMAP.md` is the authoritative scope document; a stale forward-reference in `CLAUDE.md` doesn't override it. Building the real disk implementation now would also be premature relative to Phase 4's own stated ownership of it.
+
+**Consequences:** `CLAUDE.md` §13 corrected to say "(Phase 4)" with a note explaining the correction. Phase 3 (Slice 12, per the dependency map) registers a placeholder `IFileStorage` implementation only.
+
+---
+
+## D43 — Encapsulated Child Collections Mapped via Backing-Field EF Core Navigation
+
+**Problem:** `Inspection.Photos`, `Angebot.Sections`, and `AngebotSection.Items` are all exposed as `IReadOnlyList<T>` over a `private readonly List<T>` field, with no public setter — by design, so nothing outside the aggregate root can mutate a child collection directly (`CLAUDE.md` §2). EF Core's default navigation convention typically expects a settable `ICollection<T>`-shaped property.
+
+**Investigation:** EF Core does support binding a navigation directly to a private backing field (`PropertyAccessMode.Field`), and has since EF Core 3+, but this needed to be proven with an actual round-trip test against real LocalDB, not assumed to work by convention — exactly the risk flagged in the Phase 3 design review.
+
+**Final decision:** Explicitly configure `builder.Navigation(x => x.Photos).UsePropertyAccessMode(PropertyAccessMode.Field)` (and the equivalent for `Sections`/`Items`) in each entity configuration, rather than relying on EF's implicit field-discovery convention.
+
+**Why chosen:** Being explicit here costs nothing and removes any ambiguity about why the mapping works, versus leaving a future reader to wonder whether it's convention-based magic. `RenoTrack.Infrastructure.Tests`' `InspectionPersistenceTests`/`AngebotPersistenceTests` prove this actually round-trips through a real database (add via the aggregate root → save → reload via a fresh `DbContext` → assert the collection is populated), not just that the code compiles.
+
+**Consequences:** All three encapsulated collections materialize correctly on reload, confirmed by integration tests. This is the concrete resolution of the risk flagged in the Phase 3 design review — verified, not assumed.
+
+---
+
+## D44 — User-Referencing Foreign Keys Deferred Until the Identity Slice
+
+**Problem:** `Lead.AssignedInspectorId`, `Inspection.InspectorId`, `Angebot.CreatedByInspectorId`/`ReviewedByAdminId`, and `AngebotReviewComment.AdminUserId` all conceptually reference a `User`, and `ERD.md` lists each as a "Notable Foreign Key." But Identity (which owns the `Users`/`AspNetUsers` table) is Slice 15 in the revised Phase 3 order — deliberately sequenced after every repository slice, per the user's explicit request to keep repository work independent of Identity.
+
+**Final decision:** These columns are mapped as plain `int`/`int?` properties with no FK constraint in Slice 1 (and will remain so through Slice 14). The Identity slice can add the constraints retroactively via a follow-up migration once the `Users` table exists — this doesn't require revisiting any configuration written in Slice 1.
+
+**Why chosen:** Directly follows from the user's ordering decision — a repository slice can't reference a table that doesn't exist yet, and there's no reason to block Slices 1–14 on Identity landing first just to satisfy a documentation line's phrasing.
+
+**Consequences:** `ERD.md`'s physical notes for `Leads`, `Inspections`, `Angebote`, and `AngebotReviewComments` each note explicitly which FK is deferred and why, so this isn't a silent gap. Meanwhile, `AngebotItem.CatalogItemId` and `CatalogItem.CreatedFromAngebotItemId` **do** get real FK constraints in Slice 1, since both `CatalogItems` and `AngebotItems` tables already exist today — the deferral is specific to the Identity dependency, not a general policy against FKs.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -603,3 +675,6 @@ Numbering is chronological across the whole project, not per-phase.
 | AutoMapper | `CLAUDE.md` §8 | Hidden mapping logic not worth the boilerplate savings at this project's scale |
 | Reusing `ICommandHandler<TQuery, TResult>` for `SearchCatalogItemsQuery` | D36 | Commands and queries are different concepts even with an identical signature today; user preferred a distinct `IQueryHandler` |
 | `SearchCatalogItemsQuery` with an `includeRetired` flag from the start | D37 | No documented use case surfaces retired items anywhere yet; add only when one does |
+| Adding `RenoTrack.Infrastructure` reference to `RenoTrack.Api.Tests` instead of a new test project | D40 | Would make `Api.Tests` depend on Infrastructure before `Api` itself does — backwards dependency direction |
+| Keeping `ERD.md`'s `Subtotal`/`LineTotal`/`DecisionResult` columns and adding them to the schema | D41 | Would resurrect settled Phase 1 decisions (computed-only properties, D16) without new evidence |
+| Building `LocalDiskFileStorage` for real in Phase 3 | D42 | `PROJECT_ROADMAP.md`'s Phase 4 deliverable list explicitly owns it; `CLAUDE.md`'s "(Phase 3)" was a stale forward-reference |

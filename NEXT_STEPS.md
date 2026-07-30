@@ -8,7 +8,27 @@
 
 All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command list: `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand`) is done — 15 vertical slices, full record in `PHASE2_PROGRESS.md`. `CatalogItem`'s Application layer (`CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` — Slices 11–14) was a deliberate, justified insertion into this branch, needed by `AddAngebotItemCommand`. **Merged to `main` via PR #5 (merge commit `dc85de1`).** `feature/phase-2-application-layer` is no longer the active branch.
 
-**Immediate next step:** Phase 3 (Infrastructure — EF Core, repositories, Identity). A design review is required before any Infrastructure code is written (per the standing "design → review → implementation" process this project has used throughout).
+## 1b. Phase 3 — In Progress (Slice 1 of 15 Done)
+
+Design review + dependency map approved before any code was written (per the standing process). Working branch: `feature/phase-3-infrastructure-efcore`. Slice order (Identity deliberately moved to the end, after DI composition, per explicit user request — repository work stays independent of it):
+
+1. **`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests` — ✅ done.** See `PHASE3_PROGRESS.md` Slice 1 for the full record, including two documentation contradictions resolved before implementation (`ERD.md`'s stale `Subtotal`/`LineTotal`/`DecisionResult` columns — D41; `LocalDiskFileStorage`'s phase assignment — D42) and the new `RenoTrack.Infrastructure.Tests` project (D40).
+2. **`InitialCreate` migration — next up.**
+3. `IUnitOfWork`
+4. `ILeadRepository`
+5. `IInspectionRepository`
+6. `IAngebotRepository`
+7. `IAngebotReviewCommentRepository`
+8. `ICatalogItemRepository`
+9. `ICatalogItemQueries`
+10. `IAuditService`
+11. `INumberGeneratorService` (+ the concurrency test flagged since Phase 2, D34)
+12. `IFileStorage` placeholder (real `LocalDiskFileStorage` is Phase 4's — D42)
+13. `IEmailSender` placeholder (real SMTP-backed implementation is Phase 9's — `CLAUDE.md` §11)
+14. `AddInfrastructure()` extension + `Program.cs` wiring
+15. Identity storage + role seeding
+
+**Immediate next step:** Slice 2 (`InitialCreate` migration). Every slice follows the same vertically-complete process as Phase 2: design review → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit. No partially-finished infrastructure, no "configure this later."
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -62,7 +82,7 @@ All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command l
 
 ## 6. How to Start Your First Message in a Resumed Conversation
 
-1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE2_PROGRESS.md`, and this file, in that order, in full.
-2. `git fetch origin`, `git checkout main`, `git pull origin main` — confirm local `main` matches `origin/main`.
-3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold. If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
-4. Phase 2 is merged (§1 above). Begin Phase 3 (Infrastructure) — read `PROJECT_ROADMAP.md`'s Phase 3 section first, and remember `INumberGeneratorService`'s atomic-transaction requirement is the single highest-risk unverified assumption carried into it (`CLAUDE.md` §18). Do not write Infrastructure code before a design review is presented and approved.
+1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE3_PROGRESS.md`, and this file, in that order, in full (`PHASE2_PROGRESS.md` is historical background at this point, not required reading for resuming Phase 3 work).
+2. `git fetch origin`; confirm you're on `feature/phase-3-infrastructure-efcore` and that it's still based on current `origin/main`.
+3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (309 as of Slice 1: 153 Domain + 144 Application + 12 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
+4. Continue with the next slice in `PHASE3_PROGRESS.md`'s order (§1b above) — Slice 2, `InitialCreate` migration, unless a later slice's commit has already landed since this was written. Every slice: design review → implementation → `RenoTrack.Infrastructure.Tests` integration tests → documentation updates → commit, in that order, without exception.
