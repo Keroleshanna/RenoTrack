@@ -25,7 +25,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | # | Slice | Status |
 |---|---|---|
 | 1 | API foundation, conventions & docs | ✅ done |
-| 2 | Global exception-handling middleware | not started |
+| 2 | Global exception-handling middleware | ✅ done |
 | 3 | `AddApplication()` DI extension | not started |
 | 4 | Authentication — JWT login | not started |
 | 5 | Lead creation (public) | not started |
@@ -105,3 +105,66 @@ Per `CLAUDE.md` §14's rule that a single green run proves little for anything i
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **375 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **4 Api**). `RenoTrack.Api.Tests` is no longer an empty project.
+
+---
+
+## Slice 2 — Global Exception-Handling Middleware
+
+**Goal:** every exception escaping a command/query handler becomes an RFC 7807 `ProblemDetails` response (`Architecture.md` §5.3), so every controller from Slice 4 onward stays thin and never contains a `try`/`catch`. Resolves the HTTP status-code mapping deferred since Phase 2 (`CLAUDE.md` §17, `NEXT_STEPS.md` §5).
+
+**Out of scope:** authentication challenge responses (401/403 emitted by auth middleware rather than thrown — nothing wires auth until Slice 4); any real controller.
+
+### Design review
+
+Grounded in a direct count of what the codebase actually throws, rather than reasoning abstractly about BCL types:
+
+| Type | Occurrences in backend `src` | Where |
+|---|---|---|
+| `ArgumentException` | 17 | Domain guards |
+| `NotFoundException` | 15 | Application handlers |
+| `InvalidOperationException` | 9 | 7 Domain guards + 2 Infrastructure (**both startup-only**: DI connection-string validation, role-seeding failure) |
+| `ForbiddenException` | 3 | Application handlers |
+| `ConflictException` | 1 | `CreateAngebotCommandHandler` |
+
+That count is what made the central decision defensible rather than a guess — see D59.
+
+**Decisions:**
+
+- **One `IExceptionHandler` with an explicit `switch`**, not one handler per exception type (chained handlers make registration order silently significant and scatter the table across six files — the "hidden pipeline" property D22 rejected MediatR for), and not a hand-written middleware (`IExceptionHandler` + `AddProblemDetails()` is the framework's own seam and yields `application/problem+json` content negotiation for free).
+- **`ArgumentException`→400, `InvalidOperationException`→409, with logging mitigation.** The masking risk was raised explicitly during review rather than inherited from `CLAUDE.md` §17's provisional lean: both are BCL-wide types, and EF Core throws `InvalidOperationException` for tracking conflicts, so a real infrastructure fault could surface as a plausible-looking 409. Three alternatives were weighed and rejected — unmapped→500 (plainly wrong for the 24 Domain guards that exist today), dedicated Domain exception types (reopens a settled decision and modifies the stable Domain baseline on a hypothetical risk), and mapping by originating assembly via `ex.TargetSite` (reflective, silently degrades when null, forces a Domain reference into `RenoTrack.Api`). The user approved the mapping on the strength of the occurrence count above, with the explicit position that it should be reopened with concrete evidence of a real masking incident rather than pre-emptive complexity.
+- **Message-leakage asymmetry.** Mapped exceptions surface their message as `detail`; unmapped ones get a fixed generic title and no `detail` member at all.
+- **`traceId` in `CustomizeProblemDetails`, not in the handler** — so it covers ProblemDetails responses ASP.NET produces itself with no exception involved.
+- **Explicit `FluentValidation` package reference added to `RenoTrack.Api`** — it catches `ValidationException` by type; the transitive reference through `RenoTrack.Application` would have compiled, but D2's discipline is to declare what a project actually uses.
+- **`OperationCanceledException` deliberately left out of scope**, at the user's direction: it belongs to the hosting/runtime layer, not to Domain/Application exception mapping, and should be addressed with real evidence of log noise rather than speculation.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Api/ErrorHandling/ProblemDetailsExceptionHandler.cs` | New — the whole mapping table in one `switch`, plus the logging mitigation |
+| `src/RenoTrack.Api/Program.cs` | `AddProblemDetails` (with `traceId`/`instance`), `AddExceptionHandler`, `UseExceptionHandler()` first in the pipeline |
+| `src/RenoTrack.Api/RenoTrack.Api.csproj` | Explicit `FluentValidation` 12.1.1 |
+| `tests/RenoTrack.Api.Tests/RenoTrack.Api.Tests.csproj` | Explicit `ProjectReference` to `RenoTrack.Application` + `FluentValidation` (the test controller throws these types by name) |
+| `tests/RenoTrack.Api.Tests/ErrorHandling/TestErrorsController.cs` | New — test-only, documented as such |
+| `tests/RenoTrack.Api.Tests/ErrorHandling/ProblemDetailsExceptionHandlerTests.cs` | New — 13 tests |
+
+`TestErrorsController` lives in the **test assembly**, not in `RenoTrack.Api` behind a conditional, which makes shipping it structurally impossible rather than merely unlikely. It reaches the application only because the test class registers this assembly as an MVC `ApplicationPart` via `WithWebHostBuilder`/`ConfigureTestServices`; nothing in `Program.cs` knows the type exists. It is routed under `api/test-errors`, deliberately not `api/v1/...`, so it can never collide with a real route or imply membership in the versioned public surface. At the user's request during design review, it carries a prominent comment stating it exists solely to exercise the exception pipeline in integration tests and is never part of the production application.
+
+### Tests
+
+13 new (17 in `RenoTrack.Api.Tests` total), all through the real MVC pipeline rather than unit-testing the handler against a synthetic `HttpContext`:
+
+- 5 (theory) — each mapped exception yields its documented status and title.
+- 4 (theory) — each message-carrying mapped exception surfaces its message as `detail`.
+- 1 — `ValidationException` → 400 with a field-keyed `errors` dictionary, asserting specifically that **two failures on the same property group under one key** rather than overwriting each other.
+- 1 — an unmapped exception yields 500, and neither the fake password nor the fake host in its message appears anywhere in the response body, with no `detail` member present at all.
+- 1 — `traceId` is populated.
+- 1 — the response content type is `application/problem+json`.
+
+Two compile errors were hit and fixed during implementation, neither affecting the design: `ConfigureTestServices` needs `using Microsoft.AspNetCore.TestHost`, and a collection-expression `Assert.Equal` overload could not infer `string?` (replaced with `Assert.Single`).
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 17/17 each time.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **388 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **17 Api**).

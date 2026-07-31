@@ -40,8 +40,8 @@ Branch: `feature/phase-4-api-auth-leads-inspections`, off `main` at `babfff9`. S
 Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 
 1. **API foundation, conventions & docs — ✅ done.** `api/v1` routing convention (D57), `RenoTrack.Api.Tests` harness on real `WebApplicationFactory` + real LocalDB with `MigrateAsync` (D58), Scalar docs UI with the JWT scheme declared, `Api.Tests` moved to CI's Windows job. 4 tests. No controller and no health endpoint were invented to serve the tests.
-2. Global exception-handling middleware (RFC 7807) — **next**; also resolves the deferred `ArgumentException`→400 / `InvalidOperationException`→409 mapping.
-3. `AddApplication()` DI extension.
+2. **Global exception-handling middleware — ✅ done.** One `IExceptionHandler` with an explicit `switch` (not one handler per type), RFC 7807 ProblemDetails, `traceId` on every response. Resolves the deferred mapping: `ArgumentException`→400, `InvalidOperationException`→409, as a knowingly-accepted risk with a logging mitigation (D59). Mapped exceptions surface their message; unmapped ones never do. 13 tests.
+3. `AddApplication()` DI extension — **next**.
 4. Authentication — JWT login. *(Login-command shape and refresh-token design deliberately not yet decided — that slice's own review.)*
 5. Lead creation (public).
 6. Lead read endpoints. *(Requires new `GetLeadByIdQuery`/list query — none exists yet.)*
@@ -51,7 +51,7 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
 11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
 
-**The immediate next step is Phase 4 Slice 2.** Do a design review and get explicit sign-off before writing its code, exactly as Slice 1 was handled.
+**The immediate next step is Phase 4 Slice 3.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1 and 2 were handled.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -62,7 +62,7 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 - **`IFileStorage.GetAsync`/`DeleteAsync`** — not built; no current command needs them (`CLAUDE.md` §4).
 - **`Angebot.Send()`, `RecordCustomerApproval()`, `RecordCustomerRejection()`** — Domain methods exist (Phase 1) but have no Application-layer commands yet; deliberately deferred to Phase 6 (Token-link mechanism), since they depend on `ITokenLinkService`, which doesn't exist.
 - **`AngebotItem` update/remove methods** — open question, not a rule (`ARCHITECTURE_DECISIONS.md` D12/`CLAUDE.md` §2). Revisit only with real evidence (a documented endpoint, an explicit business decision).
-- **HTTP status-code mapping** for Domain's own `ArgumentException`/`InvalidOperationException` — deferred to Phase 4's API middleware design.
+- ~~**HTTP status-code mapping** for Domain's own `ArgumentException`/`InvalidOperationException`~~ — **resolved** in Phase 4 Slice 2 (D59): 400 and 409 respectively, as a knowingly-accepted risk with a logging mitigation.
 
 ## 3. What Should NOT Be Changed
 
@@ -107,7 +107,8 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 
 - **`SaveAngebotItemAsCatalogItemCommand`'s lookup design** — how the Application layer resolves an `AngebotItem`'s owning `Angebot`/`Section` from the item's id alone, once this command is actually built (§2 above). Not yet designed; do not pre-decide a repository shape for it now.
 - Whether `AngebotItem` should ever gain update/remove methods (currently an open question, not a rule — `ARCHITECTURE_DECISIONS.md` D12). Revisit only with real evidence (a documented endpoint, an explicit business decision).
-- The exact HTTP status-code mapping for Domain's own `ArgumentException`/`InvalidOperationException` (likely 400/409 respectively) — deferred to Phase 4's API middleware design.
+- ~~The exact HTTP status-code mapping for Domain's own `ArgumentException`/`InvalidOperationException`~~ — **no longer open.** Resolved in Phase 4 Slice 2 as 400/409 (D59). The accepted risk is that a BCL/EF-thrown `InvalidOperationException` could surface as 409 rather than 500; reopen only with concrete evidence of a real masking incident, not on principle. Every mapped exception is logged at `Warning` with its full stack trace precisely so such an incident would be discoverable — do not remove that logging.
+- Whether `OperationCanceledException` (client disconnect) needs its own handling — raised during Slice 2's review and deliberately left out: a hosting/runtime concern rather than Domain/Application exception mapping. Address with real evidence of log noise, not speculation.
 - OQ-1 through OQ-4 from `SRS.md` §10 remain open at the SRS level (Admin managing Inspector accounts; website language; email provider choice — needed before Phase 9; "revise and resend" after rejection) — none of these block current work, but do not assume an answer to any of them without checking `SRS.md` first.
 
 ---
