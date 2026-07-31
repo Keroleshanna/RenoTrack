@@ -64,6 +64,16 @@ public sealed class DependencyInjectionTests
     /// concrete type in RenoTrack.Application. Discovered rather than listed, so a newly-added
     /// handler is covered without anyone remembering to update this test.
     /// </summary>
+    /// <remarks>
+    /// No count is asserted anywhere in this file, deliberately — the point is to discover whatever
+    /// exists, not to pin a number that would need updating on every new use case. If you are
+    /// reading test output and wondering why this yields <b>15</b> cases while
+    /// <see cref="ValidatorInterfaces"/> yields <b>14</b>: that gap is correct and expected.
+    /// <c>SearchCatalogItemsQuery</c> takes no parameters at all (D37), so it has nothing to
+    /// shape-validate and intentionally has no validator. Do not "fix" the asymmetry by adding an
+    /// empty validator for it — that would be exactly the speculative abstraction CLAUDE.md §4/§5
+    /// forbid.
+    /// </remarks>
     public static TheoryData<Type> HandlerInterfaces()
     {
         var data = new TheoryData<Type>();
@@ -131,6 +141,35 @@ public sealed class DependencyInjectionTests
         using var scope = provider.CreateScope();
 
         Assert.NotNull(scope.ServiceProvider.GetRequiredService(validatorInterface));
+    }
+
+    /// <summary>
+    /// Resolution tests cannot catch a service registered twice: the container simply returns the
+    /// last registration and every other test still passes. A duplicate is a real hazard here —
+    /// two <c>AddScoped</c> lines for the same handler with different implementations would mean
+    /// the one actually used is decided by line order, silently.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to <c>AddApplication()</c> alone, deliberately. A blanket "no service type appears
+    /// twice" assertion over the full container would fail on legitimate multi-registrations that
+    /// the framework itself makes (<c>IConfigureOptions&lt;T&gt;</c>, logging providers, Identity's
+    /// own wiring), where registering several implementations of one interface is the intended
+    /// design. Every service type <c>AddApplication()</c> registers, by contrast, is meant to have
+    /// exactly one implementation.
+    /// </remarks>
+    [Fact]
+    public void AddApplication_registers_each_service_type_exactly_once()
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+
+        var duplicates = services
+            .GroupBy(descriptor => descriptor.ServiceType)
+            .Where(group => group.Count() > 1)
+            .Select(group => $"{group.Key.Name} registered {group.Count()} times")
+            .ToArray();
+
+        Assert.Empty(duplicates);
     }
 
     [Fact]

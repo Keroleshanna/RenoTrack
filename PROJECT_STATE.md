@@ -29,11 +29,11 @@
 
 As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 3:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **419 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **420 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
   - `RenoTrack.Infrastructure.Tests`: **74 tests** (real SQL Server LocalDB integration tests — new in Phase 3; `PlaceholderFileStorageTests`/`LoggingNoOpEmailSenderTests`/`DependencyInjectionTests` are exceptions with no database connection actually opened; the Identity tests do use real LocalDB).
-  - `RenoTrack.Api.Tests`: **48 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping (D59) + Slice 3 DI composition, the last of which discovers handlers/validators by reflection so an unregistered one fails CI).
+  - `RenoTrack.Api.Tests`: **49 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping (D59) + Slice 3 DI composition, the last of which discovers handlers/validators by reflection so an unregistered one fails CI).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory

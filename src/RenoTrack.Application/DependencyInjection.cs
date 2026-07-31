@@ -59,6 +59,15 @@ namespace RenoTrack.Application;
 /// placeholders Scoped rather than Singleton (D48).
 /// </para>
 /// <para>
+/// <b>Ordering rule, applied identically in every category below:</b> registrations are grouped by
+/// feature in business-workflow order — Lead, Inspection, Angebot, CatalogItem — and within each
+/// feature they follow that feature's own workflow order (e.g. an Angebot is created, then built
+/// up with sections and items, then submitted, then approved or returned). Deliberately not
+/// alphabetical: reading this file top to bottom should trace the same path a Lead takes through
+/// the business. Keep any new registration in its feature's group, in workflow position; do not
+/// append to the end of a category.
+/// </para>
+/// <para>
 /// Handlers are registered <em>by their interface</em>
 /// (<see cref="ICommandHandler{TCommand,TResult}"/> / <see cref="IQueryHandler{TQuery,TResult}"/>),
 /// not as concrete types, so controllers depend on the Application abstraction rather than on an
@@ -81,7 +90,9 @@ public static class DependencyInjection
     /// <summary>
     /// Shape-only request validation (CLAUDE.md §5) — never business rules, never a repository
     /// call. One per command that has parameters worth checking; <c>SearchCatalogItemsQuery</c>
-    /// deliberately has none, because it takes no parameters at all (D37).
+    /// deliberately has none, because it takes no parameters at all (D37) — which is why this
+    /// category has 14 entries where the handler categories together have 15.
+    /// Ordering follows the file-level rule above.
     /// </summary>
     private static void AddValidators(IServiceCollection services)
     {
@@ -106,8 +117,8 @@ public static class DependencyInjection
 
     /// <summary>
     /// One hand-written handler per command, called directly — no mediator, no pipeline behaviors
-    /// (CLAUDE.md §3, D22). Grouped by feature in the same order the features appear in the
-    /// business workflow: Lead, Inspection, Angebot, CatalogItem.
+    /// (CLAUDE.md §3, D22). Ordering follows the file-level rule above, and deliberately mirrors
+    /// <see cref="AddValidators"/> entry for entry, so the two lists can be diffed by eye.
     /// </summary>
     private static void AddCommandHandlers(IServiceCollection services)
     {
