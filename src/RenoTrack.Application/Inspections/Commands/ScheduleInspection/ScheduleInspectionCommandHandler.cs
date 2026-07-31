@@ -22,6 +22,7 @@ public sealed class ScheduleInspectionCommandHandler(
     IValidator<ScheduleInspectionCommand> validator,
     ILeadRepository leadRepository,
     IInspectionRepository inspectionRepository,
+    IUserQueries userQueries,
     IUnitOfWork unitOfWork,
     IAuditService auditService) : ICommandHandler<ScheduleInspectionCommand, InspectionDto>
 {
@@ -31,6 +32,20 @@ public sealed class ScheduleInspectionCommandHandler(
 
         var lead = await leadRepository.GetByIdAsync(command.LeadId, cancellationToken)
             ?? throw new NotFoundException(nameof(Lead), command.LeadId);
+
+        // An Inspection assigned to a non-existent user, a deactivated account, or someone who is
+        // not an Inspector is invalid business data, so it is rejected here rather than left to the
+        // database FK constraint — which would only catch the first of those three, and would
+        // surface as an unmapped DbUpdateException (a 500) on an ordinary client mistake.
+        //
+        // NotFoundException, not Conflict: from the caller's point of view the resource they named —
+        // an assignable Inspector with that id — does not exist. That framing is honest for all
+        // three cases and, as a side benefit, does not disclose whether the id belongs to some other
+        // kind of account.
+        if (!await userQueries.IsActiveInspectorAsync(command.InspectorId, cancellationToken))
+        {
+            throw new NotFoundException("Inspector", command.InspectorId);
+        }
 
         var inspection = Inspection.Schedule(command.LeadId, command.ScheduledAt, command.InspectorId);
 

@@ -14,6 +14,7 @@ public class ScheduleInspectionCommandHandlerTests
 
     private readonly FakeLeadRepository _leadRepository = new();
     private readonly FakeInspectionRepository _inspectionRepository = new();
+    private readonly FakeUserQueries _userQueries = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
     private readonly FakeAuditService _auditService = new();
     private readonly ScheduleInspectionCommandHandler _handler;
@@ -24,6 +25,7 @@ public class ScheduleInspectionCommandHandlerTests
             new ScheduleInspectionCommandValidator(),
             _leadRepository,
             _inspectionRepository,
+            _userQueries,
             _unitOfWork,
             _auditService);
     }
@@ -141,5 +143,42 @@ public class ScheduleInspectionCommandHandlerTests
         Assert.Empty(_inspectionRepository.AddedInspections);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
+    }
+
+    // ---- Assignee eligibility (Slice 7) -----------------------------------
+
+    [Fact]
+    public async Task HandleAsync_InspectorIsNotAnActiveInspector_ThrowsAndPerformsNoSideEffects()
+    {
+        var lead = SeedNewLead();
+        _userQueries.TreatAllAsActiveInspectors = false; // nobody is eligible
+
+        var command = new ScheduleInspectionCommand(lead.Id, ScheduledAt, InspectorId: 5, ScheduledByAdminId: 1);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
+
+        // Rejected before anything is persisted, and before the Lead is mutated — otherwise a bad
+        // assignee id would still have moved the Lead's status and assigned it in memory.
+        Assert.Empty(_inspectionRepository.AddedInspections);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
+        Assert.Equal(LeadStatus.New, lead.Status);
+        Assert.Null(lead.AssignedInspectorId);
+    }
+
+    [Fact]
+    public async Task HandleAsync_ChecksEligibilityOfTheAssignedInspectorNotTheSchedulingAdmin()
+    {
+        var lead = SeedNewLead();
+        _userQueries.TreatAllAsActiveInspectors = false;
+        _userQueries.ActiveInspectorIds.Add(5);
+
+        var command = new ScheduleInspectionCommand(lead.Id, ScheduledAt, InspectorId: 5, ScheduledByAdminId: 1);
+
+        await _handler.HandleAsync(command, CancellationToken.None);
+
+        // The Admin doing the scheduling is not required to be an Inspector — confusing the two
+        // would make it impossible for an Admin to schedule anyone.
+        Assert.Equal([5], _userQueries.QueriedUserIds);
     }
 }

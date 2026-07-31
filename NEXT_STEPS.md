@@ -48,13 +48,15 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
    - **Known gap:** FR-2.1's Admin manual-entry path (`Source = Phone`/`Email`) is not built — not in Architecture §5.2's endpoint table, and out of this slice's scope. It is why `CreateLeadCommand` keeps all seven parameters though this endpoint uses five.
 6. **Lead read endpoints — ✅ done.** `GET /leads/{id}` (repository + `IOwnershipValidator` → 403) and `GET /leads` (`ILeadQueries`, projection, pagination, server-forced Inspector scope). New: `Pagination`/`PagedResult<T>` in `Application.Common`, `ILeadQueries`, two queries + validators + handlers, `Roles` constants. Slice 5's deferred `Location` header now lands. 21 tests.
    - **A real fail-open defect was caught in review**: the first scope helper returned "unrestricted" for anyone who merely was not an Inspector, so a broken role mapping, a role-less account, a role-name typo, or a future third role would each have granted **every Lead**. Fixed to check Inspector first, then Admin explicitly, then refuse — and demonstrated by reproducing the vulnerability, not just arguing it. **Do not simplify that helper back into a single negated check.**
-7. Inspection scheduling — **next**.
-8. Inspection photo upload + `LocalDiskFileStorage`.
+7. **Inspection scheduling — ✅ done (D62).** `POST /api/v1/leads/{leadId}/inspections`, Admin only, on `InspectionsController` with an absolute route so all Inspection behaviour stays in one file. New `IUserQueries.IsActiveInspectorAsync` rejects a non-existent, non-Inspector, or deactivated assignee **before** any mutation — previously the FK caught only the first case and surfaced it as a 500. Role names are now constants with one definition. 13 tests.
+   - **D61's wording was corrected here**: it wrongly claimed the inspector id is server-derived in this slice. It is not — an Admin chooses the assignee. The rule covers *who is acting*, not every user id in a request.
+   - **Documented gap:** `PermissionMatrix.md` §2 grants "View an Inspection" (Admin `F`, Inspector `S`), but no `GET /api/v1/inspections/{id}` exists — it is absent from Architecture §5.2's endpoint table and from Phase 4's agreed slice list. Recorded rather than built, to avoid growing agreed scope before the project documents are updated. This is also why scheduling returns 201 with no `Location` header.
+8. Inspection photo upload + `LocalDiskFileStorage` — **next**.
 9. Inspection completion.
 10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
 11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
 
-**The immediate next step is Phase 4 Slice 7.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–6 were handled.
+**The immediate next step is Phase 4 Slice 8.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–7 were handled.
 
 **Open item created by Slice 4:** no user account exists in production and nothing creates one. The login endpoint works but is unusable outside tests until SRS **OQ-1** (does Admin manage Inspector accounts from the dashboard?) is answered, or a seeding path is added. Deliberately not resolved inside Slice 4 — it is an SRS-level question, not something an authentication slice should invent an answer to.
 

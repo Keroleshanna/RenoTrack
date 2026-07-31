@@ -1,18 +1,27 @@
+using RenoTrack.Infrastructure.Identity;
+
 namespace RenoTrack.Api.Controllers;
 
 /// <summary>
-/// The two internal dashboard roles (Architecture.md §7.2), as constants rather than repeated
-/// string literals.
+/// The two internal dashboard roles (Architecture.md §7.2), for use in
+/// <c>[Authorize(Roles = ...)]</c> attributes and <c>User.IsInRole</c> checks.
 /// </summary>
 /// <remarks>
-/// These values must match exactly what <c>IdentityRoleSeeder</c> seeds — a typo in a role name
-/// fails <em>open</em> for an ownership check (<c>User.IsInRole("Inspecter")</c> is false, so the
-/// caller is treated as unscoped) and <em>closed</em> for an <c>[Authorize(Roles = ...)]</c>
-/// attribute. The first of those is the dangerous direction, which is why the names live in one
-/// place rather than being retyped per endpoint.
+/// <para>
+/// These deliberately <b>forward</b> to <see cref="IdentityRoleSeeder"/>'s constants rather than
+/// repeating the literals. The names must match exactly what is seeded, and a mismatch fails in the
+/// dangerous direction: <c>User.IsInRole("Inspecter")</c> is simply <c>false</c>, which a
+/// scope-deriving helper would read as "not the scoped role" — the fail-open shape found and fixed
+/// in Slice 6. Forwarding makes a typo impossible rather than merely unlikely.
+/// </para>
+/// <para>
+/// The alias exists at all because <c>[Authorize(Roles = ...)]</c> needs a compile-time constant
+/// expression, and a short <c>Roles.Admin</c> reads better at a dozen call sites than the seeder's
+/// fully-qualified name.
+/// </para>
 /// </remarks>
 public static class Roles
 {
-    public const string Admin = "Admin";
-    public const string Inspector = "Inspector";
+    public const string Admin = IdentityRoleSeeder.AdminRole;
+    public const string Inspector = IdentityRoleSeeder.InspectorRole;
 }

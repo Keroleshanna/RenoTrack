@@ -30,7 +30,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 4 | Authentication — JWT login | ✅ done |
 | 5 | Lead creation (public) | ✅ done |
 | 6 | Lead read endpoints | ✅ done |
-| 7 | Inspection scheduling | not started |
+| 7 | Inspection scheduling | ✅ done |
 | 8 | Inspection photo upload + `LocalDiskFileStorage` | not started |
 | 9 | Inspection completion | not started |
 | 10 | Lead status update (Won/Lost) | not started |
@@ -456,3 +456,59 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 90/90 each.
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **461 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **90 Api**).
+
+---
+
+## Slice 7 — Inspection Scheduling
+
+**Endpoint:** `POST /api/v1/leads/{leadId}/inspections` (SRS FR-2.3, Sequence Diagram §3), Admin only per `PermissionMatrix.md` §2 (`Schedule an Inspection | F | —`).
+
+### Design review
+
+**A documentation error of my own was found and corrected.** D61's Consequences claimed *"the inspector id for scheduling (Slice 7), photo upload (Slice 8), and completion (Slice 9) all come from the JWT's `sub` claim."* Reading `ScheduleInspectionCommand` showed that is wrong for scheduling: it carries **two** user ids of opposite kinds. `ScheduledByAdminId` is who is acting (server-derived, as the rule says); `InspectorId` is *who the work is assigned to*, a third party the Admin deliberately chooses. Taking it from the token would have made it impossible for an Admin to schedule anyone but themselves — the entire operation. D61 now carries an explicit correction, since as written it would have pushed a future implementer straight into that mistake.
+
+**Decisions:**
+
+- **`InspectionsController`, with an absolute route template for this one action.** Slices 8–9 add `POST /inspections/{id}/photos` and `/complete`; putting scheduling on `LeadsController` would split three views of one resource across two files and give `LeadsController` a dependency it has no other use for. Cohesion by resource beats cohesion by URL prefix.
+- **No `IOwnershipValidator`** — `PermissionMatrix` §2 marks this `F`, and §16 says using it for an `F` action is a semantic error, not merely redundant.
+- **201 without a `Location` header, expected to stay that way.** No `GET /api/v1/inspections/{id}` exists, it is absent from Architecture §5.2's endpoint table, and no agreed slice adds one.
+- **`ScheduledAt` is not required to be in the future.** No document requires it, and back-dating a visit already carried out is plausible; inventing the rule here would be speculative, and it would need a numbered `BusinessRules.md` entry first.
+
+### D62 — a real defect fixed rather than deferred
+
+Nothing validated `InspectorId`. Because `Inspection.InspectorId` has a real FK to `AspNetUsers` (D53), a mistyped id failed at `SaveChangesAsync` with an unmapped `DbUpdateException` — **500 on an ordinary client mistake**. And the FK could not catch the two other ways the value can be wrong: a real user who is an **Admin**, or an Inspector whose account is **deactivated**. Both would have been accepted by the database and produced invalid business data.
+
+Three options were weighed. The user rejected deferring it to the hardening slice with a clear framing: *this is not hardening, it is a business rule* — an Inspection assigned to a non-existent, non-Inspector, or deactivated account is invalid data, so the Application layer should refuse it before persistence rather than rely on a storage constraint. The user also added the `IsActive` case, which the original proposal had missed.
+
+Implemented as `IUserQueries.IsActiveInspectorAsync` — one method rather than three, because every caller wants the same conjunction and splitting it would invite checking two of three and permitting the case the third would catch. Throws `NotFoundException` (→404) for all three cases: from the caller's point of view the resource they named — an assignable Inspector with that id — does not exist, which is honest for all three and does not disclose whether the id belongs to some other kind of account. The check runs **before** the Lead is mutated, so a rejected assignee leaves no partial state.
+
+**Verified by reproducing the defect.** Disabling the check made the non-existent-user test return `InternalServerError` — exactly the failure it exists to prevent — then pass again on restore.
+
+Worth recording because it looks like a contradiction and is not: D60 kept *authentication* out of the Application layer because logging in has no business rule; D62 puts a *user-related business rule* into it. Both state the same principle — business rules live in Application, mechanisms live in Infrastructure.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Application/Common/Interfaces/IUserQueries.cs` | New — one method, with the D60-consistency reasoning inline |
+| `src/RenoTrack.Application/.../ScheduleInspectionCommandHandler.cs` | Eligibility check before any mutation |
+| `src/RenoTrack.Infrastructure/Identity/UserQueries.cs` | New — existence check over Identity tables, not `UserManager` |
+| `src/RenoTrack.Infrastructure/Identity/IdentityRoleSeeder.cs` | Role names became named constants |
+| `src/RenoTrack.Api/Auth/Roles.cs` | Now forwards to the seeder's constants instead of repeating literals |
+| `src/RenoTrack.Api/Controllers/InspectionsController.cs` | New |
+| `src/RenoTrack.Api/Inspections/Dtos/ScheduleInspectionRequest.cs` | New — two fields, with the "assignment target, not caller identity" note |
+| `tests/RenoTrack.Application.Tests/Fakes/FakeUserQueries.cs` | New |
+
+**Role-name duplication closed as a side effect.** Adding a role predicate to `UserQueries` made the literal `"Inspector"` appear in a third place, alongside the seeder and the API's `[Authorize]` attributes. A mismatch between any two of them fails **open** for an `IsInRole` check — the exact defect shape found in Slice 6 — so the names became constants with one definition. The `Roles.cs` namespace/folder inconsistency noted at the end of Slice 6 was left alone, still cosmetic.
+
+### Tests
+
+13 new (2 Application, 11 API; 474 total). Beyond the happy path: BR-13's side effect is asserted **against the database**, not the response — after scheduling, the Lead really is assigned and really has moved to `InspectionScheduled`; an Inspector is refused (`PermissionMatrix` §2 grants them nothing); a second scheduling attempt is 409 via the Lead's own guard; and each of the three ineligible-assignee cases — non-existent, Admin, deactivated — is rejected, with a further test proving a rejected assignee leaves the Lead untouched.
+
+The Application-level test also pins that eligibility is checked for the **assigned** Inspector and not the scheduling Admin, since confusing the two would silently require Admins to hold the Inspector role.
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 101/101 each.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **474 passing, 0 failing** (153 Domain + 146 Application + 74 Infrastructure + **101 Api**).
