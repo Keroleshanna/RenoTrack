@@ -26,7 +26,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 |---|---|---|
 | 1 | API foundation, conventions & docs | ✅ done |
 | 2 | Global exception-handling middleware | ✅ done |
-| 3 | `AddApplication()` DI extension | not started |
+| 3 | `AddApplication()` DI extension | ✅ done |
 | 4 | Authentication — JWT login | not started |
 | 5 | Lead creation (public) | not started |
 | 6 | Lead read endpoints | not started |
@@ -168,3 +168,64 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 17/17 each time.
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **388 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **17 Api**).
+
+---
+
+## Slice 3 — `AddApplication()` DI Extension
+
+**Goal:** make every Application-layer service resolvable from the composition root, so Slice 4's first controller can constructor-inject a handler. Before this slice nothing in `RenoTrack.Application` was registered anywhere — `AddInfrastructure()` deliberately excluded all of it, and said so in its own doc comment.
+
+### Exact inventory (counted from the code, not estimated)
+
+| Kind | Count |
+|---|---|
+| `IValidator<T>` (`AbstractValidator<T>` subclasses) | 14 |
+| `ICommandHandler<TCommand, TResult>` | 14 |
+| `IQueryHandler<TQuery, TResult>` | 1 |
+| `IOwnershipValidator` → `OwnershipValidator` | 1 |
+| **Total** | **30** |
+
+15 handlers but only 14 validators — the gap is `SearchCatalogItemsQuery`, which takes no parameters and so has nothing to shape-validate (D37). The asymmetry is correct, not a missing file. The reflection-based test independently rediscovered exactly 15 handlers and 14 validators, confirming the inventory.
+
+### Design review
+
+**No new `ARCHITECTURE_DECISIONS.md` entry.** Agreed with the user: this is `AddInfrastructure()`'s already-settled conventions (explicit registrations, uniform Scoped lifetime, composition owned by the layer it composes) applied consistently to a second layer — not a new cross-cutting rule. Recording it would be the same padding rejected for Slice 1's fixture mechanism.
+
+**Decisions:**
+
+- **Explicit registrations, no assembly scanning.** `AddValidatorsFromAssemblyContaining<T>()` (one line for 14 validators) and Scrutor (scanning both) were both considered and rejected — a new package plus reflective magic in production, in a codebase that rejected MediatR (D22) and generic catch-all abstractions (D28) on exactly this principle. The user added a framing worth recording: the explicit list *is* documentation of the application's capabilities.
+- **A reflection-based test as the safety net.** The genuine argument for scanning is "someone adds a 16th handler and forgets to register it" — and that risk is worse than it first appears: **`ValidateOnBuild` would not catch it today**, because no controller depends on the handlers yet, so a missing registration would sit undetected until a later slice wired it up. The resolution is reflection in the *test*, explicit registration in production (`CLAUDE.md` §14 sanctions the former specifically). `DependencyInjectionTests` discovers every handler/validator in the Application assembly and asserts each resolves.
+- **Handlers registered by interface**, not concrete type. The counter-argument was raised honestly — injecting `ICommandHandler<CreateLeadCommand, LeadDto>` means "Go to Definition" lands on the interface rather than the handler, slightly against §3's traceability goal. It was rejected because §3 names that interface "the only shared abstraction"; never injecting it would reduce it to a decorative marker every handler implements for no runtime purpose.
+- **Uniformly Scoped**, matching `AddInfrastructure()`'s stated uniform-lifetime rule. Validators and `OwnershipValidator` are stateless and would be safe as Singletons, but one rule removes a class of captive-dependency mistakes before it can happen (D48's reasoning for the dependency-free placeholders).
+- **`AddApplication(this IServiceCollection services)` takes no `IConfiguration`.** `AddInfrastructure` needs one for the connection string; Application has nothing configurable, and adding the parameter for symmetry would be speculative (§4).
+- **`Microsoft.Extensions.DependencyInjection.Abstractions` added to `RenoTrack.Application`** — flagged explicitly during review rather than slipped in, since it is the first non-FluentValidation package that layer takes on. Approved: it is a DI contract package with no framework or hosting baggage, and keeping the composition extension owned by the layer it composes is cleaner than moving that knowledge into the Api project (the alternative, rejected).
+
+**Two user requests, both implemented:** registrations grouped by category (validators → command handlers → query handlers → services) rather than alphabetically or by creation order, each category in its own private method with its own explanatory summary; and a file-header comment stating this is the Application layer's composition root, registers Application services only, depends solely on DI abstractions, and must not accumulate hosting or configuration concerns.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Application/DependencyInjection.cs` | New — 30 explicit registrations in four categorized private methods |
+| `src/RenoTrack.Application/RenoTrack.Application.csproj` | `Microsoft.Extensions.DependencyInjection.Abstractions` 10.0.10 |
+| `src/RenoTrack.Api/Program.cs` | `builder.Services.AddApplication();` ahead of `AddInfrastructure(...)` |
+| `tests/RenoTrack.Api.Tests/DependencyInjectionTests.cs` | New — 31 tests |
+
+One naming collision surfaced during implementation: both `RenoTrack.Application` and `RenoTrack.Infrastructure` declare a `DependencyInjection` class, so `typeof(DependencyInjection)` was ambiguous in the test. Resolved by anchoring assembly discovery on `typeof(ICommandHandler<,>).Assembly` instead — which also reads better, since that interface is precisely what the test is scanning for.
+
+### Tests
+
+31 new (48 in `RenoTrack.Api.Tests` total):
+
+- 1 — the container builds with `ValidateOnBuild`/`ValidateScopes` enabled.
+- 15 (theory, discovered by reflection) — every `ICommandHandler<,>`/`IQueryHandler<,>` in the Application assembly resolves.
+- 14 (theory, discovered by reflection) — every `IValidator<>` in the Application assembly resolves.
+- 1 — `IOwnershipValidator` resolves to an implementation from the **Application** assembly, pinning `CLAUDE.md` §9's placement rule rather than merely that something resolves.
+
+**The safety net was proven to fail, not assumed to work.** A reflection-discovery test that silently found zero types would pass vacuously, so the `CreateLeadCommandHandler` registration was temporarily removed: the suite failed with exactly one test naming the missing registration (`No service for type ... ICommandHandler<CreateLeadCommand, LeadDto>`), then passed again once restored. The counts (15/14) independently matching the hand-counted inventory is the second confirmation.
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 48/48 each.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **419 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **48 Api**).

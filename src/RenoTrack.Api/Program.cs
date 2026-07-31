@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
+using RenoTrack.Application;
 using RenoTrack.Infrastructure;
 using RenoTrack.Infrastructure.Identity;
 using Scalar.AspNetCore;
@@ -9,6 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
+builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 // RFC 7807 error responses (Architecture.md §5.3). CustomizeProblemDetails is applied here rather

@@ -1,13 +1,13 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — Slices 1–2 of 11 done; see `PHASE4_PROGRESS.md`.
+**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — Slices 1–3 of 11 done; see `PHASE4_PROGRESS.md`.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 4 — API layer**, per `PROJECT_ROADMAP.md`. **In progress** (Slices 1–2 of 11 done). Phases 0–3 are all complete and merged to `main`.
+**Phase 4 — API layer**, per `PROJECT_ROADMAP.md`. **In progress** (Slices 1–3 of 11 done). Phases 0–3 are all complete and merged to `main`.
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
@@ -15,9 +15,9 @@
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
 - **Phase 3 (Infrastructure) — ✅ complete and merged to `main`** (PR #6, merge commit `85df430`, branch `feature/phase-3-infrastructure-efcore`). All 15 slices done (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate`/`AddAuditLog`/`AddNumberSequence`/`AddIdentity` migrations; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`; `IAngebotRepository`; `IAngebotReviewCommentRepository`; `ICatalogItemRepository`; `ICatalogItemQueries`; `IAuditService`; `INumberGeneratorService`; `IFileStorage` placeholder; `IEmailSender` placeholder; `AddInfrastructure()` + `Program.cs` wiring; Identity storage + role seeding). A pre-merge code review found three Should-Fix issues, all fixed (`c085058`). A real concurrency bug in `IdentityRoleSeeder`, found during final CI verification (not by the original review), was root-caused and fixed with a genuine design change — `IdentityRoleSeeder` became a dedicated DI service (D55) — rather than patched around. CI was split into a Linux job (build + non-Infrastructure tests) and a Windows job (Infrastructure tests against real LocalDB) to fix an environmental CI failure without weakening D40 (D56). See `PHASE3_PROGRESS.md` and §11 below for the full closeout record.
 
-- **Phase 4 (API layer) — 🚧 in progress**, branch `feature/phase-4-api-auth-leads-inspections` (off `babfff9`). Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry (narrower than "the whole API layer"): API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Angebot/Catalog (Phase 5), token links (Phase 6), Projects (Phase 7), Invoices (Phase 8) are explicitly out of scope. **Slices 1–2 of 11 complete** (API foundation/conventions/docs — D57, D58; global exception-handling middleware — D59). Full slice list and log in `PHASE4_PROGRESS.md`.
+- **Phase 4 (API layer) — 🚧 in progress**, branch `feature/phase-4-api-auth-leads-inspections` (off `babfff9`). Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry (narrower than "the whole API layer"): API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Angebot/Catalog (Phase 5), token links (Phase 6), Projects (Phase 7), Invoices (Phase 8) are explicitly out of scope. **Slices 1–3 of 11 complete** (API foundation/conventions/docs — D57, D58; global exception-handling middleware — D59; `AddApplication()` DI extension — no new decision, existing composition-root conventions applied to a second layer). Full slice list and log in `PHASE4_PROGRESS.md`.
 
-**Immediate next step: Phase 4 Slice 3 (`AddApplication()` DI extension).** See §9.
+**Immediate next step: Phase 4 Slice 4 (authentication — JWT login).** See §9.
 
 ## 2. Current Branch State
 
@@ -27,13 +27,13 @@
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 2:
+As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 3:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **388 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **419 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
   - `RenoTrack.Infrastructure.Tests`: **74 tests** (real SQL Server LocalDB integration tests — new in Phase 3; `PlaceholderFileStorageTests`/`LoggingNoOpEmailSenderTests`/`DependencyInjectionTests` are exceptions with no database connection actually opened; the Identity tests do use real LocalDB).
-  - `RenoTrack.Api.Tests`: **17 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping, D59).
+  - `RenoTrack.Api.Tests`: **48 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping (D59) + Slice 3 DI composition, the last of which discovers handlers/validators by reflection so an unregistered one fails CI).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory
@@ -256,7 +256,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 4 is in progress — Slices 1–2 of 11 are done.** The long-deferred question of how Domain's own `ArgumentException`/`InvalidOperationException` map to HTTP status codes is now resolved (D59 — 400/409, with a documented accepted risk and a logging mitigation). The immediate next step is **Slice 3: the `AddApplication()` DI extension**. See `PHASE4_PROGRESS.md` for the full slice list and per-slice records. The remainder of this section is the original Phase 4 framing, kept for context.
+**Phase 4 is in progress — Slices 1–3 of 11 are done.** The long-deferred question of how Domain's own `ArgumentException`/`InvalidOperationException` map to HTTP status codes is now resolved (D59 — 400/409, with a documented accepted risk and a logging mitigation), and every Application-layer service is now registered in DI (`AddApplication()`), which was the last prerequisite before controllers can exist. The immediate next step is **Slice 4: authentication (JWT login)** — the first slice with genuinely undecided design (login command shape, refresh-token storage/rotation). See `PHASE4_PROGRESS.md` for the full slice list and per-slice records. The remainder of this section is the original Phase 4 framing, kept for context.
 
 **Phase 3 was complete and merged to `main` (PR #6, `85df430`).** The next step after it was **Phase 4 — the API layer** (per `PROJECT_ROADMAP.md`): controllers, the `AddApplication()` DI extension (`IOwnershipValidator`, FluentValidation validators, command handlers — none of these are wired into DI yet, since `RenoTrack.Api` has had no controllers to need them), authentication/JWT issuance (Architecture.md §7.1 — Phase 3 built Identity storage only, no `[Authorize]` attributes or login endpoints exist), HTTP status-code mapping for Domain exceptions (RFC 7807 ProblemDetails, Architecture.md §5.3), and the real `LocalDiskFileStorage` (D42). A design review and explicit user sign-off is expected before any Phase 4 code is written, exactly as every prior phase/slice was handled. §10 and §11 below remain the historical closeout records for Phase 2 and Phase 3 respectively.
 
