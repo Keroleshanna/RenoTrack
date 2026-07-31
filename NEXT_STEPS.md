@@ -39,7 +39,7 @@ Branch: `feature/phase-4-api-auth-leads-inspections`, off `main` at `babfff9`. S
 
 Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 
-1. **API foundation, conventions & docs — ✅ done.** `api/v1` routing convention (D57), `RenoTrack.Api.Tests` harness on real `WebApplicationFactory` + real LocalDB with `MigrateAsync` (D58), Scalar docs UI with the JWT scheme declared, `Api.Tests` moved to CI's Windows job. 3 tests. No controller and no health endpoint were invented to serve the tests.
+1. **API foundation, conventions & docs — ✅ done.** `api/v1` routing convention (D57), `RenoTrack.Api.Tests` harness on real `WebApplicationFactory` + real LocalDB with `MigrateAsync` (D58), Scalar docs UI with the JWT scheme declared, `Api.Tests` moved to CI's Windows job. 4 tests. No controller and no health endpoint were invented to serve the tests.
 2. Global exception-handling middleware (RFC 7807) — **next**; also resolves the deferred `ArgumentException`→400 / `InvalidOperationException`→409 mapping.
 3. `AddApplication()` DI extension.
 4. Authentication — JWT login. *(Login-command shape and refresh-token design deliberately not yet decided — that slice's own review.)*

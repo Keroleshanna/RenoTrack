@@ -7,7 +7,7 @@
 
 ## 1. Current Phase
 
-**Phase 3 — Infrastructure**, per `PROJECT_ROADMAP.md`. **Complete and merged to `main`.**
+**Phase 4 — API layer**, per `PROJECT_ROADMAP.md`. **In progress** (Slice 1 of 11 done). Phases 0–3 are all complete and merged to `main`.
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
@@ -29,11 +29,11 @@
 
 As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 1:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **374 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **375 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
   - `RenoTrack.Infrastructure.Tests`: **74 tests** (real SQL Server LocalDB integration tests — new in Phase 3; `PlaceholderFileStorageTests`/`LoggingNoOpEmailSenderTests`/`DependencyInjectionTests` are exceptions with no database connection actually opened; the Identity tests do use real LocalDB).
-  - `RenoTrack.Api.Tests`: **3 tests** (new in Phase 4 Slice 1 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58).
+  - `RenoTrack.Api.Tests`: **4 tests** (new in Phase 4 Slice 1 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory

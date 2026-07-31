@@ -91,16 +91,17 @@ A minor implementation correction: `Microsoft.OpenApi` 2.x flattened its namespa
 
 ### Tests
 
-Three, all in the shared `"Api"` collection:
+Four, all in the shared `"Api"` collection:
 
 1. `Application_starts_successfully` — creating the client builds and starts the real host, which also proves `Program.cs`'s Identity role seeding runs successfully against the migrated test database (finding 2 above, now covered rather than merely avoided).
 2. `OpenApi_document_is_served` — `GET /openapi/v1.json` returns 200 and a parseable document.
-3. `OpenApi_document_declares_the_bearer_security_scheme` — asserts `type`/`scheme`/`bearerFormat`.
+3. `Scalar_api_reference_ui_is_served` — `GET /scalar/v1` returns 200.
+4. `OpenApi_document_declares_the_bearer_security_scheme` — asserts `type`/`scheme`/`bearerFormat`.
 
-The Scalar UI endpoint (`GET /scalar/v1` → 200) was verified manually via a temporary probe that was deleted before commit, deliberately not committed as a fourth test since the approved scope specified three. **Flagged for review:** if a permanent test for the docs UI is wanted, it is a one-line addition.
+Test 3 was added during Slice 1's review, at the user's request. The original design specified three tests, and the Scalar UI endpoint had been verified only manually (via a temporary probe deleted before commit) and flagged as uncovered. The user's reasoning — the documentation UI is a deliverable of this slice, so CI should protect it from accidental removal — was correct, and the gap was one the assistant had surfaced but not closed on its own initiative. `/scalar/v1` is Scalar's own default route (`/scalar/{documentName}` for the `v1` document); `MapScalarApiReference()` is called with no route argument, so nothing about that path is a project-specific choice.
 
-Per `CLAUDE.md` §14's rule that a single green run proves little for anything involving shared external state, the suite was run three consecutive times — 3/3 passing each time — before being considered done.
+Per `CLAUDE.md` §14's rule that a single green run proves little for anything involving shared external state, the suite was run three consecutive times — passing every time — both before and after the fourth test was added.
 
 ### Outcome
 
-`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **374 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **3 Api**). `RenoTrack.Api.Tests` is no longer an empty project.
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **375 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **4 Api**). `RenoTrack.Api.Tests` is no longer an empty project.

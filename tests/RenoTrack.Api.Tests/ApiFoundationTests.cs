@@ -38,6 +38,20 @@ public sealed class ApiFoundationTests(RenoTrackApiFactory factory)
     }
 
     [Fact]
+    public async Task Scalar_api_reference_ui_is_served()
+    {
+        using var client = factory.CreateClient();
+
+        // "/scalar/v1" is Scalar's own default route (/scalar/{documentName}) for the "v1"
+        // OpenAPI document — MapScalarApiReference() is called with no route argument. Asserting
+        // it here pins the documentation UI as a real deliverable, so removing or breaking the
+        // mapping fails CI rather than going unnoticed.
+        var response = await client.GetAsync("/scalar/v1");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task OpenApi_document_declares_the_bearer_security_scheme()
     {
         using var client = factory.CreateClient();
