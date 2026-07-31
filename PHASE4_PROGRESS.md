@@ -28,7 +28,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 2 | Global exception-handling middleware | ✅ done |
 | 3 | `AddApplication()` DI extension | ✅ done |
 | 4 | Authentication — JWT login | ✅ done |
-| 5 | Lead creation (public) | not started |
+| 5 | Lead creation (public) | ✅ done |
 | 6 | Lead read endpoints | not started |
 | 7 | Inspection scheduling | not started |
 | 8 | Inspection photo upload + `LocalDiskFileStorage` | not started |
@@ -322,3 +322,59 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 62/62 each. This 
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **433 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **62 Api**). `dotnet ef migrations has-pending-model-changes` → no pending changes.
+
+---
+
+## Slice 5 — Lead Creation (Public)
+
+**Goal:** the first business endpoint — `POST /api/v1/leads`, the public website contact form (SRS FR-1.3, Sequence Diagram §1) — proving routing, DI, and the exception middleware work together on real Application-layer work.
+
+Per the agreed approach, the design review concentrated on the HTTP surface (contract, routes, validation boundary, status codes, idempotency, public-endpoint security, logging/audit, tests) rather than the handler, **and began by reading the existing `CreateLeadCommandHandler`, command, validator, and `LeadDto`** — the standing instruction being that the endpoint contract is driven by the existing use case, not the reverse.
+
+**Result of that reading: nothing in the Application layer changed.** The handler, command, validator, and DTO are all untouched. The only new type is a request record, and it exists for a security reason rather than a shape preference.
+
+### Decisions
+
+- **D61 — the request contract is narrower than the command.** `CreateLeadCommand` has seven parameters; `CreateLeadRequest` has five. `Source` and `CreatedByUserId` are server-derived. This is the slice's substantive decision and it generalizes into a standing rule governing every remaining slice (inspector id from the JWT, aggregate id from the route). Full reasoning in D61, including why binding the command directly — the tempting "purest" reading of "let the use case drive the endpoint" — is the wrong call: `Source` gates the FR-9.2 Admin notification, so a caller controlling it can suppress that notification.
+- **Enums serialize as names, not ordinals** (recorded under D61). Decided here rather than left to the System.Text.Json default, because `LeadDto` is the first response carrying enums and a default is still a choice.
+- **Deliberately not idempotent.** Two identical submissions create two Leads; silent de-duplication would be an invented rule that discards a genuine second enquiry.
+- **201 without a `Location` header**, since `GET /api/v1/leads/{id}` does not exist until Slice 6 and a `Location` pointing at a 404 is worse than none. Revisit in Slice 6.
+- **No controller-side validation**, no controller-side auditing, no controller-side logging. `CreateLeadCommandValidator` already covers these fields and the Slice 2 middleware maps its failure to a field-keyed 400; the handler already logs `LeadCreated` (§10), and auditing here would double-log a business milestone.
+
+### Deferred, deliberately (user decision)
+
+**Rate limiting was proposed for this slice and explicitly deferred.** `Architecture.md` §12 requires "rate limiting / basic abuse protection on public endpoints … and the contact form," and this endpoint *is* the contact form. The user's reasoning: Slice 5's purpose is to deliver the first public Lead endpoint, not to introduce public-endpoint hardening infrastructure, and rate limiting, CORS, and similar concerns belong together in a dedicated hardening slice once the public endpoints actually exist. Recorded here and in `NEXT_STEPS.md` so it is a tracked commitment rather than a forgotten requirement — **`POST /api/v1/leads` is currently unthrottled and publicly reachable.**
+
+Also flagged and left alone: `Notes` has no length cap anywhere (validator or Domain). Kestrel's 30 MB default body limit applies, which is generous for a contact form. Adding a cap would mean inventing a number no document specifies, so it is noted rather than guessed.
+
+### Known gap (deliberate, not an omission)
+
+**FR-2.1's Admin manual-entry path (`Source = Phone`/`Email`) is not built.** It does not appear in Architecture §5.2's endpoint table, and Slice 5's agreed scope is the public endpoint. When it arrives it is an authenticated action supplying `Source` and the Admin's id from the JWT — which is precisely why the command keeps all seven parameters even though this endpoint uses five.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Api/Leads/Dtos/CreateLeadRequest.cs` | New — five fields, with the security reasoning for the two omissions in its own doc comment |
+| `src/RenoTrack.Api/Controllers/LeadsController.cs` | New — one action; `[Authorize]` at class level, `[AllowAnonymous]` on the action (D57) |
+| `src/RenoTrack.Api/Program.cs` | `JsonStringEnumConverter` |
+
+### Tests
+
+7 new (69 in `RenoTrack.Api.Tests` total):
+
+| Behaviour | Why it earns its place |
+|---|---|
+| 201 with the created resource | Happy path |
+| **Server-derived fields resist injection** | Posts `source: "Phone"` and `createdByUserId: 999` anyway, asserts the Lead is still `Website` with no inspector — verifies D61 rather than trusting it |
+| Requires no authentication | Proves `[AllowAnonymous]` is genuinely applied, since the controller is `[Authorize]` by default |
+| Persists the Lead | Reads the row back from the database — returning a DTO proves the handler ran, only a read proves it committed |
+| Invalid email → field-keyed 400 | Pins the alignment between request property names and validator error keys: the client sent `email`, so the error must return under `Email` |
+| Missing required fields → 400 | Two error keys in one response |
+| Two identical submissions → two Leads | Pins the non-idempotency decision, so a future "optimization" fails a test rather than silently changing behaviour |
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 69/69 each.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **440 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **69 Api**).

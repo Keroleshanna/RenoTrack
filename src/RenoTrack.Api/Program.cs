@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
 using RenoTrack.Application;
@@ -29,7 +30,17 @@ builder.Services.AddProblemDetails(options =>
 });
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Enums serialize as names ("Website"), not ordinals (0). Three reasons, in order of
+        // weight: an ordinal contract silently changes meaning if anyone reorders an enum, which is
+        // an invisible breaking change for every existing client; the database already stores these
+        // same enums as strings for exactly the readability reason ERD.md gives; and every project
+        // document refers to statuses by name, so a numeric wire format would be the only place in
+        // the system where they are not.
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi(options =>
 {

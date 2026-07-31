@@ -956,6 +956,24 @@ A row carries information only until `ExpiresAt`. Revoked-but-unexpired rows **m
 
 ---
 
+## D61 — An Endpoint's Request Contract Is Narrower Than Its Command; Identity and Context Are Always Server-Derived
+
+**Problem:** `CreateLeadCommand` has seven parameters. Two of them — `Source` and `CreatedByUserId` — must not come from an HTTP request body on the public contact-form endpoint. The general question this raised, which recurs on every remaining Phase 4 slice: when a controller translates a request into an existing command, does it pass the request straight through, or is the wire contract deliberately smaller?
+
+**Alternatives considered:** (a) Bind `CreateLeadCommand` directly as the action parameter — zero mapping code, no new type, and it looks like the purest expression of "the endpoint contract is driven by the existing use case." Rejected: it would let an anonymous caller set `CreatedByUserId` to any user id (mis-attributing the Lead and its audit entry) and set `Source` to `Phone`, which is not cosmetic — `CreateLeadCommandHandler` notifies the Admin **only** when `Source == Website` (SRS FR-9.2), so a caller controlling that field can suppress the notification for Leads they create. (b) Keep the direct binding but overwrite the sensitive fields in the controller after binding — rejected: the fields still appear in the generated OpenAPI document as inputs, inviting clients to send them, and "we bind it then ignore it" is a convention a future edit can quietly break. (c) A dedicated request record containing only the fields a caller may legitimately supply, with the controller constructing the command and filling the rest.
+
+**Final decision:** (c), generalized into a standing rule:
+
+> **A controller never accepts, from the request body or query string, any value that represents *who the caller is* or *what context they are acting in*. Those are derived server-side — from the authenticated principal, from the route, or from the endpoint's own fixed meaning. The request contract is therefore normally a strict subset of the command's parameters, and a new request record is justified exactly when that subset differs.**
+
+**Why chosen:** the alternative fails closed nowhere — every field a caller can set is a field an attacker can set, and the damage is not always obvious from the field's name (`Source` reads like a harmless label until you notice it gates a notification). Making the wire contract structurally unable to express those values is stronger than any amount of controller-side sanitisation, and it keeps the OpenAPI document honest about what the endpoint actually accepts. This does **not** contradict the standing instruction to let the existing use case drive the endpoint: the *handler* is unchanged, and remains correct for both the website and the future Admin-entry path. The endpoint is narrower than the use case, which is the right relationship — one use case can have several endpoints exposing different subsets of it.
+
+**Consequences:** `CreateLeadRequest` (`src/RenoTrack.Api/Leads/Dtos/`) has five fields to the command's seven; `LeadsController.Create` supplies `Source: LeadSource.Website` and `CreatedByUserId: null`. A test posts `source` and `createdByUserId` anyway and asserts the created Lead is still `Website` with no assigned inspector — the rule is verified, not just documented. **This rule governs the remaining Phase 4 slices directly**: the inspector id for scheduling (Slice 7), photo upload (Slice 8), and completion (Slice 9) all come from the JWT's `sub` claim, never from the request; the aggregate id comes from the route. A new request record is *not* introduced when the subset happens to be the whole command — this rule justifies the DTO, it does not mandate one per endpoint.
+
+**Related, decided in the same slice (no separate entry):** enums serialize as names, not ordinals (`JsonStringEnumConverter` in `Program.cs`). An ordinal contract silently changes meaning if anyone reorders an enum — an invisible breaking change for every client — while the database already stores these same enums as strings for the readability reason `ERD.md` gives, and every project document refers to statuses by name. Also: `POST /api/v1/leads` is deliberately **not** idempotent (two identical submissions create two Leads), because silently de-duplicating would be an invented business rule that discards a genuine second enquiry; a duplicate row is something an Admin can close, a swallowed enquiry is a lost customer.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1011,3 +1029,8 @@ A row carries information only until `ExpiresAt`. Revoked-but-unexpired rows **m
 | A background cleanup job for expired refresh tokens | D60 | Steady state is a few hundred rows; building it now solves a non-problem. Revisit at tens of thousands of rows |
 | Distinguishing "unknown email" from "wrong password" in the 401 | D60 | Turns login into an account-enumeration oracle; the real reason is logged server-side instead |
 | Default `ClockSkew` (5 minutes) on token validation | D60 | Would keep a 15-minute access token usable for twenty, silently overriding the configured lifetime |
+| Binding `CreateLeadCommand` directly as the action parameter | D61 | Lets an anonymous caller set `CreatedByUserId` and `Source` — the latter gates the Admin notification (FR-9.2), so controlling it suppresses that notification |
+| Binding the command directly and overwriting sensitive fields after binding | D61 | The fields still appear as inputs in the OpenAPI document, and "bind then ignore" is a convention a future edit can quietly break |
+| Serializing enums as ordinals (the System.Text.Json default) | D61 | Reordering an enum would silently change the wire contract's meaning for every existing client |
+| De-duplicating identical contact-form submissions | D61 | An invented business rule that discards a genuine second enquiry; a duplicate row can be closed, a swallowed enquiry is a lost customer |
+| Rate limiting the public Lead endpoint in Slice 5 | Slice 5 review | Architecture §12 requires it, but it is public-endpoint hardening infrastructure, not this slice's purpose — deferred to a dedicated hardening slice once the public endpoints exist |
