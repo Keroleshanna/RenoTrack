@@ -17,6 +17,9 @@ The following documents are the single source of truth for this project. Code mu
 - `PermissionMatrix.md` — Role-based access control matrix
 - `Wireframes.md` — Structural UI wireframes
 - `PROJECT_ROADMAP.md` — Phased build plan (start here for "what's next")
+- `CLAUDE.md` — Permanent engineering rules/conventions this codebase has committed to
+- `PROJECT_STATE.md` — Precise, current snapshot of what exists (start here for "what's actually built")
+- `ARCHITECTURE_DECISIONS.md` — Chronological log of every significant decision, with alternatives considered and why
 
 ## Getting Started
 
@@ -39,10 +42,12 @@ src/
 └── RenoTrack.Website/           # Public site + token-link pages — added in a later phase
 
 tests/
+├── RenoTrack.Domain.Tests/
 ├── RenoTrack.Application.Tests/
+├── RenoTrack.Infrastructure.Tests/   # Real SQL Server LocalDB integration tests
 └── RenoTrack.Api.Tests/
 ```
 
 ## Status
 
-Bootstrap phase (Phase 0) — see `PROJECT_ROADMAP.md` for the full build plan and current progress.
+Phases 0–3 (solution bootstrap, Domain core, Domain CatalogItem, Application layer, Infrastructure/EF Core) are complete and merged to `main`. Phase 4 (API layer) is next — see `PROJECT_STATE.md` for the current, precise snapshot and `PROJECT_ROADMAP.md` for the full build plan.
