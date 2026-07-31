@@ -1,5 +1,7 @@
+using RenoTrack.Api.OpenApi;
 using RenoTrack.Infrastructure;
 using RenoTrack.Infrastructure.Identity;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,7 +11,10 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+});
 
 var app = builder.Build();
 
@@ -25,6 +30,9 @@ using (var scope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    // Interactive API documentation over the document MapOpenApi already serves. Development-only,
+    // matching MapOpenApi's own existing guard — the docs are a developer tool, not a public surface.
+    app.MapScalarApiReference();
 }
 
 app.UseHttpsRedirection();

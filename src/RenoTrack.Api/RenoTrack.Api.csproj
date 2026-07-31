@@ -14,11 +14,20 @@
     </PackageReference>
     <!-- Pinned above the transitive default (2.0.0) to close GHSA-v5pm-xwqc-g5wc (high severity). -->
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.16.17" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\RenoTrack.Application\RenoTrack.Application.csproj" />
     <ProjectReference Include="..\RenoTrack.Infrastructure\RenoTrack.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Top-level statements compile into an internal Program class. RenoTrack.Api.Tests needs to
+         name it as WebApplicationFactory<Program>'s entry point. Granting access to exactly one
+         named test assembly is preferred over making Program public to every consumer, matching
+         the same choice already made for RenoTrack.Domain/RenoTrack.Domain.Tests (D7). -->
+    <InternalsVisibleTo Include="RenoTrack.Api.Tests" />
   </ItemGroup>
 
 </Project>

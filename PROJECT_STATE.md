@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`).
+**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — Slice 1 of 11 done; see `PHASE4_PROGRESS.md`.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
@@ -15,23 +15,25 @@
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
 - **Phase 3 (Infrastructure) — ✅ complete and merged to `main`** (PR #6, merge commit `85df430`, branch `feature/phase-3-infrastructure-efcore`). All 15 slices done (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate`/`AddAuditLog`/`AddNumberSequence`/`AddIdentity` migrations; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`; `IAngebotRepository`; `IAngebotReviewCommentRepository`; `ICatalogItemRepository`; `ICatalogItemQueries`; `IAuditService`; `INumberGeneratorService`; `IFileStorage` placeholder; `IEmailSender` placeholder; `AddInfrastructure()` + `Program.cs` wiring; Identity storage + role seeding). A pre-merge code review found three Should-Fix issues, all fixed (`c085058`). A real concurrency bug in `IdentityRoleSeeder`, found during final CI verification (not by the original review), was root-caused and fixed with a genuine design change — `IdentityRoleSeeder` became a dedicated DI service (D55) — rather than patched around. CI was split into a Linux job (build + non-Infrastructure tests) and a Windows job (Infrastructure tests against real LocalDB) to fix an environmental CI failure without weakening D40 (D56). See `PHASE3_PROGRESS.md` and §11 below for the full closeout record.
 
-**Immediate next step: Phase 4 (API layer)** — not yet started. See §9.
+- **Phase 4 (API layer) — 🚧 in progress**, branch `feature/phase-4-api-auth-leads-inspections` (off `babfff9`). Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry (narrower than "the whole API layer"): API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Angebot/Catalog (Phase 5), token links (Phase 6), Projects (Phase 7), Invoices (Phase 8) are explicitly out of scope. **Slice 1 of 11 complete** (API foundation, conventions & docs — D57, D58). Full slice list and log in `PHASE4_PROGRESS.md`.
+
+**Immediate next step: Phase 4 Slice 2 (global exception-handling middleware).** See §9.
 
 ## 2. Current Branch State
 
-- **`main` is the current branch**, at `85df430` (PR #6 merged, fast-forward-mergeable check not applicable — actual merge commit). `feature/phase-3-infrastructure-efcore` (final commit `f5d3108`) is merged and still exists on the remote but is no longer the active working branch; it can be deleted once nothing else needs it as a reference.
-- `feature/phase-2-application-layer` was merged via PR #5 and is likewise no longer active.
-- **Next git action when resuming:** start Phase 4 on a new branch off current `main` (`git fetch origin`, then branch from `origin/main`), per `CLAUDE.md` §19 — no direct commits to `main`.
+- **`feature/phase-4-api-auth-leads-inspections` is the current branch**, created off `origin/main` at `babfff9` (PR #7, the Phase 3 handoff-docs merge — note this is *later* than the `85df430` named throughout `HANDOFF_PROMPT.md`, which was written before PR #7 merged).
+- `main` is at `babfff9`. `feature/phase-3-infrastructure-efcore` (final commit `f5d3108`) and `feature/phase-2-application-layer` are both merged and no longer active.
+- **Next git action when resuming:** continue Phase 4 on the existing branch, one slice per commit, PR opened when the phase reaches a natural milestone — per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run in this conversation, on merged `main` (`85df430`):
+As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 1:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **371 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **374 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
   - `RenoTrack.Application.Tests`: **144 tests.**
   - `RenoTrack.Infrastructure.Tests`: **74 tests** (real SQL Server LocalDB integration tests — new in Phase 3; `PlaceholderFileStorageTests`/`LoggingNoOpEmailSenderTests`/`DependencyInjectionTests` are exceptions with no database connection actually opened; the Identity tests do use real LocalDB).
-  - `RenoTrack.Api.Tests`: 0 tests (project exists, empty — Phase 4 not started).
+  - `RenoTrack.Api.Tests`: **3 tests** (new in Phase 4 Slice 1 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory
@@ -254,7 +256,9 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 3 is complete and merged to `main` (PR #6, `85df430`).** The immediate next step is **Phase 4 — the API layer** (per `PROJECT_ROADMAP.md`): controllers, the `AddApplication()` DI extension (`IOwnershipValidator`, FluentValidation validators, command handlers — none of these are wired into DI yet, since `RenoTrack.Api` has had no controllers to need them), authentication/JWT issuance (Architecture.md §7.1 — Phase 3 built Identity storage only, no `[Authorize]` attributes or login endpoints exist), HTTP status-code mapping for Domain exceptions (RFC 7807 ProblemDetails, Architecture.md §5.3), and the real `LocalDiskFileStorage` (D42). A design review and explicit user sign-off is expected before any Phase 4 code is written, exactly as every prior phase/slice was handled. §10 and §11 below remain the historical closeout records for Phase 2 and Phase 3 respectively.
+**Phase 4 is in progress — Slice 1 of 11 is done.** The immediate next step is **Slice 2: the global exception-handling middleware** (RFC 7807 ProblemDetails, `Architecture.md` §5.3), which also resolves the long-deferred question of how Domain's own `ArgumentException`/`InvalidOperationException` map to HTTP status codes. See `PHASE4_PROGRESS.md` for the full slice list and the Slice 1 record. The remainder of this section is the original Phase 4 framing, kept for context.
+
+**Phase 3 was complete and merged to `main` (PR #6, `85df430`).** The next step after it was **Phase 4 — the API layer** (per `PROJECT_ROADMAP.md`): controllers, the `AddApplication()` DI extension (`IOwnershipValidator`, FluentValidation validators, command handlers — none of these are wired into DI yet, since `RenoTrack.Api` has had no controllers to need them), authentication/JWT issuance (Architecture.md §7.1 — Phase 3 built Identity storage only, no `[Authorize]` attributes or login endpoints exist), HTTP status-code mapping for Domain exceptions (RFC 7807 ProblemDetails, Architecture.md §5.3), and the real `LocalDiskFileStorage` (D42). A design review and explicit user sign-off is expected before any Phase 4 code is written, exactly as every prior phase/slice was handled. §10 and §11 below remain the historical closeout records for Phase 2 and Phase 3 respectively.
 
 ---
 

@@ -855,6 +855,40 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D57 — API Versioning by URL Segment, With No Versioning Library
+
+**Problem:** `Architecture.md` §5.1 mandates routes versioned from day one (`/api/v1/...`) but names no mechanism. ASP.NET Core offers a dedicated package (`Asp.Versioning.Mvc`) providing version negotiation across URL segments, query strings, headers, and media types, plus deprecation metadata and per-version API explorer grouping. Phase 4 builds the first controllers, so the convention must be settled before any route exists.
+
+**Alternatives considered:** (a) Adopt `Asp.Versioning.Mvc` now, configuring URL-segment versioning through it, so a future v2 is a configuration change rather than a structural one. (b) Header or media-type versioning — rejected immediately: contradicts `Architecture.md` §5.2's own literal endpoint table, which spells out `/api/v1/...` paths throughout. (c) Literal `api/v1` route-template prefix (`[Route("api/v1/[controller]")]`) with no library at all.
+
+**Final decision:** (c).
+
+**Why chosen:** There is exactly one version, and no documented plan for a second anywhere in the source documents. Installing version-negotiation infrastructure for a version that does not exist is precisely the speculative-abstraction failure mode `CLAUDE.md` §4 already forbids for repositories, DTOs, and schema — applied here to routing. The literal prefix satisfies `Architecture.md` §5.1 completely and is readable without knowing any library's conventions, which matters for a project whose stated goal is that every step be traceable by a junior developer.
+
+**Consequences:** Every controller carries an explicit `[Route("api/v1/[controller]")]`; sub-resource routes (e.g. `POST /api/v1/leads/{leadId}/inspections`) are explicit route templates on the owning controller. When a genuine v2 is needed — a real breaking change, not a hypothetical one — v2 controllers are added alongside v1 under `api/v2/...` so v1's behavior never silently changes underneath existing clients; a versioning library is reconsidered only if content negotiation or deprecation headers become an actual recurring need. Also settled here: controllers are `[Authorize]` by default with `[AllowAnonymous]` opted into per action (e.g. `POST /api/v1/leads` for the website contact form), since a forgotten `[Authorize]` silently exposes an endpoint while a forgotten `[AllowAnonymous]` merely fails closed.
+
+---
+
+## D58 — `RenoTrack.Api.Tests` Runs the Real Pipeline Against Real LocalDB, Migrated Not `EnsureCreated`
+
+**Problem:** `RenoTrack.Api.Tests` existed as an empty project through Phases 0–3. Phase 4 gives it its first real job, and its testing strategy had to be settled before the first endpoint was written — including what "real" means for its backing store, given `RenoTrack.Infrastructure.Tests` had already established one answer (real LocalDB, D40) via a different mechanism (`EnsureCreatedAsync`).
+
+**Alternatives considered — what to test:** (a) Re-verify business rules over HTTP — rejected: Domain and Application tests already cover those exhaustively; duplicating them per endpoint would be expensive and would drift. (b) Test only what the API layer adds over the layers beneath it: routing, model binding, role/ownership enforcement reaching from a JWT to a real 403, and ProblemDetails shape — one happy path plus one representative guard failure per endpoint.
+
+**Alternatives considered — backing store:** (c) A hand-rolled fake `IUserStore`/in-memory Identity so tests need no database — rejected: it builds a second, parallel Identity mechanism that exists only in tests, and login is meaningless without a real `UserManager` and real password hashing. (d) Real LocalDB via `WebApplicationFactory<Program>`, matching D40's stance.
+
+**Alternatives considered — schema creation:** (e) `EnsureCreatedAsync()`, mirroring `RenoTrackDbContextFixture`. (f) `Database.MigrateAsync()`.
+
+**Final decision:** (b) + (d) + (f). No mocking framework, consistent with `CLAUDE.md` §14.
+
+**Why chosen:** (f) was chosen over (e) after the user challenged an initial proposal that had defaulted to (e) purely on the strength of `Infrastructure.Tests`' precedent. That precedent does not transfer: `Infrastructure.Tests` constructs a `DbContext` directly and never executes `Program.cs`, so it has no production startup path to stay faithful to; `Api.Tests` boots the real application, which in production always runs against a migrated database. Three further points settled it. **Schema fidelity:** the two are provably equivalent *today* (no migration in this repo contains `migrationBuilder.Sql`, `InsertData`, or `HasData`, and `InitialCreateMigrationTests` proves migrations match the model) — but that equivalence is a property of the current migrations, not a guarantee, and `EnsureCreated` would silently diverge the moment raw SQL or seed data entered a migration. **Migration coverage:** `EnsureCreated` would leave `InitialCreateMigrationTests` as the only place migrations are ever executed. **Forward-compatibility, the decisive point:** `EnsureCreated` never writes `__EFMigrationsHistory`, so if the still-open migration-application decision (Phase 4's final slice) lands on startup-time `Database.MigrateAsync()`, that call — which `WebApplicationFactory` executes via the real `Program.cs` — would find zero applied migrations against existing tables and fail on `CREATE TABLE`. `MigrateAsync` in the fixture is correct under *both* outcomes of that pending decision: a no-op if startup migrates, a faithful stand-in if CI/CD does.
+
+**Consequences:** `RenoTrackApiFactory` (a `WebApplicationFactory<Program>` + `IAsyncLifetime`) owns schema creation and teardown against its own database (`RenoTrackApiTests`, deliberately separate from `RenoTrackInfrastructureTests` so the two suites cannot interfere even when run as concurrent processes), overrides `ConnectionStrings:RenoTrackDb` via `UseSetting`, and forces `UseEnvironment("Development")` because `WebApplicationFactory` otherwise defaults to `Production`, where `Program.cs` does not map the OpenAPI document. All API tests share it through a `[CollectionDefinition("Api")]` `ICollectionFixture`, so they run serially against one database — the same shape as `Infrastructure.Tests`. `RenoTrack.Api.csproj` gained `<InternalsVisibleTo Include="RenoTrack.Api.Tests" />` because top-level statements compile `Program` as `internal` (granting one named assembly access, rather than making `Program` public to every consumer, matches the D7 precedent). CI: `Api.Tests` moved off the Linux `build-and-test` job onto the Windows job, renamed `database-backed-tests`, for exactly D56's reason — the OS split exists so real-database tests keep using a real database.
+
+The mechanism by which the fixture creates its schema was considered for a decision entry of its own and deliberately rejected as one: it is a test-harness implementation detail, not a cross-cutting architectural rule, and padding this log with implementation minutiae dilutes it. The reasoning lives in `RenoTrackApiFactory`'s own XML doc comment and in `PHASE4_PROGRESS.md`'s Slice 1 entry.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -889,3 +923,10 @@ Numbering is chronological across the whole project, not per-phase.
 | `IDbContextFactory<RenoTrackDbContext>` instead of `IServiceScopeFactory` | D55 | Supplies a fresh `DbContext` but not a correctly-wired `RoleManager` — would force hand-constructing Identity's object graph, duplicating `AddIdentityCore()`'s own registration |
 | EF Core InMemory/SQLite for `RenoTrack.Infrastructure.Tests` in CI only | D56 | Would let CI pass without exercising the real constraints/precision D40 exists to verify — reintroduces the exact gap D40 closed |
 | Running the entire CI workflow on `windows-latest` | D56 | Slower/costlier for 297 tests with no LocalDB dependency and nothing to gain from a Windows runner |
+| `Asp.Versioning.Mvc` (or any versioning library) for `/api/v1` | D57 | Version-negotiation infrastructure for a second version that doesn't exist — speculative abstraction |
+| Header/media-type API versioning | D57 | Contradicts `Architecture.md` §5.2's own literal `/api/v1/...` endpoint table |
+| Hand-rolled fake `IUserStore`/in-memory Identity for `Api.Tests` | D58 | A second Identity mechanism existing only in tests; login is meaningless without real password hashing |
+| `EnsureCreatedAsync()` for `RenoTrack.Api.Tests`' schema | D58 | Never writes `__EFMigrationsHistory`, so it breaks if startup-time migration is chosen later; also leaves migrations executed in only one test |
+| Re-verifying business rules over HTTP in `Api.Tests` | D58 | Domain/Application tests already cover them exhaustively; duplication would be costly and would drift |
+| Making `Program` public to enable `WebApplicationFactory<Program>` | D58 | Widens the public surface for one test project; `InternalsVisibleTo` to one named assembly matches the D7 precedent |
+| A health/ping endpoint added solely to give Slice 1's smoke test something to call | D58 | Inventing an undocumented endpoint to serve a test; the OpenAPI document is already-intended behavior and serves the same purpose |

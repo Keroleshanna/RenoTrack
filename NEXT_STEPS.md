@@ -33,7 +33,25 @@ Design review + dependency map approved before any code was written (per the sta
 - CI failed on Linux because `RenoTrack.Infrastructure.Tests` needs real LocalDB (Windows-only) — fixed by splitting `ci.yml` into a Linux build/test job and a Windows Infrastructure-tests job, **without** touching tests or replacing LocalDB (**D56**).
 - A real concurrency bug in `IdentityRoleSeeder` — found by rerunning the concurrency test repeatedly, not by a single pass — led to a genuine design change: `IdentityRoleSeeder` became a dedicated DI service with constructor-injected `IServiceScopeFactory`, isolating each role's seeding attempt into its own scope (**D55**).
 
-**The immediate next step is Phase 4 — the API layer.** See §6 below for how to start.
+## 1c. Phase 4 — In Progress (Slice 1 of 11 done)
+
+Branch: `feature/phase-4-api-auth-leads-inspections`, off `main` at `babfff9`. Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry — narrower than the "whole API layer" wording elsewhere: API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Everything else stays in Phases 5–8.
+
+Agreed slice order (full log in `PHASE4_PROGRESS.md`):
+
+1. **API foundation, conventions & docs — ✅ done.** `api/v1` routing convention (D57), `RenoTrack.Api.Tests` harness on real `WebApplicationFactory` + real LocalDB with `MigrateAsync` (D58), Scalar docs UI with the JWT scheme declared, `Api.Tests` moved to CI's Windows job. 3 tests. No controller and no health endpoint were invented to serve the tests.
+2. Global exception-handling middleware (RFC 7807) — **next**; also resolves the deferred `ArgumentException`→400 / `InvalidOperationException`→409 mapping.
+3. `AddApplication()` DI extension.
+4. Authentication — JWT login. *(Login-command shape and refresh-token design deliberately not yet decided — that slice's own review.)*
+5. Lead creation (public).
+6. Lead read endpoints. *(Requires new `GetLeadByIdQuery`/list query — none exists yet.)*
+7. Inspection scheduling.
+8. Inspection photo upload + `LocalDiskFileStorage`.
+9. Inspection completion.
+10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
+11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
+
+**The immediate next step is Phase 4 Slice 2.** Do a design review and get explicit sign-off before writing its code, exactly as Slice 1 was handled.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -81,7 +99,9 @@ Design review + dependency map approved before any code was written (per the sta
 - `IUnitOfWork`'s Infrastructure implementation is an intentionally thin, one-line wrapper over `SaveChangesAsync` — no transaction API, no `IDisposable` (`ARCHITECTURE_DECISIONS.md` D48).
 - User-referencing FK constraints (`AssignedInspectorId`, `InspectorId`, `CreatedByInspectorId`, `ReviewedByAdminId`, `AdminUserId`) were deliberately deferred until the Identity slice — not an oversight (`ARCHITECTURE_DECISIONS.md` D44) — and are now real constraints as of Slice 15.
 - A component performing several independent units of scoped work outside a single request (e.g. multi-item startup seeding) is a dedicated DI-registered class with `IServiceScopeFactory` injected via its constructor — never a static utility, never `IServiceScopeFactory` as a per-call method parameter (`ARCHITECTURE_DECISIONS.md` D55, `CLAUDE.md` §21).
-- `RenoTrack.Infrastructure.Tests` keeps using real LocalDB in CI too, never a weaker substitute for pipeline convenience — CI is split by OS (Linux for build + non-Infrastructure tests, Windows for Infrastructure tests) instead (`ARCHITECTURE_DECISIONS.md` D56).
+- `RenoTrack.Infrastructure.Tests` keeps using real LocalDB in CI too, never a weaker substitute for pipeline convenience — CI is split by OS (Linux for build + database-free tests, Windows for database-backed tests) instead (`ARCHITECTURE_DECISIONS.md` D56). `RenoTrack.Api.Tests` joined the Windows job in Phase 4 Slice 1 for the same reason (D58).
+- API versioning is a literal `api/v1` URL segment with no versioning library; a future v2 is added as parallel v2 controllers, not via version negotiation (`ARCHITECTURE_DECISIONS.md` D57).
+- `RenoTrack.Api.Tests` boots the real application via `WebApplicationFactory<Program>` against real LocalDB, with schema created by `MigrateAsync()` — deliberately **not** `EnsureCreated()` as `RenoTrack.Infrastructure.Tests` uses. Do not "unify" the two fixtures for consistency: the projects have different responsibilities, and `EnsureCreated` would break outright if startup-time migration is chosen in Slice 11 (`ARCHITECTURE_DECISIONS.md` D58).
 
 ## 5. What Still Requires Future Discussion (Not Yet Decided — Do Not Assume an Answer)
 
