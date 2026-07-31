@@ -21,6 +21,8 @@ using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Inspections.Dtos;
 using RenoTrack.Application.Leads.Commands.CreateLead;
 using RenoTrack.Application.Leads.Dtos;
+using RenoTrack.Application.Leads.Queries.GetLeadById;
+using RenoTrack.Application.Leads.Queries.GetLeads;
 
 namespace RenoTrack.Application;
 
@@ -97,6 +99,8 @@ public static class DependencyInjection
     private static void AddValidators(IServiceCollection services)
     {
         services.AddScoped<IValidator<CreateLeadCommand>, CreateLeadCommandValidator>();
+        services.AddScoped<IValidator<GetLeadByIdQuery>, GetLeadByIdQueryValidator>();
+        services.AddScoped<IValidator<GetLeadsQuery>, GetLeadsQueryValidator>();
 
         services.AddScoped<IValidator<ScheduleInspectionCommand>, ScheduleInspectionCommandValidator>();
         services.AddScoped<IValidator<CompleteInspectionCommand>, CompleteInspectionCommandValidator>();
@@ -147,6 +151,9 @@ public static class DependencyInjection
     /// </summary>
     private static void AddQueryHandlers(IServiceCollection services)
     {
+        services.AddScoped<IQueryHandler<GetLeadByIdQuery, LeadDto>, GetLeadByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetLeadsQuery, PagedResult<LeadDto>>, GetLeadsQueryHandler>();
+
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, IReadOnlyList<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
     }
 

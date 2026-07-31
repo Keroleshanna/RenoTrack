@@ -29,7 +29,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 3 | `AddApplication()` DI extension | ✅ done |
 | 4 | Authentication — JWT login | ✅ done |
 | 5 | Lead creation (public) | ✅ done |
-| 6 | Lead read endpoints | not started |
+| 6 | Lead read endpoints | ✅ done |
 | 7 | Inspection scheduling | not started |
 | 8 | Inspection photo upload + `LocalDiskFileStorage` | not started |
 | 9 | Inspection completion | not started |
@@ -379,3 +379,80 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 69/69 each.
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **440 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **69 Api**).
+
+---
+
+## Slice 6 — Lead Read Endpoints
+
+**Goal:** `GET /api/v1/leads/{id}` (Wireframe C1) and `GET /api/v1/leads` (Wireframe B2 pipeline, SRS FR-2.4). The first slice adding Application-layer work — neither query existed.
+
+### Design review
+
+Three findings from the documents shaped it:
+
+- **`PermissionMatrix.md` §1 says the Inspector's pipeline is "filtered server-side"** — so for a collection, scoping is a filter, not a rejection. Documented, not a judgement call.
+- **Wireframe B2 is a Kanban**, with a `Status / Inspector / Date range` filter row matching FR-2.4 exactly.
+- **`Lead` owns no children** — `LeadRepository.GetByIdAsync` is a single `FindAsync`, no `Include`.
+
+**Decisions:**
+
+- **The two reads use different mechanisms, deliberately.** Single-resource: `IOwnershipValidator` on the loaded aggregate (§16's `S` rule → 403). Collection: a `WHERE` clause, because a set cannot be ownership-checked after the fact without loading every row first. Treating them uniformly was the trap.
+- **The single read uses `ILeadRepository`, not a DTO-projecting query.** `IOwnershipValidator.EnsureLeadOwnership` takes the Domain entity; a projection would force either an inline `dto.AssignedInspectorId` comparison (bypassing the abstraction §9 exists to centralize) or a second ownership-aware SQL predicate (splitting one rule across two layers). The cost is nil here because Lead has no children — D36's projection-over-hydration rationale exists for `Angebot`-shaped aggregates, which Lead is the opposite of. `ILeadQueries` therefore has **no** `GetByIdAsync`.
+- **403, not 404**, for an Inspector reading another's Lead. 404-to-avoid-disclosure was considered (consistent with D60's non-enumeration stance) and rejected: §16 maps `S` to `ForbiddenException`, and inventing a different disclosure posture for one endpoint without a documented requirement would be speculative rule-making.
+- **Inspector scoping is decided in the controller** (D61 applied to a read): the caller's own id comes from the JWT, and whatever `assignedInspectorId` an Inspector supplies is discarded. Keeps role vocabulary out of the Application layer, where §16 says it does not belong.
+- **`PagedResult<T>` and `Pagination` in `Application.Common`.** Paging limits (`FirstPage`, `DefaultPageSize` 25, `MaxPageSize` 100) live in one place at the user's request, so future list endpoints reuse them rather than re-inventing literals. `Pagination` is non-generic deliberately — constants on `PagedResult<T>` would read as though the limit varied by item type.
+- **Slice 5's deferred `Location` header now lands**, since `GetById` exists to point at. A test follows the header and asserts it resolves to 200 — the whole reason it was deferred.
+
+**Tension recorded rather than silently resolved:** Wireframe B2 is a Kanban, which does not obviously paginate, while `Architecture.md` §5.1 mandates pagination on list endpoints unconditionally. Pagination was built, on the grounds that an unbounded list endpoint is an operational hazard regardless of the UI above it.
+
+### A real fail-open defect, caught in review before any test was written
+
+The first implementation of `RequestingInspectorId()` returned `null` (meaning *unrestricted*) for anyone who simply was not an Inspector. The user flagged it as fail-open. It was — in four distinct ways, all pointing the same direction:
+
+| Scenario | `IsInRole("Inspector")` | Old result |
+|---|---|---|
+| Role-claim mapping broken | `false` | **all Leads** |
+| User seeded with no role | `false` | **all Leads** |
+| Role-name typo in the seeder | `false` | **all Leads** |
+| A future third role added | `false` | **all Leads** |
+
+The defect was structural: `null` was reached by *falling through* rather than by establishing anything, so Admin was never actually verified — it was merely the absence of Inspector.
+
+**The fix:** check Inspector first (so a mis-provisioned dual-role account is scoped, not unrestricted — when two rules could apply, the narrower wins), then Admin explicitly, then refuse outright with `ForbiddenException`. Plus `[Authorize(Roles = "Admin,Inspector")]` on the controller as defence in depth, with both layers kept deliberately: they can drift apart, and unnoticed drift means unrestricted data access.
+
+**Demonstrated, not argued.** Two experiments:
+
+1. Weakening the class attribute to a bare `[Authorize]` and re-running the no-role test — it still passed, proving the in-method guard stands alone rather than hiding behind the attribute.
+2. Restoring the old fall-through logic *and* the weakened attribute — the no-role account got **`NotFound`**, meaning it reached the handler as an unrestricted Admin, looked up lead id 1, and simply did not find it. Had that Lead existed, the response would have been **200 with another user's data**. That is the vulnerability, reproduced.
+
+A seeded no-role user now exists in the fixture specifically to keep this path covered.
+
+**Also closed here: role-claim mapping had never been verified.** Slice 4 added an `[Authorize(Roles = "Admin")]` test endpoint but no test ever called it, so nothing had proven role claims survive issuance and validation — and that failure mode is silent, since a broken mapping makes `IsInRole` false everywhere and every scope check fails open. Now covered.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Application/Common/Pagination.cs` | New — the single source of paging limits |
+| `src/RenoTrack.Application/Common/PagedResult.cs` | New |
+| `src/RenoTrack.Application/Leads/ILeadQueries.cs` | New — list only, with the "no `GetByIdAsync`" reasoning inline |
+| `src/RenoTrack.Application/Leads/Queries/GetLeadById/` | New — query, validator, handler |
+| `src/RenoTrack.Application/Leads/Queries/GetLeads/` | New — query, validator, handler |
+| `src/RenoTrack.Infrastructure/Persistence/Queries/LeadQueries.cs` | New — `AsNoTracking`, projection in `Select`, count before paging |
+| `src/RenoTrack.Api/Controllers/LeadsController.cs` | `GetById`, `GetAll`, fail-secure scope helper, `CreatedAtAction` |
+| `src/RenoTrack.Api/Auth/Roles.cs` | New — role-name constants |
+| Both `DependencyInjection.cs` | 2 handlers, 2 validators, `ILeadQueries` |
+
+**Ordering was added beyond the design and confirmed in review.** `Skip`/`Take` over an unordered query has no defined result — pages can silently repeat or omit rows — so `LeadQueries` orders by `CreatedAt` descending with `Id` as tiebreaker (`CreatedAt` is not unique). Treated as making pagination correct rather than as a new feature.
+
+### Tests
+
+21 new (90 in `RenoTrack.Api.Tests` total), of which 4 came free: the Slice 3 reflection DI test discovered the two new handlers and two new validators automatically and asserted each resolves.
+
+Beyond the happy paths, the ones that matter: an Inspector is forbidden another Inspector's Lead; an Inspector's list contains only their own; **an Inspector supplying another's `assignedInspectorId` still receives their own Leads**; a no-role account is refused rather than treated as unrestricted; role claims are proven to actually reach `[Authorize]`; and the `Location` header is followed to a real 200.
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 90/90 each.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **461 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **90 Api**).

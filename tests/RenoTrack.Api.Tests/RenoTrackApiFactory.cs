@@ -80,6 +80,21 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
     public const string LockoutEmail = "lockout@renotrack.test";
     public const string LockoutPassword = "Lockout#Pass123";
 
+    /// <summary>
+    /// A second Inspector, so scoping tests can prove one Inspector cannot see another's Leads —
+    /// which a single seeded Inspector could never demonstrate.
+    /// </summary>
+    public const string SecondInspectorEmail = "inspector2@renotrack.test";
+    public const string SecondInspectorPassword = "Inspector2#Pass123";
+
+    /// <summary>
+    /// Deliberately assigned <b>no role at all</b>. Exists to prove the authorization path fails
+    /// secure: an account that is authenticated but holds neither role must be refused, never
+    /// silently treated as unrestricted.
+    /// </summary>
+    public const string NoRoleEmail = "norole@renotrack.test";
+    public const string NoRolePassword = "NoRole#Pass123";
+
     public async Task InitializeAsync()
     {
         // The schema must exist before the host is first created: Program.cs seeds Identity roles
@@ -97,6 +112,20 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         await SeedUserAsync(userManager, InspectorEmail, InspectorPassword, "Test Inspector", "Inspector", isActive: true);
         await SeedUserAsync(userManager, InactiveEmail, InactivePassword, "Inactive User", "Inspector", isActive: false);
         await SeedUserAsync(userManager, LockoutEmail, LockoutPassword, "Lockout User", "Inspector", isActive: true);
+        await SeedUserAsync(userManager, SecondInspectorEmail, SecondInspectorPassword, "Second Inspector", "Inspector", isActive: true);
+        await SeedUserAsync(userManager, NoRoleEmail, NoRolePassword, "No Role User", role: null, isActive: true);
+    }
+
+    /// <summary>Resolves a seeded user's id, so tests can assign Leads to a real Inspector.</summary>
+    public async Task<int> GetUserIdAsync(string email)
+    {
+        using var scope = Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var user = await userManager.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"Test user '{email}' was not seeded.");
+
+        return user.Id;
     }
 
     /// <summary>
@@ -109,7 +138,7 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         string email,
         string password,
         string name,
-        string role,
+        string? role,
         bool isActive)
     {
         var user = new ApplicationUser
@@ -129,7 +158,10 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
                 $"Failed to seed test user '{email}': {string.Join(", ", result.Errors.Select(e => e.Description))}");
         }
 
-        await userManager.AddToRoleAsync(user, role);
+        if (role is not null)
+        {
+            await userManager.AddToRoleAsync(user, role);
+        }
     }
 
     public new async Task DisposeAsync()

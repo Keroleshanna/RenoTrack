@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
+using RenoTrack.Application.Leads;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
@@ -64,6 +65,7 @@ public static class DependencyInjection
         services.AddScoped<IAngebotReviewCommentRepository, AngebotReviewCommentRepository>();
         services.AddScoped<ICatalogItemRepository, CatalogItemRepository>();
         services.AddScoped<ICatalogItemQueries, CatalogItemQueries>();
+        services.AddScoped<ILeadQueries, LeadQueries>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IAuditService, AuditService>();

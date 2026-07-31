@@ -46,14 +46,15 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 5. **Lead creation (public) — ✅ done (D61).** `POST /api/v1/leads`, anonymous, wrapping the unchanged `CreateLeadCommand`. The only new type is `CreateLeadRequest`, narrower than the command because `Source` and `CreatedByUserId` must be server-derived — `Source` gates the FR-9.2 Admin notification, so a caller controlling it could suppress it. Enums now serialize as names. Deliberately not idempotent. 7 tests.
    - **Deferred by explicit decision:** rate limiting on this endpoint. `Architecture.md` §12 requires abuse protection on the contact form, and **`POST /api/v1/leads` is currently unthrottled and publicly reachable.** It belongs with CORS and related concerns in a dedicated hardening slice once the public endpoints exist — tracked here so it is a commitment, not a forgotten requirement.
    - **Known gap:** FR-2.1's Admin manual-entry path (`Source = Phone`/`Email`) is not built — not in Architecture §5.2's endpoint table, and out of this slice's scope. It is why `CreateLeadCommand` keeps all seven parameters though this endpoint uses five.
-6. Lead read endpoints — **next**. *(Requires new `GetLeadByIdQuery`/list query — none exists yet; the first slice adding Application-layer work.)*
-7. Inspection scheduling.
+6. **Lead read endpoints — ✅ done.** `GET /leads/{id}` (repository + `IOwnershipValidator` → 403) and `GET /leads` (`ILeadQueries`, projection, pagination, server-forced Inspector scope). New: `Pagination`/`PagedResult<T>` in `Application.Common`, `ILeadQueries`, two queries + validators + handlers, `Roles` constants. Slice 5's deferred `Location` header now lands. 21 tests.
+   - **A real fail-open defect was caught in review**: the first scope helper returned "unrestricted" for anyone who merely was not an Inspector, so a broken role mapping, a role-less account, a role-name typo, or a future third role would each have granted **every Lead**. Fixed to check Inspector first, then Admin explicitly, then refuse — and demonstrated by reproducing the vulnerability, not just arguing it. **Do not simplify that helper back into a single negated check.**
+7. Inspection scheduling — **next**.
 8. Inspection photo upload + `LocalDiskFileStorage`.
 9. Inspection completion.
 10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
 11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
 
-**The immediate next step is Phase 4 Slice 6.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–5 were handled.
+**The immediate next step is Phase 4 Slice 7.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–6 were handled.
 
 **Open item created by Slice 4:** no user account exists in production and nothing creates one. The login endpoint works but is unusable outside tests until SRS **OQ-1** (does Admin manage Inspector accounts from the dashboard?) is answered, or a seeding path is added. Deliberately not resolved inside Slice 4 — it is an SRS-level question, not something an authentication slice should invent an answer to.
 
