@@ -117,7 +117,7 @@ public sealed class AuthController(
     private static AuthResponse ToResponse(TokenPair tokens, ApplicationUser user, IEnumerable<string> roles) =>
         new(
             tokens.AccessToken,
-            tokens.ExpiresAt,
+            tokens.AccessTokenExpiresAt,
             tokens.RefreshToken,
             tokens.RefreshTokenExpiresAt,
             user.Id,

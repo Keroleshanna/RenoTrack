@@ -3,6 +3,11 @@ namespace RenoTrack.Api.Auth.Dtos;
 /// <param name="Email">SRS FR-10.1 — staff log in with email + password.</param>
 public sealed record LoginRequest(string Email, string Password);
 
+/// <param name="RefreshToken">
+/// The plaintext refresh token from a previous login/refresh response. It is the only copy that
+/// exists anywhere — the server stores just a SHA-256 hash — so a client that loses it must log in
+/// again rather than recover it.
+/// </param>
 public sealed record RefreshRequest(string RefreshToken);
 
 /// <summary>
@@ -13,7 +18,7 @@ public sealed record RefreshRequest(string RefreshToken);
 /// </summary>
 public sealed record AuthResponse(
     string AccessToken,
-    DateTime ExpiresAt,
+    DateTime AccessTokenExpiresAt,
     string RefreshToken,
     DateTime RefreshTokenExpiresAt,
     int UserId,

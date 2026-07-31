@@ -37,7 +37,11 @@ public interface ITokenService
 }
 
 /// <param name="AccessToken">Signed JWT.</param>
-/// <param name="ExpiresAt">Access token expiry (UTC).</param>
+/// <param name="AccessTokenExpiresAt">
+/// Access token expiry (UTC). Named symmetrically with <paramref name="RefreshTokenExpiresAt"/>
+/// rather than a bare "ExpiresAt": with two tokens in one record, an unqualified name forces the
+/// reader to infer which one it belongs to.
+/// </param>
 /// <param name="RefreshToken">Plaintext refresh token — never persisted, only its hash is.</param>
 /// <param name="RefreshTokenExpiresAt">Refresh token expiry (UTC).</param>
 /// <param name="UserId">
@@ -48,7 +52,7 @@ public interface ITokenService
 /// </param>
 public sealed record TokenPair(
     string AccessToken,
-    DateTime ExpiresAt,
+    DateTime AccessTokenExpiresAt,
     string RefreshToken,
     DateTime RefreshTokenExpiresAt,
     int UserId);

@@ -8,7 +8,31 @@ using RenoTrack.Infrastructure.Persistence.Entities;
 
 namespace RenoTrack.Infrastructure.Identity;
 
-/// <inheritdoc />
+/// <inheritdoc cref="ITokenService" />
+/// <remarks>
+/// <para>
+/// <b>Why this class exists rather than the logic living in <c>AuthController</c>:</b> token
+/// issuance needs the signing key, the refresh-token table, and the roles query — three
+/// Infrastructure concerns the controller has no business knowing about. Keeping them here leaves
+/// the controller doing only what a controller should: decide which HTTP response a use case
+/// produced. It is also what lets issuance and validation share one <see cref="JwtOptions"/>, so
+/// the two can never drift apart.
+/// </para>
+/// <para>
+/// <b>Why it writes through <see cref="RenoTrackDbContext"/> directly rather than a repository and
+/// <c>IUnitOfWork</c>:</b> those abstractions exist to serve Application-layer handlers working
+/// with Domain aggregates (CLAUDE.md §4). <see cref="RefreshToken"/> is neither — it is an
+/// Infrastructure-only persistence model (D60), and adding an <c>IRefreshTokenRepository</c> to
+/// <c>Application.Common.Interfaces</c> would put an authentication mechanism into the layer that
+/// owns business use cases. This mirrors how <c>AuditService</c> and <c>NumberGeneratorService</c>
+/// already persist their own Infrastructure-only tables.
+/// </para>
+/// <para>
+/// Each public method commits its own writes, for the same reason <c>AuditService</c> does (D50):
+/// no Application-layer <c>IUnitOfWork</c> is in play on the authentication path, so nothing else
+/// would ever commit them.
+/// </para>
+/// </remarks>
 public sealed class TokenService(RenoTrackDbContext dbContext, JwtOptions options) : ITokenService
 {
     public async Task<TokenPair> IssueAsync(

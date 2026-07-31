@@ -46,7 +46,7 @@ public sealed class AuthenticationTests
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("refreshToken").GetString()));
         Assert.Equal(RenoTrackApiFactory.AdminEmail, body.GetProperty("email").GetString());
         Assert.Equal("Admin", body.GetProperty("role").GetString());
-        Assert.True(body.GetProperty("expiresAt").GetDateTime() > DateTime.UtcNow);
+        Assert.True(body.GetProperty("accessTokenExpiresAt").GetDateTime() > DateTime.UtcNow);
     }
 
     [Fact]
