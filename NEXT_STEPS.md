@@ -8,7 +8,7 @@
 
 All of Phase 2's roadmap-defined scope (`PROJECT_ROADMAP.md`'s Phase 2 command list: `CreateLeadCommand`, `ScheduleInspectionCommand`, `CompleteInspectionCommand`, `CreateAngebotCommand`, `AddAngebotSectionCommand`, `AddAngebotItemCommand`, `SubmitAngebotForReviewCommand`, `RequestAngebotChangesCommand`, `ApproveAngebotCommand`) is done — 15 vertical slices, full record in `PHASE2_PROGRESS.md`. `CatalogItem`'s Application layer (`CreateCatalogItemCommand`, `UpdateCatalogItemCommand`, `RetireCatalogItemCommand`, `SearchCatalogItemsQuery` — Slices 11–14) was a deliberate, justified insertion into this branch, needed by `AddAngebotItemCommand`. **Merged to `main` via PR #5 (merge commit `dc85de1`).** `feature/phase-2-application-layer` is no longer the active branch.
 
-## 1b. Phase 3 — Feature-Complete (All 15 Slices Done, Not Yet Merged)
+## 1b. Phase 3 — Complete and Merged to `main`
 
 Design review + dependency map approved before any code was written (per the standing process). Working branch: `feature/phase-3-infrastructure-efcore`. Slice order (Identity deliberately moved to the end, after DI composition, per explicit user request — repository work stays independent of it):
 
@@ -28,7 +28,12 @@ Design review + dependency map approved before any code was written (per the sta
 14. **`AddInfrastructure()` DI extension + `Program.cs` wiring — ✅ done.** All 11 repository/query/service interfaces registered Scoped (matching `DbContext`, D48) — including the two dependency-free placeholders, kept Scoped rather than Singleton to avoid a future captive-dependency bug. `IOwnershipValidator` deliberately excluded (Application-layer implementation, CLAUDE.md §9). Connection string in `appsettings.Development.json` only. Proven via a real `ValidateOnBuild`/`ValidateScopes` container-build test. See `PHASE3_PROGRESS.md` Slice 14.
 15. **Identity storage + role seeding — ✅ done.** Full design review. **D53** — `ApplicationUser`/roles are Infrastructure-only, forced by D1 (Domain's zero-project-reference rule), not a judgment call like D49/D51. **D54** — `AddIdentityCore` (not `AddIdentity`, avoids unwanted cookie-auth defaults for a JWT API); role seeding made safe under a real, checked concurrent-startup race (mirrors D52's mitigation pattern, proven by a 10-concurrent-instance test). The five deferred user-referencing FKs (D44) are now real constraints. 19 existing tests needed fixing (arbitrary hardcoded inspector/admin ids that had no FK to violate before this slice) — found by actually running the suite, not assumed clean. See `PHASE3_PROGRESS.md` Slice 15.
 
-**Phase 3 is feature-complete — all 15 slices done, reviewed, tested, documented, and committed.** Per explicit instruction, the immediate next step is **not** Phase 4 — it's a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report), produced as a separate deliverable before any PR is opened.
+**Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`). Beyond the 15 slices above, three more things happened before the merge, all recorded in `PROJECT_STATE.md` §11.7 and `ARCHITECTURE_DECISIONS.md`:
+- A pre-merge code review found and fixed three Should-Fix issues (stale `HANDOFF_PROMPT.md`, a missing explicit `ProjectReference`, a duplicated DI-registration test helper).
+- CI failed on Linux because `RenoTrack.Infrastructure.Tests` needs real LocalDB (Windows-only) — fixed by splitting `ci.yml` into a Linux build/test job and a Windows Infrastructure-tests job, **without** touching tests or replacing LocalDB (**D56**).
+- A real concurrency bug in `IdentityRoleSeeder` — found by rerunning the concurrency test repeatedly, not by a single pass — led to a genuine design change: `IdentityRoleSeeder` became a dedicated DI service with constructor-injected `IServiceScopeFactory`, isolating each role's seeding attempt into its own scope (**D55**).
+
+**The immediate next step is Phase 4 — the API layer.** See §6 below for how to start.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -75,6 +80,8 @@ Design review + dependency map approved before any code was written (per the sta
 - Migrations are regenerated from the model when the model changes, never hand-edited — the migration is a product of the model, not a separately-maintained artifact.
 - `IUnitOfWork`'s Infrastructure implementation is an intentionally thin, one-line wrapper over `SaveChangesAsync` — no transaction API, no `IDisposable` (`ARCHITECTURE_DECISIONS.md` D48).
 - User-referencing FK constraints (`AssignedInspectorId`, `InspectorId`, `CreatedByInspectorId`, `ReviewedByAdminId`, `AdminUserId`) were deliberately deferred until the Identity slice — not an oversight (`ARCHITECTURE_DECISIONS.md` D44) — and are now real constraints as of Slice 15.
+- A component performing several independent units of scoped work outside a single request (e.g. multi-item startup seeding) is a dedicated DI-registered class with `IServiceScopeFactory` injected via its constructor — never a static utility, never `IServiceScopeFactory` as a per-call method parameter (`ARCHITECTURE_DECISIONS.md` D55, `CLAUDE.md` §21).
+- `RenoTrack.Infrastructure.Tests` keeps using real LocalDB in CI too, never a weaker substitute for pipeline convenience — CI is split by OS (Linux for build + non-Infrastructure tests, Windows for Infrastructure tests) instead (`ARCHITECTURE_DECISIONS.md` D56).
 
 ## 5. What Still Requires Future Discussion (Not Yet Decided — Do Not Assume an Answer)
 
@@ -87,7 +94,7 @@ Design review + dependency map approved before any code was written (per the sta
 
 ## 6. How to Start Your First Message in a Resumed Conversation
 
-1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE3_PROGRESS.md`, and this file, in that order, in full (`PHASE2_PROGRESS.md` is historical background at this point, not required reading for resuming Phase 3 work).
-2. `git fetch origin`; confirm you're on `feature/phase-3-infrastructure-efcore` and that it's still based on current `origin/main`.
-3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (371 as of Slice 15: 153 Domain + 144 Application + 74 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
-4. **Phase 3 is feature-complete (all 15 slices done).** Do not start a Slice 16 or begin Phase 4 — the next deliverable is a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report), produced separately, before any PR is opened.
+1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE3_PROGRESS.md`, and this file, in that order, in full (`PHASE2_PROGRESS.md` is historical background at this point, not required reading for resuming Phase 4 work).
+2. `git fetch origin`; confirm `main` is current (`85df430` or later) and start any new work from a fresh branch off `origin/main` — do not resume work on `feature/phase-3-infrastructure-efcore`, which is merged and inactive.
+3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (371 as of the Phase 3 merge: 153 Domain + 144 Application + 74 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
+4. **Phase 3 is complete and merged.** The next deliverable is Phase 4 (the API layer) — but per the standing process, do a design review and get explicit user sign-off on the approach before writing any Phase 4 code, exactly as every prior phase/slice was handled.

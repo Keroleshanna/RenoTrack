@@ -2,7 +2,7 @@
 
 **Purpose:** a detailed record of every vertical slice completed in Phase 3 (Infrastructure) so far, in the order built. Each entry follows the same format Phase 2 established: Goal, Design Decisions & Architectural Discussion, New Abstractions Introduced, Documentation Updates, Tests Added, Final Outcome.
 
-All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, not yet merged or pushed as of this writing.
+All work in this log was built on branch `feature/phase-3-infrastructure-efcore`, which has since merged into `main` via PR #6 (merge commit `85df430`) — see the "Post-Closeout" section at the end of this file for what happened between the closeout review and the actual merge.
 
 **Slice order** (per the dependency map reviewed and approved before any code was written): DbContext + configurations → `InitialCreate` migration → `IUnitOfWork` → `ILeadRepository` → `IInspectionRepository` → `IAngebotRepository` → `IAngebotReviewCommentRepository` → `ICatalogItemRepository` → `ICatalogItemQueries` → `IAuditService` → `INumberGeneratorService` (+ concurrency test) → `IFileStorage` placeholder → `IEmailSender` placeholder → `AddInfrastructure()` + `Program.cs` wiring → Identity storage + role seeding. Identity was deliberately moved to the very end, after DI composition, so repository work stays completely independent of it.
 
@@ -351,3 +351,19 @@ All work in this log lives on branch `feature/phase-3-infrastructure-efcore`, no
 **Final outcome:** 74 Infrastructure tests, alongside 153 Domain + 144 Application → **371 solution-wide.** Build clean (0 warnings, 0 errors). Committed.
 
 **Phase 3 is now feature-complete — all 15 slices done.** Per the user's explicit instruction, Phase 4 does not begin next; a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report) follows separately.
+
+---
+
+## Post-Closeout: Code Review, CI Fix, IdentityRoleSeeder Redesign, and Merge
+
+Three things happened between the closeout review above and the actual merge — none of them a new vertical slice, all recorded in full in `ARCHITECTURE_DECISIONS.md` and `PROJECT_STATE.md` §11.7:
+
+1. **Pre-merge code review** (role-reversed: reviewer only, no implementation until findings were presented) found three Should-Fix issues, no Must-Fix issues — a stale `HANDOFF_PROMPT.md`, a missing explicit `ProjectReference` from `RenoTrack.Infrastructure.Tests` to `RenoTrack.Application`, and a test helper (`IdentityTestServices.cs`) that duplicated `AddInfrastructure()`'s DI registrations by hand instead of calling it. All three fixed, rebuilt, retested, re-verified for migration drift.
+
+2. **CI environmental failure fixed (D56):** the first CI run failed because `RenoTrack.Infrastructure.Tests` needs real LocalDB, which doesn't exist on the `ubuntu-latest` runner the single job used. Fixed by splitting `.github/workflows/ci.yml` into a Linux job (build + Domain/Application/Api tests) and a Windows job (Infrastructure tests, starts real LocalDB) — no test code changed, no substitution of LocalDB for a weaker provider, preserving D40 exactly.
+
+3. **A real concurrency bug found and fixed with a genuine design change (D55):** rerunning `IdentityRoleSeederTests`'s concurrency test repeatedly (not just once) during local Release-config verification surfaced a ~66% failure rate. Root cause: `RoleManager`/`DbContext` tracking state from one failed role-seed attempt bled into the next role's `SaveChangesAsync()` call, since the seeding loop shared one `DbContext` across two independent units of work. Rather than patch around it, the design was reworked: `IdentityRoleSeeder` became a dedicated `AddScoped` DI service with `IServiceScopeFactory` injected via its constructor, opening one fresh `IServiceScope` per role internally — the public `SeedRolesAsync()` stayed parameterless. Verified with 32 consecutive passing runs (22 Debug, 10 Release) after the fix, versus the prior ~2-in-3 failure rate. Full alternatives-considered record in `ARCHITECTURE_DECISIONS.md` D55.
+
+**Merged:** PR #6 merged into `main` via merge commit `85df430` on 2026-07-31. Post-merge verification on `main` itself confirmed 371 tests passing, 0 build warnings/errors, and no pending EF Core model changes.
+
+**Phase 3 is complete. Phase 4 (API layer) is next — see `NEXT_STEPS.md` and `HANDOFF_PROMPT.md`.**

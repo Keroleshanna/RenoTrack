@@ -1,29 +1,31 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-30 — Phase 3, Slice 15 complete (Identity storage + role seeding, D53/D54) — **all 15 Phase 3 slices done, Phase 3 is feature-complete.** Phase 2 merged to `main` (PR #5, merge commit `dc85de1`).
+**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 3 — Infrastructure**, per `PROJECT_ROADMAP.md`. In progress, on branch `feature/phase-3-infrastructure-efcore`, not yet merged.
+**Phase 3 — Infrastructure**, per `PROJECT_ROADMAP.md`. **Complete and merged to `main`.**
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
-- **Phase 3 (Infrastructure) — ✅ feature-complete, not yet merged.** All 15 slices done (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate` migration; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`; `IAngebotRepository`; `IAngebotReviewCommentRepository`; `ICatalogItemRepository`; `ICatalogItemQueries`; `IAuditService`; `INumberGeneratorService`; `IFileStorage` placeholder; `IEmailSender` placeholder; `AddInfrastructure()` + `Program.cs` wiring; Identity storage + role seeding). See `PHASE3_PROGRESS.md`. A full Phase 3 completion review (documentation/decision/migration/DI audit, test summary, merge readiness) is the immediate next deliverable, before Phase 4 begins.
+- **Phase 3 (Infrastructure) — ✅ complete and merged to `main`** (PR #6, merge commit `85df430`, branch `feature/phase-3-infrastructure-efcore`). All 15 slices done (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate`/`AddAuditLog`/`AddNumberSequence`/`AddIdentity` migrations; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`; `IAngebotRepository`; `IAngebotReviewCommentRepository`; `ICatalogItemRepository`; `ICatalogItemQueries`; `IAuditService`; `INumberGeneratorService`; `IFileStorage` placeholder; `IEmailSender` placeholder; `AddInfrastructure()` + `Program.cs` wiring; Identity storage + role seeding). A pre-merge code review found three Should-Fix issues, all fixed (`c085058`). A real concurrency bug in `IdentityRoleSeeder`, found during final CI verification (not by the original review), was root-caused and fixed with a genuine design change — `IdentityRoleSeeder` became a dedicated DI service (D55) — rather than patched around. CI was split into a Linux job (build + non-Infrastructure tests) and a Windows job (Infrastructure tests against real LocalDB) to fix an environmental CI failure without weakening D40 (D56). See `PHASE3_PROGRESS.md` and §11 below for the full closeout record.
+
+**Immediate next step: Phase 4 (API layer)** — not yet started. See §9.
 
 ## 2. Current Branch State
 
-- Active branch: `feature/phase-3-infrastructure-efcore`, created off `main` (at `dc85de1`) per `CLAUDE.md` §19 — no direct commits to `main` after Phase 0's bootstrap.
-- `feature/phase-2-application-layer` was merged via PR #5 and is no longer the active working branch.
-- **Next git action when resuming:** continue committing additional Infrastructure slices to this same branch, in the approved dependency-map order (see `PHASE3_PROGRESS.md`). Do not open a PR or push until instructed.
+- **`main` is the current branch**, at `85df430` (PR #6 merged, fast-forward-mergeable check not applicable — actual merge commit). `feature/phase-3-infrastructure-efcore` (final commit `f5d3108`) is merged and still exists on the remote but is no longer the active working branch; it can be deleted once nothing else needs it as a reference.
+- `feature/phase-2-application-layer` was merged via PR #5 and is likewise no longer active.
+- **Next git action when resuming:** start Phase 4 on a new branch off current `main` (`git fetch origin`, then branch from `origin/main`), per `CLAUDE.md` §19 — no direct commits to `main`.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run in this conversation:
+As of the last verified run in this conversation, on merged `main` (`85df430`):
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
 - `dotnet test RenoTrack.slnx` → **371 tests passing, 0 failing.**
   - `RenoTrack.Domain.Tests`: **153 tests.**
@@ -252,7 +254,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 3 is feature-complete — all 15 slices done.** Per explicit instruction, the next deliverable is **not** Phase 4 — it's a full Phase 3 completion review (documentation audit, architecture decision audit, migration audit, DI audit, test summary, merge readiness report), produced separately from this file. Only after that review is Phase 3 considered ready to open as a PR. §10 below remains the historical record of Phase 2's closeout.
+**Phase 3 is complete and merged to `main` (PR #6, `85df430`).** The immediate next step is **Phase 4 — the API layer** (per `PROJECT_ROADMAP.md`): controllers, the `AddApplication()` DI extension (`IOwnershipValidator`, FluentValidation validators, command handlers — none of these are wired into DI yet, since `RenoTrack.Api` has had no controllers to need them), authentication/JWT issuance (Architecture.md §7.1 — Phase 3 built Identity storage only, no `[Authorize]` attributes or login endpoints exist), HTTP status-code mapping for Domain exceptions (RFC 7807 ProblemDetails, Architecture.md §5.3), and the real `LocalDiskFileStorage` (D42). A design review and explicit user sign-off is expected before any Phase 4 code is written, exactly as every prior phase/slice was handled. §10 and §11 below remain the historical closeout records for Phase 2 and Phase 3 respectively.
 
 ---
 
@@ -287,7 +289,7 @@ None of these are silent gaps; each has a named reason and a named future trigge
 
 ## 11. Phase 3 Closeout Review
 
-Performed 2026-07-30, immediately after Slice 15 (Identity), before opening a PR. Every finding below was checked directly (build/test run, migration CLI, file inspection), not assumed from memory.
+Performed 2026-07-30, immediately after Slice 15 (Identity), before opening a PR. Every finding below was checked directly (build/test run, migration CLI, file inspection), not assumed from memory. **§11.7 below records what happened after this review** — the code review's Should-Fix fixes, the CI environmental fix, the `IdentityRoleSeeder` redesign, and the actual merge — since none of that had happened yet when §11.1–§11.6 were written.
 
 ### 11.1 Documentation Audit
 
@@ -353,4 +355,25 @@ Four migrations, applied in this order (verified via `dotnet ef migrations list`
 - **Recommended PR title:** `Phase 3: Infrastructure layer — EF Core persistence, repositories, and Identity storage` (matches the `Phase N: <layer> — <one-line scope>` pattern Phase 2's PR title established).
 - **Recommended commit range:** `main..feature/phase-3-infrastructure-efcore`, `1edccae` (Slice 1) through `b6d4d48` (Slice 15) — 15 feature commits, one docs-sync commit (`fca7eb8`, mid-phase).
 - **PR description should note explicitly:** the retroactive-FK test breakage in Slice 15 (19 tests, expected and fixed, not a late-discovered bug); the three narrow, explicitly-scoped exceptions to "EF Core only" (raw SQL in `NumberGeneratorService`, D52) and "no custom auth cookies" (`AddIdentityCore`, D54); that `INumberGeneratorService`'s concurrency guarantee (the single highest-risk item flagged since Phase 2, D34) is now proven, not just implemented.
-- **Verdict: ready to open as a PR**, pending the user's own final read-through and explicit go-ahead to push/open.
+- **Verdict at the time this section was written: ready to open as a PR**, pending the user's own final read-through and explicit go-ahead to push/open. (Superseded — see §11.7: additional work happened between opening the PR and merging it.)
+
+### 11.7 What Happened Between This Review and the Actual Merge
+
+This section records everything that happened *after* §11.1–§11.6 were written — a separate code-review pass, an environmental CI fix, and a real bug found and fixed with a genuine design change — none of which existed yet when the verdict above was recorded.
+
+**Code review (lead-reviewer pass, role-reversed: reviewer only, no implementation until findings were presented):** three Should-Fix findings, no Must-Fix findings:
+1. `HANDOFF_PROMPT.md` described the PR as "not yet opened" — stale by the time of review.
+2. `tests/RenoTrack.Infrastructure.Tests.csproj` had no explicit `<ProjectReference>` to `RenoTrack.Application` — it compiled only via implicit transitive resolution through `RenoTrack.Infrastructure`, which this project's own layering discipline treats as fragile (explicit references only, `CLAUDE.md` §1).
+3. `tests/RenoTrack.Infrastructure.Tests/Identity/IdentityTestServices.cs` duplicated `AddInfrastructure()`'s DI registrations by hand instead of calling the real extension method — a maintenance hazard (two places to keep in sync).
+
+All three fixed in commit `c085058`, followed by a full rebuild/retest/`has-pending-model-changes` re-verification before pushing.
+
+**CI environmental failure, fixed without touching tests or replacing LocalDB (D56):** the first CI run failed because the single Linux job couldn't run `RenoTrack.Infrastructure.Tests` (LocalDB is Windows-only, D40). `.github/workflows/ci.yml` was split into `build-and-test` (`ubuntu-latest`) and `infrastructure-tests` (`windows-latest`, `needs: build-and-test`, starts `sqllocaldb start MSSQLLocalDB`). Verified via the GitHub Actions API: both jobs green.
+
+**A real, previously-undetected concurrency bug found and fixed with a genuine design change (D55), not a patch:** re-running `IdentityRoleSeederTests`'s concurrency test repeatedly during local Release-config verification (not something the original review or a single CI run would have caught) surfaced a ~66% failure rate, caused by `RoleManager`/`DbContext` tracking state from a failed role-seed attempt bleeding into the next role's `SaveChangesAsync()` call. Rather than patch around it (a `DbContext` parameter, or reflection into `RoleManager.Store`), the design was reworked: `IdentityRoleSeeder` became a dedicated `AddScoped` DI service with `IServiceScopeFactory` injected via its constructor, creating one fresh `IServiceScope` per role internally, keeping the public `SeedRolesAsync()` parameterless. Verified empirically: 32 consecutive runs (22 Debug, 10 Release) all passed after the fix, versus the prior ~2-in-3 failure rate. Full alternatives-considered record in `ARCHITECTURE_DECISIONS.md` D55.
+
+**Final push and merge:** the Should-Fix fixes, the CI split, and the `IdentityRoleSeeder` fix were pushed together (`f5d3108`, once everything was consistently green), the PR was marked ready for review, and **PR #6 was merged into `main` via merge commit `85df430`** on 2026-07-31. `feature/phase-3-infrastructure-efcore` remains on the remote (merged, not deleted) but is no longer the active branch.
+
+**Post-merge verification on `main` itself** (not just on the feature branch before merge): `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors; `dotnet test RenoTrack.slnx` → 371 passing, 0 failing (153 Domain + 144 Application + 74 Infrastructure); `dotnet ef migrations has-pending-model-changes` → no pending changes. All three checked directly against the merged `main`, not carried over from the pre-merge branch state.
+
+**Final verdict: Phase 3 is done. `main` is green, clean, and ready for Phase 4 to begin.**

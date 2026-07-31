@@ -841,6 +841,20 @@ Numbering is chronological across the whole project, not per-phase.
 
 ---
 
+## D56 — CI Splits Into Two Jobs by OS, So `RenoTrack.Infrastructure.Tests` Can Keep Using Real LocalDB
+
+**Problem:** The first CI run on `feature/phase-3-infrastructure-efcore` failed — not architecturally, environmentally. The single `ci.yml` job ran on `ubuntu-latest`, and `RenoTrack.Infrastructure.Tests` requires real SQL Server LocalDB (D40), which does not exist on Linux at all (not a missing-install problem — LocalDB is a Windows-only SQL Server edition).
+
+**Alternatives considered:** (a) Replace LocalDB with the EF Core InMemory provider or SQLite for CI only, keeping LocalDB for local runs — rejected outright, explicitly, by the user: this would let CI pass without ever exercising the real unique indexes/FKs/`decimal(18,2)` precision D40 exists specifically to verify, silently reintroducing the exact class of gap D40 closed. (b) Drop `RenoTrack.Infrastructure.Tests` from CI entirely, run it only locally — rejected: a whole test project (74 tests) going unverified by CI is a worse regression risk than a slightly more complex workflow file. (c) Run the entire workflow on `windows-latest` — rejected: slower and more expensive for the 297 non-Infrastructure tests that have no LocalDB dependency and gain nothing from a Windows runner. (d) Split `ci.yml` into two jobs by OS: `build-and-test` on `ubuntu-latest` (build + `Domain`/`Application`/`Api` tests), `infrastructure-tests` on `windows-latest` (`needs: build-and-test`, starts `sqllocaldb start MSSQLLocalDB` before running `RenoTrack.Infrastructure.Tests`).
+
+**Final decision:** (d).
+
+**Why chosen:** Preserves D40 exactly as decided — CI now exercises the same real LocalDB behavior a local run does, not a stand-in. The `needs:` gate means the more expensive Windows job only runs after the cheap Linux job (build + 297 tests) already passed, so a broken build fails fast without ever spinning up the Windows runner. This mirrors the project's general instinct (see D50/D52/D54's "fix the real problem, don't paper over it with a weaker substitute") applied to CI infrastructure rather than application code.
+
+**Consequences:** `.github/workflows/ci.yml` now has two jobs instead of one; a PR's "all checks passed" status now depends on both. No test file changed — the fix is entirely in the workflow definition, matching the user's explicit constraint not to touch test code to make CI green. Verified directly via the GitHub Actions API, not assumed: both jobs passed (`build-and-test` in ~26s, `infrastructure-tests` in ~1m39s including a successful LocalDB start) on the commit that introduced the split.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -873,3 +887,5 @@ Numbering is chronological across the whole project, not per-phase.
 | `DbContext` parameter on `SeedRolesAsync`, manual `Entry(role).State = Detached` | D55 | Leaks an EF-specific type into an Identity-domain utility; manages the symptom instead of removing the shared state that causes it |
 | `IServiceScopeFactory` as a `SeedRolesAsync` method parameter (not constructor-injected) | D55 | Pushes scope-creation concerns onto every caller; inconsistent with every other Infrastructure service taking dependencies via constructor |
 | `IDbContextFactory<RenoTrackDbContext>` instead of `IServiceScopeFactory` | D55 | Supplies a fresh `DbContext` but not a correctly-wired `RoleManager` — would force hand-constructing Identity's object graph, duplicating `AddIdentityCore()`'s own registration |
+| EF Core InMemory/SQLite for `RenoTrack.Infrastructure.Tests` in CI only | D56 | Would let CI pass without exercising the real constraints/precision D40 exists to verify — reintroduces the exact gap D40 closed |
+| Running the entire CI workflow on `windows-latest` | D56 | Slower/costlier for 297 tests with no LocalDB dependency and nothing to gain from a Windows runner |
