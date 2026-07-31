@@ -42,13 +42,19 @@ public sealed class DependencyInjectionTests
             {
                 ["ConnectionStrings:RenoTrackDb"] =
                     "Server=(localdb)\\MSSQLLocalDB;Database=RenoTrackDiTests;Trusted_Connection=True;TrustServerCertificate=True",
+                ["Jwt:Issuer"] = "RenoTrack.Api",
+                ["Jwt:Audience"] = "RenoTrack.Dashboard",
+                ["Jwt:SigningKey"] = "di-test-signing-key-long-enough-to-pass-validation",
             })
             .Build();
 
+        // All three extensions, matching Program.cs exactly — composing a subset here would prove
+        // something the application never actually does.
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddApplication();
         services.AddInfrastructure(configuration);
+        services.AddJwtAuthentication(configuration);
 
         // The same validation the real host performs in Development — proves no registration
         // captures a shorter-lived dependency and that every dependency can actually be built.

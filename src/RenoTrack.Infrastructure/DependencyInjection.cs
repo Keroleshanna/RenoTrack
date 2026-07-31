@@ -1,7 +1,10 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Infrastructure.Email;
@@ -67,6 +70,55 @@ public static class DependencyInjection
         services.AddScoped<INumberGeneratorService, NumberGeneratorService>();
         services.AddScoped<IFileStorage, PlaceholderFileStorage>();
         services.AddScoped<IEmailSender, LoggingNoOpEmailSender>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// JWT bearer authentication (Architecture.md §7.1). Deliberately a separate extension from
+    /// <see cref="AddInfrastructure"/> rather than folded into it: that method is storage
+    /// composition, and this is an HTTP authentication scheme, so <c>Program.cs</c> naming both
+    /// explicitly is clearer than one method quietly doing both. It lives in Infrastructure rather
+    /// than in RenoTrack.Api because it needs <see cref="JwtOptions"/> and the same signing key
+    /// <see cref="TokenService"/> issues with — keeping issuance and validation configured from one
+    /// place is what makes them impossible to drift apart.
+    /// </summary>
+    public static IServiceCollection AddJwtAuthentication(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Bound and validated eagerly, not via the options pattern's lazy resolution: a missing or
+        // too-short signing key must fail at startup with an actionable message, not at first login
+        // with a generic 500. Same fail-fast shape as the connection-string check above.
+        var options = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+        options.Validate();
+
+        services.AddSingleton(options);
+
+        // Registered here rather than in AddInfrastructure, even though it is a persistence-touching
+        // service: it depends on JwtOptions, which only this method provides. Splitting them would
+        // leave AddInfrastructure advertising an ITokenService that cannot actually be constructed —
+        // a container-validation failure for anyone composing storage without authentication.
+        services.AddScoped<ITokenService, TokenService>();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(jwt =>
+            {
+                jwt.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = options.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = options.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.SigningKey)),
+                    ValidateLifetime = true,
+
+                    // No clock skew. The default is five minutes, which would keep a 15-minute
+                    // access token usable for twenty — a third longer than intended, silently.
+                    ClockSkew = TimeSpan.Zero,
+                };
+            });
 
         return services;
     }

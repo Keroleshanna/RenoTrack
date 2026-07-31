@@ -27,7 +27,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 1 | API foundation, conventions & docs | ✅ done |
 | 2 | Global exception-handling middleware | ✅ done |
 | 3 | `AddApplication()` DI extension | ✅ done |
-| 4 | Authentication — JWT login | not started |
+| 4 | Authentication — JWT login | ✅ done |
 | 5 | Lead creation (public) | not started |
 | 6 | Lead read endpoints | not started |
 | 7 | Inspection scheduling | not started |
@@ -229,3 +229,96 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 48/48 each.
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **420 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **49 Api**).
+
+---
+
+## Slice 4 — Authentication (JWT Login + Refresh)
+
+**Goal:** real dashboard authentication — login, JWT issuance, refresh-token rotation, and the bearer-token validation every protected endpoint from Slice 5 onward will depend on.
+
+The design review deliberately focused on the **authentication model** rather than controller wiring, at the user's direction: the contract, the claims, the refresh-token storage model, rotation/revocation, lifetimes, password verification, and how all of it meets the Identity storage Phase 3 built. The controller was the mechanical part once those were settled.
+
+### Constraints found in existing code that bounded the design
+
+- `ApplicationUser.IsActive` existed since Slice 15 and **nothing read it** — authentication is its first real consumer.
+- `AddIdentityCore` is registered and `AddDefaultTokenProviders()` deliberately omitted; more importantly **`SignInManager` is not registered** (D54, avoiding cookie-auth defaults), which turns out to matter for lockout.
+- `IdentityRoleSeeder` seeds only the two roles. **No user exists in any environment**, and no code path creates one.
+
+### Decisions (all recorded as D60)
+
+- **Login lives in the API layer, not as an Application command.** The single deliberate exception to §3, because authentication has no aggregate, invariant, transition, or audit milestone. The rejected alternative — `LoginCommand` + an `IIdentityService` abstraction over Identity — would exist purely so a layer with no business rules about authentication could appear to own it. At the user's explicit request, D60 leads with *why*, so a future contributor who notices the inconsistency reads the reasoning before "fixing" it.
+- **Persisted refresh tokens, SHA-256 hash only.** Plaintext returned once, never stored. Stateless JWT refresh tokens were rejected (unrevocable, defeating the point), as was having no refresh token at all (contradicts Architecture §7.1).
+- **Rotation on every use, with chain revocation on reuse.** A revoked token being presented revokes every outstanding token for that user.
+- **Retention until `ExpiresAt`, no cleanup job** — decided consciously at the user's request rather than left to accumulate; see below.
+- **Lockout implemented, not deferred.** The user's position was explicit: Phase 4 must not ship authentication that ignores a documented security requirement.
+- **Identical 401 for every login failure**, with the real reason logged server-side.
+- **15-minute / 7-day lifetimes from configuration**, validated eagerly at startup.
+
+#### The refresh-token lifecycle question, answered before implementation
+
+The user asked for a conscious decision rather than accidental accumulation. The analysis:
+
+A row carries information only until `ExpiresAt`. Revoked-but-unexpired rows **must** be kept — they are exactly what makes reuse detection possible — but past expiry a token is rejected on expiry grounds regardless of revocation state, so the row is dead weight. **Retention is therefore until `ExpiresAt`**, and anything older is deletable at any time with zero behavioural change.
+
+Volume: 15-minute access tokens mean an active user produces ~32 rows per working day; at a 7-day window steady state is about `users × 32 × 7` — a few hundred rows at this company's real staff count, a few thousand at twenty users. **No cleanup mechanism was built**, because building one for that volume would be solving a non-problem; the revisit trigger (tens of thousands of rows, or an order-of-magnitude user increase) and the fix (a background job deleting rows past `ExpiresAt`) are both recorded in D60 and in `RefreshToken`'s own doc comment. `CLAUDE.md` §2's "never delete a historical record" was checked and found not to apply — it governs business records, not authentication mechanisms.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Infrastructure/Persistence/Entities/RefreshToken.cs` | New — Infrastructure-only entity; hash/generate helpers; `Revoke` is idempotent so re-revoking never overwrites the original timestamp |
+| `src/RenoTrack.Infrastructure/Persistence/Configurations/RefreshTokenConfiguration.cs` | New — `nchar(64)` fixed-length hash, unique index on it, index on `UserId`, real FK to `AspNetUsers` with `Restrict` |
+| `src/RenoTrack.Infrastructure/Persistence/RenoTrackDbContext.cs` | `RefreshTokens` DbSet |
+| `src/RenoTrack.Infrastructure/Persistence/Migrations/*_AddRefreshTokens.cs` | New — the fifth migration |
+| `src/RenoTrack.Infrastructure/Identity/JwtOptions.cs` | New — settings + eager `Validate()` naming the exact failing key |
+| `src/RenoTrack.Infrastructure/Identity/ITokenService.cs` | New — `IssueAsync`/`RotateAsync` + `TokenPair` |
+| `src/RenoTrack.Infrastructure/Identity/TokenService.cs` | New — issuance, rotation, reuse detection, inactive-user revocation on refresh |
+| `src/RenoTrack.Infrastructure/DependencyInjection.cs` | New `AddJwtAuthentication` extension |
+| `src/RenoTrack.Api/Controllers/AuthController.cs` | New — login + refresh |
+| `src/RenoTrack.Api/Auth/Dtos/AuthDtos.cs` | New |
+| `src/RenoTrack.Api/Program.cs` | `AddJwtAuthentication`, `UseAuthentication()` before `UseAuthorization()` |
+| `src/RenoTrack.Api/appsettings.Development.json` | `Jwt` section (dev-only key) |
+| `tests/RenoTrack.Api.Tests/RenoTrackApiFactory.cs` | Seeds four known-password users via the real `UserManager` |
+| `tests/RenoTrack.Api.Tests/Auth/TestProtectedController.cs` | New — test-only protected endpoint |
+| `tests/RenoTrack.Api.Tests/Auth/AuthenticationTests.cs` | New — 13 tests |
+
+**Migration process followed per §21:** `ERD.md` gained its `RefreshTokens` row and two index rows *before* the migration was generated (documentation-first, §15); the generated migration was then manually reviewed (one table, correct `Restrict` FK, no cascade, both indexes, clean `Down`); `has-pending-model-changes` confirmed no drift afterwards.
+
+**A CI-breaking bug caught before pushing.** The test host initially read its JWT settings from `appsettings.Development.json` — which is **gitignored** (it holds a signing key). The suite therefore passed locally purely because that file existed on this machine, and would have failed every Api test on CI's fresh clone, where `AddJwtAuthentication` throws at startup for a missing `Jwt:Issuer`. Fixed by having `RenoTrackApiFactory` supply its own JWT settings via `UseSetting`, exactly as it already does for the connection string, with `AuthenticationTests` referencing the factory's constants rather than duplicating them (so the expired-token test can never drift into passing for a signature mismatch instead of the expiry it means to prove). **Verified by temporarily removing the gitignored file and re-running: 62/62 still pass.** Note this means a developer running the API itself still needs a local `appsettings.Development.json` containing a `Jwt` section — the tests no longer do.
+
+**Two design corrections during implementation, both real improvements:**
+
+1. `AuthController.Refresh` initially re-parsed the access token it had just been handed in order to recover the user id. Replaced by carrying `UserId` on `TokenPair` — a service that just issued a token should state who it belongs to, not make the caller deserialize it back out.
+2. `ITokenService` was first registered in `AddInfrastructure`, which **broke the Slice 3 DI test immediately**: `TokenService` depends on `JwtOptions`, supplied only by `AddJwtAuthentication`, so `ValidateOnBuild` failed the whole container. This was a genuine cohesion bug, not a test gap — `AddInfrastructure` was advertising a service that could not be constructed. The registration moved to `AddJwtAuthentication` alongside the options it needs, and the DI test now composes all three extensions exactly as `Program.cs` does. **The Slice 3 safety net caught a Slice 4 mistake within minutes of it being made**, which is the clearest evidence yet that it was worth building.
+
+### Tests
+
+13 new (62 in `RenoTrack.Api.Tests` total), covering every behaviour the user asked for:
+
+| Behaviour | Test |
+|---|---|
+| Successful login | returns tokens + user details, with a future `expiresAt` |
+| Claims | `sub`/`email`/`name`/`jti`/`role` present; asserts **no** ownership-style claim, pinning §16 |
+| Wrong password | 401 |
+| Unknown email | 401 **byte-identical to the wrong-password response**, pinning non-enumeration |
+| Inactive user | 401 despite a correct password |
+| Locked-out user | 5 deliberate failures, then 401 **with the correct password** — proves `AccessFailedAsync` is actually called |
+| Refresh rotation | new pair differs; the rotated-away token stops working |
+| Reuse of a revoked token | replay is rejected **and the legitimate current token dies too** (chain revocation) |
+| Unknown refresh token | 401 |
+| Valid access token | reaches a protected endpoint |
+| No token | 401 |
+| Invalid signature | forged token with a different key → 401 |
+| Expired access token | signed with the *real* key so only expiry can reject it → 401 |
+
+`TestProtectedController` was needed because as of this slice the only endpoints are `/auth/login` and `/auth/refresh`, both anonymous — nothing existed to reject a bad token against. Same test-assembly/`ApplicationPart` pattern as Slice 2's `TestErrorsController`, and its doc comment says to delete it once real protected endpoints make it redundant.
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 62/62 each. This mattered more than usual: the lockout and chain-revocation tests mutate shared database state, so a single passing run would not have proven order-independence.
+
+### Known gap carried forward (not a defect of this slice)
+
+**No user exists in production, and nothing creates one.** `IdentityRoleSeeder` seeds roles only. After this slice the API has a working login endpoint that nobody can use until either OQ-1 (does Admin manage Inspector accounts?) is resolved or a seeding path is added. Flagged during design review rather than discovered later; it is an SRS-level open question, not something Slice 4 should have silently invented an answer to.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **433 passing, 0 failing** (153 Domain + 144 Application + 74 Infrastructure + **62 Api**). `dotnet ef migrations has-pending-model-changes` → no pending changes.

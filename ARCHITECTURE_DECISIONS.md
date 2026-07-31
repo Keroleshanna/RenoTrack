@@ -909,6 +909,53 @@ The mechanism by which the fixture creates its schema was considered for a decis
 
 ---
 
+## D60 — Authentication Sits Outside the CQRS Pipeline, With Persisted, Rotating, Hash-Stored Refresh Tokens
+
+**Problem:** Phase 4 Slice 4 had to answer several authentication questions at once, and the answers interact: where login lives architecturally, what the refresh-token model is, and how both fit the conventions every other operation in this system follows.
+
+### Part 1 — Login is not an Application-layer command. This is deliberate; do not "fix" it.
+
+**The most important thing to understand about this decision:** every other operation in RenoTrack is a `Command` + hand-written `Handler` in `RenoTrack.Application` (`CLAUDE.md` §3). `AuthController` is the single exception, and a future contributor noticing the inconsistency should read this section before attempting to make it uniform.
+
+**Alternatives considered:** (a) `LoginCommand` + `LoginCommandHandler` in `RenoTrack.Application`, requiring a new `IIdentityService` abstraction over `UserManager`/`ApplicationUser` (both Infrastructure types, forced there by D53 and D1's zero-project-reference rule) plus an `ITokenService`, so the Application layer could participate. (b) Login lives entirely in `RenoTrack.Api`, calling `UserManager` and `ITokenService` directly.
+
+**Final decision:** (b).
+
+**Why chosen — the reasoning that matters:** the CQRS-lite convention exists to keep *business use cases* traceable and testable, and authentication is not one. It has **no aggregate**, **no Domain invariant**, **no state machine transition**, and **no audit milestone** (§10's audit rule covers business milestones; a login is not one). Routing it through a command handler would produce an abstraction (`IIdentityService`) whose sole purpose is to let a layer with no business rules about authentication appear to own it — ceremony with no business value, exactly the failure D49 rejected when it declined to make `AuditLog` a rich Domain entity. The uniformity gained would be cosmetic, and the cost is two interfaces plus an indirection layer that no reader benefits from following.
+
+**Consequences:** `AuthController` (`src/RenoTrack.Api/Controllers/AuthController.cs`) injects `UserManager<ApplicationUser>` and `ITokenService` directly. `ITokenService` is declared in `RenoTrack.Infrastructure.Identity`, **not** in `RenoTrack.Application.Common.Interfaces` where every repository/service interface lives — because the Application layer neither consumes nor could consume it, and declaring an abstraction a layer never uses would be worse than the inconsistency it papers over. This does not weaken §3: it narrows it to what it was always about. **If a future authentication concern acquires a genuine business rule** (e.g. an audited "user account locked" milestone that must appear on a Lead timeline), that specific concern becomes a command — the boundary is "does this have business rules," not "is it authentication."
+
+### Part 2 — Refresh tokens are persisted, hashed, and rotated
+
+**Alternatives considered:** (c) No refresh tokens at all, just a longer-lived access token — rejected: contradicts `Architecture.md` §7.1, which names the pattern explicitly, and a long-lived bearer token cannot be revoked at all. (d) Stateless refresh tokens (a second signed JWT) — no storage needed, but **cannot be revoked**, which defeats most of the reason to have a refresh token rather than a longer access token. (e) A persisted `RefreshToken` table.
+
+**Final decision:** (e), with three specific properties:
+
+- **Only a SHA-256 hash is stored, never the plaintext.** The client receives the plaintext once; every later lookup hashes the incoming value. A database read yields no usable credential — the same reasoning already applied to passwords. SHA-256 rather than a password hash (PBKDF2/bcrypt) is correct because the input is already 32 bytes of cryptographic randomness: there is no entropy to stretch and nothing to brute-force.
+- **Rotation on every use.** The presented token is revoked (`RevokedAt` + `ReplacedByTokenHash`) and a new pair issued.
+- **Reuse detection.** Presenting an *already-revoked* token revokes **every** outstanding token for that user. A revoked token arriving means either a stolen token is being replayed or a client bug; in the theft case the attacker and the legitimate user both hold live tokens, and breaking the whole chain is the only way to end the attacker's access. Forcing one re-login is the correct trade against leaving a compromised session alive. This is why `ReplacedByTokenHash` exists rather than rows simply being deleted on rotation.
+
+`RefreshToken` is **Infrastructure-only, not a Domain entity** — same reasoning as `AuditLog` (D49) and `NumberSequence` (D51): no business invariant references it, and authentication is a mechanism rather than a business concept.
+
+**Deliberately not built:** a logout endpoint. Revocation is a *capability* this model enables, but no requirement documents logout, and building it now would be speculative (`CLAUDE.md` §4). The storage supports it the moment a real requirement appears.
+
+### Part 3 — Retention: chosen consciously, not left to accumulate
+
+A row carries information only until `ExpiresAt`. Revoked-but-unexpired rows **must** be kept — they are exactly what makes reuse detection possible — but once expired, a token is rejected on expiry grounds regardless of revocation state, so the row is dead weight. **Retention is therefore until `ExpiresAt`; anything older can be deleted at any time with zero behavioural change.**
+
+**No cleanup mechanism is built, and that is a decision rather than an omission.** With 15-minute access tokens an active user produces roughly 32 rows per working day; at a 7-day window, steady state is about `users × 32 × 7` — a few hundred rows for this company's real staff count, a few thousand even at twenty users. Building a background job for that would be solving a non-problem. **Revisit when** the table reaches a size that actually matters (tens of thousands of rows, or an order-of-magnitude increase in users); the fix is then a background job deleting rows past `ExpiresAt`. Note `CLAUDE.md` §2's "never truly delete a historical record" does **not** apply here — that rule governs business records, not authentication mechanisms.
+
+### Part 4 — Lockout, lifetimes, and configuration
+
+- **SRS FR-10.3 (rate-limit failed logins) is honoured in this slice, not deferred.** `AddIdentityCore` deliberately does not register `SignInManager` (D54, avoiding cookie-auth defaults a JWT API never uses), and `UserManager.CheckPasswordAsync` does **not** touch lockout counters by itself. `AuthController` therefore calls `IsLockedOutAsync` / `AccessFailedAsync` / `ResetAccessFailedCountAsync` explicitly. Without those three calls the documented requirement would silently not exist.
+- **Every login failure returns an identical 401** — unknown email, wrong password, inactive account, and locked-out account are indistinguishable, because distinguishing them turns the endpoint into an account-enumeration oracle. This is a deliberate, narrow exception to D59's "mapped exceptions carry a useful message" policy: here unhelpfulness is the feature. Failures are logged server-side with the real reason, so operators lose nothing.
+- **15-minute access tokens, 7-day refresh tokens, both from configuration** (`Jwt` section), not constants — they are operational knobs.
+- **`ClockSkew = TimeSpan.Zero`.** The framework default of five minutes would keep a 15-minute access token usable for twenty — a third longer than configured, silently.
+- **Configuration is validated eagerly at startup** (`JwtOptions.Validate()`): issuer, audience, and signing key must be present, and the key at least 32 characters (HMAC-SHA256's own floor). Failure throws naming the exact configuration key, matching `AddInfrastructure`'s connection-string check. The signing key is never committed — `appsettings.Development.json` locally, environment/secrets elsewhere (Architecture.md §13).
+- **`AddJwtAuthentication` is a separate extension from `AddInfrastructure`**, and registers `ITokenService` itself despite that service touching persistence: `TokenService` depends on `JwtOptions`, which only this method supplies, so splitting them would leave `AddInfrastructure` advertising a service that cannot be constructed — caught immediately by the `ValidateOnBuild` DI test when it was first written the other way round.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -956,3 +1003,11 @@ The mechanism by which the fixture creates its schema was considered for a decis
 | Mapping `InvalidOperationException` by originating assembly (`ex.TargetSite`) | D59 | Reflective, degrades silently when `TargetSite` is null, and forces a Domain project reference into `RenoTrack.Api` purely for an assembly comparison |
 | Echoing an unmapped exception's message as ProblemDetails `detail` | D59 | An unexpected `SqlException` would surface connection strings or schema names to the client |
 | Handling `OperationCanceledException` in Slice 2 | D59 | Hosting/runtime concern, not Domain/Application exception mapping; address with real evidence of log noise, not speculation |
+| `LoginCommand` + `IIdentityService` to route authentication through CQRS | D60 | Authentication has no aggregate, invariant, transition, or audit milestone — an abstraction existing purely to preserve cosmetic uniformity |
+| No refresh tokens (longer-lived access token instead) | D60 | Contradicts Architecture §7.1, and a long-lived bearer token cannot be revoked at all |
+| Stateless refresh tokens (a second signed JWT) | D60 | Cannot be revoked, which defeats most of the reason to have a refresh token rather than a longer access token |
+| Storing refresh-token plaintext | D60 | A database read would yield usable credentials; same reasoning that forbids plaintext passwords |
+| A logout endpoint in Slice 4 | D60 | Revocation is a capability the model enables, but no requirement documents logout — speculative until one does |
+| A background cleanup job for expired refresh tokens | D60 | Steady state is a few hundred rows; building it now solves a non-problem. Revisit at tens of thousands of rows |
+| Distinguishing "unknown email" from "wrong password" in the 401 | D60 | Turns login into an account-enumeration oracle; the real reason is logged server-side instead |
+| Default `ClockSkew` (5 minutes) on token validation | D60 | Would keep a 15-minute access token usable for twenty, silently overriding the configured lifetime |

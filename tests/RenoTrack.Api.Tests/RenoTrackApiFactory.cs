@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 
 namespace RenoTrack.Api.Tests;
@@ -41,7 +43,42 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         builder.UseEnvironment("Development");
 
         builder.UseSetting("ConnectionStrings:RenoTrackDb", ConnectionString);
+
+        // Supplied here, never read from appsettings.Development.json — that file is gitignored
+        // (it holds a real signing key), so depending on it would make these tests pass locally and
+        // fail in CI's fresh clone, where AddJwtAuthentication would throw at startup. Test
+        // configuration must come from the test project itself.
+        builder.UseSetting($"{JwtOptions.SectionName}:{nameof(JwtOptions.Issuer)}", TestIssuer);
+        builder.UseSetting($"{JwtOptions.SectionName}:{nameof(JwtOptions.Audience)}", TestAudience);
+        builder.UseSetting($"{JwtOptions.SectionName}:{nameof(JwtOptions.SigningKey)}", TestSigningKey);
     }
+
+    /// <summary>
+    /// Test-only JWT settings. <see cref="TestSigningKey"/> is what
+    /// <c>AuthenticationTests</c> signs its deliberately-expired token with, so that token is
+    /// rejected for expiry rather than for a bad signature — which is the only way that test
+    /// proves what it claims to.
+    /// </summary>
+    public const string TestIssuer = "RenoTrack.Api.Tests";
+    public const string TestAudience = "RenoTrack.Api.Tests";
+    public const string TestSigningKey = "api-tests-signing-key-long-enough-for-hmac-sha256";
+
+    /// <summary>Known-password test users, seeded once per run by <see cref="InitializeAsync"/>.</summary>
+    public const string AdminEmail = "admin@renotrack.test";
+    public const string AdminPassword = "Admin#Pass123";
+    public const string InspectorEmail = "inspector@renotrack.test";
+    public const string InspectorPassword = "Inspector#Pass123";
+
+    /// <summary>Seeded with <c>IsActive = false</c> — proves a deactivated account cannot log in.</summary>
+    public const string InactiveEmail = "inactive@renotrack.test";
+    public const string InactivePassword = "Inactive#Pass123";
+
+    /// <summary>
+    /// Dedicated to the lockout test so repeated deliberate failures cannot leave another test's
+    /// user locked out — these tests share one database and run serially.
+    /// </summary>
+    public const string LockoutEmail = "lockout@renotrack.test";
+    public const string LockoutPassword = "Lockout#Pass123";
 
     public async Task InitializeAsync()
     {
@@ -50,6 +87,49 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         await using var context = CreateDbContext();
         await context.Database.EnsureDeletedAsync();
         await context.Database.MigrateAsync();
+
+        // Touching Services starts the host, which runs Program.cs's IdentityRoleSeeder — so the
+        // Admin/Inspector roles exist before any user is assigned to one.
+        using var scope = Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        await SeedUserAsync(userManager, AdminEmail, AdminPassword, "Test Admin", "Admin", isActive: true);
+        await SeedUserAsync(userManager, InspectorEmail, InspectorPassword, "Test Inspector", "Inspector", isActive: true);
+        await SeedUserAsync(userManager, InactiveEmail, InactivePassword, "Inactive User", "Inspector", isActive: false);
+        await SeedUserAsync(userManager, LockoutEmail, LockoutPassword, "Lockout User", "Inspector", isActive: true);
+    }
+
+    /// <summary>
+    /// Uses the real <see cref="UserManager{TUser}"/> — real password hashing, real role assignment,
+    /// no shortcut around Identity (D58). A test that authenticated against a hand-built hash would
+    /// prove nothing about whether login actually works.
+    /// </summary>
+    private static async Task SeedUserAsync(
+        UserManager<ApplicationUser> userManager,
+        string email,
+        string password,
+        string name,
+        string role,
+        bool isActive)
+    {
+        var user = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            Name = name,
+            IsActive = isActive,
+            EmailConfirmed = true,
+        };
+
+        var result = await userManager.CreateAsync(user, password);
+
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Failed to seed test user '{email}': {string.Join(", ", result.Errors.Select(e => e.Description))}");
+        }
+
+        await userManager.AddToRoleAsync(user, role);
     }
 
     public new async Task DisposeAsync()

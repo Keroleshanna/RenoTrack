@@ -12,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
 // RFC 7807 error responses (Architecture.md §5.3). CustomizeProblemDetails is applied here rather
 // than inside ProblemDetailsExceptionHandler so traceId is present on *every* ProblemDetails
@@ -60,6 +61,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Authentication must precede authorization: the former establishes who the caller is, the latter
+// decides what they may do with that identity.
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

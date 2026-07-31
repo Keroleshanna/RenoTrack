@@ -42,8 +42,8 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 1. **API foundation, conventions & docs — ✅ done.** `api/v1` routing convention (D57), `RenoTrack.Api.Tests` harness on real `WebApplicationFactory` + real LocalDB with `MigrateAsync` (D58), Scalar docs UI with the JWT scheme declared, `Api.Tests` moved to CI's Windows job. 4 tests. No controller and no health endpoint were invented to serve the tests.
 2. **Global exception-handling middleware — ✅ done.** One `IExceptionHandler` with an explicit `switch` (not one handler per type), RFC 7807 ProblemDetails, `traceId` on every response. Resolves the deferred mapping: `ArgumentException`→400, `InvalidOperationException`→409, as a knowingly-accepted risk with a logging mitigation (D59). Mapped exceptions surface their message; unmapped ones never do. 13 tests.
 3. **`AddApplication()` DI extension — ✅ done.** 30 explicit registrations (14 validators, 14 command handlers, 1 query handler, `IOwnershipValidator`), grouped by category, uniformly Scoped, handlers registered by interface. No assembly scanning; the "forgot to register" risk is covered by a reflection-based test in `Api.Tests` that discovers every handler/validator in the Application assembly and asserts each resolves — proven to fail by temporarily removing a registration. `Microsoft.Extensions.DependencyInjection.Abstractions` added to Application. 32 tests. No new architecture decision — existing composition-root conventions applied to a second layer.
-4. Authentication — JWT login — **next**. *(Login-command shape and refresh-token design deliberately not yet decided — that slice's own review.)*
-5. Lead creation (public).
+4. **Authentication — JWT login — ✅ done (D60).** Login + refresh in `AuthController`, deliberately **not** an Application command (authentication has no aggregate, invariant, transition, or audit milestone — do not "fix" this inconsistency). Persisted refresh tokens stored only as SHA-256 hashes, rotated every use, whole-chain revocation on reuse; retention until `ExpiresAt` with no cleanup job by conscious decision. FR-10.3 lockout wired explicitly, since `CheckPasswordAsync` doesn't touch lockout counters and `SignInManager` isn't registered. Identical 401 for every failure mode. Fifth migration (`AddRefreshTokens`). 13 tests.
+5. Lead creation (public) — **next**.
 6. Lead read endpoints. *(Requires new `GetLeadByIdQuery`/list query — none exists yet.)*
 7. Inspection scheduling.
 8. Inspection photo upload + `LocalDiskFileStorage`.
@@ -51,7 +51,9 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
 11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
 
-**The immediate next step is Phase 4 Slice 4.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–3 were handled.
+**The immediate next step is Phase 4 Slice 5.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–4 were handled.
+
+**Open item created by Slice 4:** no user account exists in production and nothing creates one. The login endpoint works but is unusable outside tests until SRS **OQ-1** (does Admin manage Inspector accounts from the dashboard?) is answered, or a seeding path is added. Deliberately not resolved inside Slice 4 — it is an SRS-level question, not something an authentication slice should invent an answer to.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
@@ -103,6 +105,10 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 - API versioning is a literal `api/v1` URL segment with no versioning library; a future v2 is added as parallel v2 controllers, not via version negotiation (`ARCHITECTURE_DECISIONS.md` D57).
 - DI registrations in **both** composition roots (`AddApplication()`, `AddInfrastructure()`) are explicit and uniformly Scoped — never assembly scanning, never Scrutor, never `AddValidatorsFromAssembly`. The "forgot to register" risk is covered by a reflection-based test, not by scanning production code. Note `ValidateOnBuild` alone does **not** catch a missing handler registration while nothing depends on it — do not weaken `DependencyInjectionTests` into a plain container-build check.
 - `AddApplication()` takes no `IConfiguration` and must not acquire hosting/configuration concerns; Application's only packages are FluentValidation and `Microsoft.Extensions.DependencyInjection.Abstractions`.
+- Authentication is deliberately outside the CQRS pipeline — `AuthController` calls `UserManager`/`ITokenService` directly, and `ITokenService` lives in Infrastructure rather than `Application.Common.Interfaces`. This is not an inconsistency to tidy up (`ARCHITECTURE_DECISIONS.md` D60).
+- Login failures must stay indistinguishable from one another (unknown email, wrong password, inactive, locked out → the same 401). Do not make those messages more helpful.
+- Refresh tokens are stored as SHA-256 hashes only, rotated on every use, with whole-chain revocation on reuse. There is deliberately no logout endpoint and no cleanup job; retention is until `ExpiresAt`, and revoked-but-unexpired rows must be kept or reuse detection breaks.
+- `AuthController`'s `IsLockedOutAsync`/`AccessFailedAsync`/`ResetAccessFailedCountAsync` calls **are** SRS FR-10.3's implementation — `CheckPasswordAsync` does not touch lockout counters. Removing them silently removes a documented security requirement.
 - `RenoTrack.Api.Tests` boots the real application via `WebApplicationFactory<Program>` against real LocalDB, with schema created by `MigrateAsync()` — deliberately **not** `EnsureCreated()` as `RenoTrack.Infrastructure.Tests` uses. Do not "unify" the two fixtures for consistency: the projects have different responsibilities, and `EnsureCreated` would break outright if startup-time migration is chosen in Slice 11 (`ARCHITECTURE_DECISIONS.md` D58).
 
 ## 5. What Still Requires Future Discussion (Not Yet Decided — Do Not Assume an Answer)
