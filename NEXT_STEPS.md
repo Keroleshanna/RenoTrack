@@ -51,12 +51,17 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 7. **Inspection scheduling — ✅ done (D62).** `POST /api/v1/leads/{leadId}/inspections`, Admin only, on `InspectionsController` with an absolute route so all Inspection behaviour stays in one file. New `IUserQueries.IsActiveInspectorAsync` rejects a non-existent, non-Inspector, or deactivated assignee **before** any mutation — previously the FK caught only the first case and surfaced it as a 500. Role names are now constants with one definition. 13 tests.
    - **D61's wording was corrected here**: it wrongly claimed the inspector id is server-derived in this slice. It is not — an Admin chooses the assignee. The rule covers *who is acting*, not every user id in a request.
    - **Documented gap:** `PermissionMatrix.md` §2 grants "View an Inspection" (Admin `F`, Inspector `S`), but no `GET /api/v1/inspections/{id}` exists — it is absent from Architecture §5.2's endpoint table and from Phase 4's agreed slice list. Recorded rather than built, to avoid growing agreed scope before the project documents are updated. This is also why scheduling returns 201 with no `Location` header.
-8. Inspection photo upload + `LocalDiskFileStorage` — **next**.
-9. Inspection completion.
+8. **Inspection photo upload + `LocalDiskFileStorage` — ✅ done.** `POST /api/v1/inspections/{id}/photos`, Inspector-only (Admin gets 403 — PermissionMatrix §2 inverts Slice 7). Real `LocalDiskFileStorage` replaces the placeholder, which was deleted. `IFileStorage.DeleteAsync` added (a real caller exists); `GetAsync` still not. Extension validation is a **character-class** rule, not a file-type allowlist, deliberately avoiding `Path.GetInvalidFileNameChars()` because it returns 41 chars on Windows and 2 on Linux. Commit failure after a successful write triggers a best-effort delete that rethrows the original exception — **compensation, not atomicity; do not document it as a consistency guarantee.** 35 tests.
+   - **Verified by reproduction, not assertion:** reordering the handler so the file write preceded the BR-10 guard made the completed-Inspection test fail with "expected 0 files, actual 1".
+   - **`File.Delete` is only partly idempotent** — it throws `DirectoryNotFoundException` for a missing directory. Found by a test, not by reading docs; `LocalDiskFileStorage` now catches it so the documented contract is true.
+   - `RenoTrack.Application` gained `Microsoft.Extensions.Logging.Abstractions` (its third package, all pure abstractions) so the compensation-failure log is possible.
+9. Inspection completion — **next**.
 10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
 11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
 
-**The immediate next step is Phase 4 Slice 8.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–7 were handled.
+**The immediate next step is Phase 4 Slice 9.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–8 were handled.
+
+**Gap recorded in Slice 8:** the system now stores photos it cannot serve. Architecture §9 says photos are "served back through an authenticated API endpoint", but none exists and `IFileStorage` has no `GetAsync`. Alongside the missing `GET /inspections/{id}` from Slice 7, this awaits a documents-first decision rather than a scope expansion.
 
 **Open item created by Slice 4:** no user account exists in production and nothing creates one. The login endpoint works but is unusable outside tests until SRS **OQ-1** (does Admin manage Inspector accounts from the dashboard?) is answered, or a seeding path is added. Deliberately not resolved inside Slice 4 — it is an SRS-level question, not something an authentication slice should invent an answer to.
 

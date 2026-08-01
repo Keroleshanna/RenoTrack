@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.Extensions.Logging;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Common.Interfaces;
@@ -22,7 +23,8 @@ public sealed class UploadInspectionPhotoCommandHandler(
     IInspectionRepository inspectionRepository,
     IFileStorage fileStorage,
     IUnitOfWork unitOfWork,
-    IOwnershipValidator ownershipValidator) : ICommandHandler<UploadInspectionPhotoCommand, PhotoDto>
+    IOwnershipValidator ownershipValidator,
+    ILogger<UploadInspectionPhotoCommandHandler> logger) : ICommandHandler<UploadInspectionPhotoCommand, PhotoDto>
 {
     public async Task<PhotoDto> HandleAsync(UploadInspectionPhotoCommand command, CancellationToken cancellationToken)
     {
@@ -38,8 +40,54 @@ public sealed class UploadInspectionPhotoCommandHandler(
         var photo = inspection.AddPhoto(fileUrl, command.Caption); // BR-10 guard fires here — before any I/O
 
         await fileStorage.SaveAsync(command.FileContent, fileUrl, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            // The file is already on disk and the row will never exist, so remove it. Note the
+            // ordering above is still the right way round: committing first would trade this
+            // orphaned file for a database row pointing at a file that was never written — an
+            // invisible, inert leak versus visible breakage every time the dashboard renders it.
+            await TryCompensateAsync(fileUrl, cancellationToken);
+            throw;
+        }
 
         return photo.ToDto();
+    }
+
+    /// <summary>
+    /// Best-effort removal of a file whose database row failed to commit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is compensation, not atomicity, and must not be described as guaranteeing
+    /// filesystem/database consistency.</b> No transaction can span SQL Server and a filesystem. If
+    /// the process dies between the write and this call, the orphan survives; if the delete itself
+    /// fails, the orphan survives. What this buys is that the ordinary, recoverable case — a commit
+    /// that fails while the process is healthy — does not leak a file.
+    /// </para>
+    /// <para>
+    /// Failures here are logged and swallowed so the original commit exception stays the caller's
+    /// answer. Letting a cleanup failure surface instead would replace an accurate report of what
+    /// went wrong with a misleading one — the same reasoning behind the Best-Effort Audit strategy
+    /// (D50).
+    /// </para>
+    /// </remarks>
+    private async Task TryCompensateAsync(string fileUrl, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await fileStorage.DeleteAsync(fileUrl, cancellationToken);
+        }
+        catch (Exception compensationFailure)
+        {
+            logger.LogError(
+                compensationFailure,
+                "Failed to remove {FileUrl} after its database commit failed; it is now an orphaned file.",
+                fileUrl);
+        }
     }
 }

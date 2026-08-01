@@ -22,6 +22,10 @@ internal static class IdentityTestServices
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:RenoTrackDb"] = ConnectionString,
+
+                // AddInfrastructure validates this eagerly as of Slice 8, so the container cannot
+                // be built without it — even for tests that never touch file storage.
+                ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackIdentityTests"),
             })
             .Build();
 

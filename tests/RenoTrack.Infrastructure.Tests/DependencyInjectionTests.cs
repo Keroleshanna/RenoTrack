@@ -33,6 +33,10 @@ public sealed class DependencyInjectionTests
                         IntegratedSecurity = true,
                         TrustServerCertificate = true,
                     }.ConnectionString,
+
+                // AddInfrastructure validates this eagerly as of Slice 8, so the container cannot
+                // even be built without it.
+                ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackDiTests"),
             })
             .Build();
 
@@ -83,7 +87,7 @@ public sealed class DependencyInjectionTests
         Assert.IsType<UnitOfWork>(services.GetRequiredService<IUnitOfWork>());
         Assert.IsType<AuditService>(services.GetRequiredService<IAuditService>());
         Assert.IsType<NumberGeneratorService>(services.GetRequiredService<INumberGeneratorService>());
-        Assert.IsType<PlaceholderFileStorage>(services.GetRequiredService<IFileStorage>());
+        Assert.IsType<LocalDiskFileStorage>(services.GetRequiredService<IFileStorage>());
         Assert.IsType<LoggingNoOpEmailSender>(services.GetRequiredService<IEmailSender>());
     }
 

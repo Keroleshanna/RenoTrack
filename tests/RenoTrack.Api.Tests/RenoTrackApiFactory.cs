@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 
@@ -51,7 +52,18 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         builder.UseSetting($"{JwtOptions.SectionName}:{nameof(JwtOptions.Issuer)}", TestIssuer);
         builder.UseSetting($"{JwtOptions.SectionName}:{nameof(JwtOptions.Audience)}", TestAudience);
         builder.UseSetting($"{JwtOptions.SectionName}:{nameof(JwtOptions.SigningKey)}", TestSigningKey);
+
+        // Each run gets its own storage root, deleted on teardown, so uploaded files never leak
+        // between runs and a test can assert on the real directory's contents.
+        builder.UseSetting($"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}", StorageRoot);
     }
+
+    /// <summary>
+    /// Where <see cref="LocalDiskFileStorage"/> writes during this test run. Unique per factory
+    /// instance so a parallel run of another suite cannot collide with it.
+    /// </summary>
+    public string StorageRoot { get; } =
+        Path.Combine(Path.GetTempPath(), "RenoTrackApiTests", Guid.NewGuid().ToString("N"));
 
     /// <summary>
     /// Test-only JWT settings. <see cref="TestSigningKey"/> is what
@@ -169,6 +181,11 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         await using (var context = CreateDbContext())
         {
             await context.Database.EnsureDeletedAsync();
+        }
+
+        if (Directory.Exists(StorageRoot))
+        {
+            Directory.Delete(StorageRoot, recursive: true);
         }
 
         await base.DisposeAsync();

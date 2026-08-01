@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.Extensions.Logging.Abstractions;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
@@ -25,7 +26,8 @@ public class UploadInspectionPhotoCommandHandlerTests
             _inspectionRepository,
             _fileStorage,
             _unitOfWork,
-            new OwnershipValidator());
+            new OwnershipValidator(),
+            NullLogger<UploadInspectionPhotoCommandHandler>.Instance);
     }
 
     private Inspection SeedInspection() =>
@@ -138,5 +140,130 @@ public class UploadInspectionPhotoCommandHandlerTests
         var command = ValidCommand(inspectionId, uploadedByInspectorId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+    }
+
+    // ---- Extension validation (Slice 8) ---------------------------------
+
+    [Theory]
+    [InlineData("photo.jpg")]
+    [InlineData("photo.JPEG")]
+    [InlineData("photo.heic")]
+    [InlineData("photo.avif")]
+    [InlineData("photo.cr2")]
+    [InlineData("photo")]              // no extension at all is fine — the key simply has none
+    [InlineData("photo.")]             // a trailing dot yields "" from GetExtension, not "." — so also no extension
+    [InlineData("../../evil.jpg")]     // traversal is neutralised by GetExtension, so this is valid
+    public async Task HandleAsync_UsableExtension_IsAccepted(string fileName)
+    {
+        var inspection = SeedInspection();
+        var command = ValidCommand(inspection.Id) with { FileName = fileName };
+
+        var result = await _handler.HandleAsync(command, CancellationToken.None);
+
+        // Whatever the caller sent, the stored key is built from controlled components only.
+        Assert.StartsWith($"inspections/{inspection.Id}/", result.FileUrl);
+        Assert.DoesNotContain("..", result.FileUrl);
+        Assert.DoesNotContain("evil", result.FileUrl);
+    }
+
+    [Theory]
+    [InlineData("photo.jp g")]     // space
+    [InlineData("photo.jp*g")]     // Windows-invalid, but rejected on every platform
+    [InlineData("photo.jp?g")]
+    [InlineData("photo.jp|g")]
+    [InlineData("photo.jp:g")]
+    public async Task HandleAsync_UnusableExtension_IsRejectedBeforeAnyIo(string fileName)
+    {
+        var inspection = SeedInspection();
+        var command = ValidCommand(inspection.Id) with { FileName = fileName };
+
+        await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+
+        Assert.Empty(_fileStorage.SavedFiles);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task HandleAsync_OverlongExtension_IsRejectedRatherThanReachingTheFilesystem()
+    {
+        var inspection = SeedInspection();
+        var command = ValidCommand(inspection.Id) with
+        {
+            FileName = "photo." + new string('x', UploadInspectionPhotoCommandValidator.MaxFileExtensionLength),
+        };
+
+        // Measured, not hypothetical: unbounded, this composed a path long enough for File.Create
+        // to throw IOException — unmapped by the ProblemDetails middleware, so a 500.
+        await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+
+        Assert.Empty(_fileStorage.SavedFiles);
+    }
+
+    [Fact]
+    public async Task HandleAsync_ExtensionAtTheMaximumLength_IsAccepted()
+    {
+        var inspection = SeedInspection();
+        var command = ValidCommand(inspection.Id) with
+        {
+            FileName = "photo." + new string('x', UploadInspectionPhotoCommandValidator.MaxFileExtensionLength - 1),
+        };
+
+        await _handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.Single(_fileStorage.SavedFiles);
+    }
+
+    // ---- Consistency between storage and the database (Slice 8) ---------
+
+    [Fact]
+    public async Task HandleAsync_FileWriteFails_NothingIsCommitted()
+    {
+        var inspection = SeedInspection();
+        _fileStorage.SaveFailure = new IOException("disk unavailable");
+
+        await Assert.ThrowsAsync<IOException>(
+            () => _handler.HandleAsync(ValidCommand(inspection.Id), CancellationToken.None));
+
+        // The aggregate was mutated in memory before the write, but the commit never happens, so
+        // the change dies with the request-scoped DbContext.
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task HandleAsync_CommitFails_TheWrittenFileIsRemoved()
+    {
+        var inspection = SeedInspection();
+        _unitOfWork.SaveFailure = new InvalidOperationException("commit failed");
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _handler.HandleAsync(ValidCommand(inspection.Id), CancellationToken.None));
+
+        // The original database failure reaches the caller, not a cleanup error.
+        Assert.Equal("commit failed", thrown.Message);
+
+        // And the file that would otherwise have been orphaned is gone. Asserting on the storage's
+        // contents rather than on "delete was called" is what makes this meaningful.
+        Assert.Empty(_fileStorage.SavedFiles);
+        Assert.Single(_fileStorage.DeletedFileUrls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_CommitFailsAndCompensationAlsoFails_TheOriginalFailureStillSurfaces()
+    {
+        var inspection = SeedInspection();
+        _unitOfWork.SaveFailure = new InvalidOperationException("commit failed");
+        _fileStorage.DeleteFailure = new IOException("delete failed");
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _handler.HandleAsync(ValidCommand(inspection.Id), CancellationToken.None));
+
+        // A failed cleanup must never replace the real reason the request failed — otherwise the
+        // caller is told something misleading about what went wrong.
+        Assert.Equal("commit failed", thrown.Message);
+
+        // Compensation was attempted, and the orphan genuinely remains: this is compensation, not
+        // atomicity, and the test says so rather than pretending otherwise.
+        Assert.Single(_fileStorage.DeletedFileUrls);
+        Assert.Single(_fileStorage.SavedFiles);
     }
 }

@@ -45,6 +45,7 @@ public sealed class DependencyInjectionTests
                 ["Jwt:Issuer"] = "RenoTrack.Api",
                 ["Jwt:Audience"] = "RenoTrack.Dashboard",
                 ["Jwt:SigningKey"] = "di-test-signing-key-long-enough-to-pass-validation",
+                ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackDiTests"),
             })
             .Build();
 

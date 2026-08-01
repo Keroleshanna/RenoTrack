@@ -31,7 +31,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 5 | Lead creation (public) | ✅ done |
 | 6 | Lead read endpoints | ✅ done |
 | 7 | Inspection scheduling | ✅ done |
-| 8 | Inspection photo upload + `LocalDiskFileStorage` | not started |
+| 8 | Inspection photo upload + `LocalDiskFileStorage` | ✅ done |
 | 9 | Inspection completion | not started |
 | 10 | Lead status update (Won/Lost) | not started |
 | 11 | Migration-application strategy | not started |
@@ -512,3 +512,80 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 101/101 each.
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **474 passing, 0 failing** (153 Domain + 146 Application + 74 Infrastructure + **101 Api**).
+
+---
+
+## Slice 8 — Inspection Photo Upload + `LocalDiskFileStorage`
+
+**Endpoint:** `POST /api/v1/inspections/{id}/photos` (SRS FR-3.2). **Inspector only** — `PermissionMatrix.md` §2 grants Admin nothing here, inverting Slice 7, because evidence should come from whoever was actually on site. The "S" means the *assigned* Inspector, enforced by `IOwnershipValidator`.
+
+### Path assumptions verified empirically before any code was written
+
+The user asked for the traversal claim to be measured rather than documented as an unverified threat, and for the two boundaries to be distinguished. Both were probed directly:
+
+**Their expectation held.** `Path.GetExtension` never returns a directory separator — `../../evil.jpg` → `.jpg`, `..\..\evil.jpg` → `.jpg`, `C:\Windows\evil.exe` → `.exe`, `a.b/c` → empty. Across 18 hostile shapes, not one produced a separator. The handler's key is therefore built from controlled components only (`inspections/{id}/{guid}{ext}`), and **the filename cannot influence directory structure**.
+
+**Root containment works and is worth keeping anyway.** All six escape attempts (`../`, `../../`, `..\`, `/etc/passwd`, `C:\Windows\evil.exe`, `inspections/../../`) were correctly rejected by canonicalize-then-`StartsWith(root + separator)`; both legitimate keys passed. Kept at the storage boundary because `IFileStorage.SaveAsync` takes a plain string — the contract is broader than today's one caller.
+
+**Two problems the design had not anticipated, found by measurement:**
+
+1. **An unbounded extension is copied verbatim.** A 301-character one composed a 373-character path, long enough for `File.Create` to throw `IOException` — which D59 does not map, so **a caller-controlled filename could force a 500**.
+2. **A NUL inside the extension** makes `Path.Combine` throw `ArgumentException`. That happens to map to 400, so the outcome was accidentally correct — correct for the wrong reason.
+
+### The validation rule settled on
+
+> When `Path.GetExtension(FileName)` is non-empty it must be a dot followed by 1–31 ASCII letters or digits (total ≤ `MaxFileExtensionLength` = 32). An empty extension stays valid.
+
+- **A character-class rule, not a file-type allowlist** — the distinction the user drew. `.heic`, `.avif`, `.dng`, `.cr2`, `.nef`, `.JPEG` all pass; no format is restricted, because no document restricts any.
+- **Deliberately not `Path.GetInvalidFileNameChars()`.** Measured: 41 characters on Windows, 2 on Linux. Validation built on it would accept or reject the same request differently per deployment OS — and concretely, a test asserting `.jp*g` is rejected would pass on the Windows test job and fail on the Linux one.
+- **32 is documented as an application-level defensive bound**, explicitly not derived from `MAX_PATH`, at the user's direction — long-path support makes that a moving target and a rule pinned to it would be unstable.
+
+### Both halves of the consistency problem
+
+**First half — every rejection precedes the write.** Shape validation, not-found, ownership, and BR-10 all sit at or above the `AddPhoto` call; role and authentication reject earlier still. **Proven, not asserted:** reordering the handler so `SaveAsync` ran before `AddPhoto` made the completed-Inspection test fail with *expected 0 files, actual 1* — the orphan CLAUDE.md §12 exists to prevent, reproduced on demand.
+
+**Second half — write succeeds, commit fails.** Previously unhandled. Now compensated: the file is deleted best-effort and the **original** commit exception is rethrown; a failure of the delete is logged and swallowed (D50's shape — a secondary failure must not replace an accurate report of the primary one).
+
+The ordering itself was re-examined and kept: committing first would trade an inert, invisible orphaned file for a database row pointing at a file that was never written — visible breakage every time the dashboard renders it. **This is compensation, not atomicity**, and is documented as such in three places (the interface, the handler, and a test that asserts the orphan genuinely survives a failed delete). A process crash between the two steps still leaks a file.
+
+### An assumption that turned out false during implementation
+
+**`File.Delete` is not fully idempotent.** It no-ops for a missing *file* but throws `DirectoryNotFoundException` for a missing *directory* — so `IFileStorage.DeleteAsync`'s documented "does nothing if it does not exist" was false as written. Caught by the idempotency test, not by reading the docs. Fixed by catching that exception (rather than a racy `Directory.Exists` pre-check), so the contract is now true. This matters for the compensation path, whose whole job is running after something already failed.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Application/Common/Interfaces/IFileStorage.cs` | `DeleteAsync` added — a real caller now exists; `GetAsync` still deliberately absent |
+| `.../UploadInspectionPhotoCommandValidator.cs` | Extension rule + `MaxFileExtensionLength` |
+| `.../UploadInspectionPhotoCommandHandler.cs` | Compensating delete; `ILogger` for the secondary failure |
+| `src/RenoTrack.Infrastructure/FileStorage/LocalDiskFileStorage.cs` | New — replaces the placeholder |
+| `src/RenoTrack.Infrastructure/FileStorage/FileStorageOptions.cs` | New — root path, validated eagerly at startup |
+| `src/RenoTrack.Infrastructure/FileStorage/PlaceholderFileStorage.cs` | **Deleted** — superseded; its test too |
+| `src/RenoTrack.Api/Controllers/InspectionsController.cs` | `UploadPhoto` action |
+| `src/RenoTrack.Api/Inspections/Dtos/UploadInspectionPhotoRequest.cs` | New — `IFormFile` stays in the API layer |
+
+`RenoTrack.Application` gained `Microsoft.Extensions.Logging.Abstractions`, its third package. Flagged rather than slipped in, since `CLAUDE.md` documented the previous two: it is a pure abstraction like `DependencyInjection.Abstractions`, and the alternative was either a silent swallow or making `DeleteAsync` never throw — which would have been worse for future callers. The layering rule now reads "no **hosting or configuration** package", which is what it always meant.
+
+### Tests
+
+35 new (516 total). The ones that carry the slice:
+
+- **Ordering:** upload to a completed Inspection → 409 **and the file count on disk is unchanged**. A status-code assertion alone would still pass with the order reversed; this one does not.
+- **Compensation, all four cases the user listed:** rejected upload → no file; write failure → no commit; commit failure → file removed and the *original* exception surfaces; delete failure → original exception still surfaces and the orphan is asserted to remain, so the test states the limitation rather than implying atomicity.
+- **The two path boundaries, separately:** a hostile filename cannot alter the storage directory (handler level), *and* `LocalDiskFileStorage` independently rejects unsafe keys passed straight to it (storage level) — including a sibling directory sharing the root's prefix, which a naive `StartsWith(root)` would admit.
+- Refusal to overwrite; idempotent delete; Admin → 403; non-owning Inspector → 403 with no file written.
+
+Failure-path suites run five times (Application) and three times (Api, Infrastructure) per `CLAUDE.md` §14 — green every run.
+
+**Eager `FileStorage:RootPath` validation caught two test helpers** composing `AddInfrastructure` without it, exactly the fail-fast behaviour intended.
+
+### Still deliberately not built
+
+No `GetAsync` and no photo-serving endpoint. Architecture §9 says photos are "served back through an authenticated API endpoint", and none exists — **the system now stores photos it cannot serve.** Recorded as a documented gap, alongside the missing `GET /inspections/{id}` from Slice 7, pending a documents-first decision. `DeleteAsync` was added because it has a caller; `GetAsync` does not.
+
+The upload size limit remains Kestrel's ~30 MB default — no project-specific number invented, and the effective cap is now recorded rather than assumed.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **516 passing, 0 failing** (153 Domain + 164 Application + 89 Infrastructure + 110 Api).

@@ -28,9 +28,23 @@ public interface IUserQueries
     /// caller would have to combine correctly (CLAUDE.md §4).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// One method rather than separate existence/role/active checks, deliberately: every caller
     /// wants the same conjunction, and splitting it would invite a caller to check two of the three
-    /// and quietly permit the case the third would have caught.
+    /// and quietly permit the case the third would have caught. The combined boolean is part of the
+    /// safety boundary, not merely a convenience — **keep it atomic**.
+    /// </para>
+    /// <para>
+    /// <b>Revisit trigger.</b> Today all three cases are reachable only by a mistyped or stale id,
+    /// so one answer ("no assignable Inspector with that id") is accurate and sufficient. When
+    /// Phase 10 introduces the Inspector picker and user-management UX, an Admin will be able to
+    /// select a deactivated Inspector through normal use rather than by typo — at that point,
+    /// reconsider whether an existing-but-ineligible Inspector should be distinguished from a
+    /// nonexistent one. If it should, redesign the <em>result</em> deliberately (a richer return
+    /// type, mapped to 409 for "exists but ineligible") rather than splitting this into
+    /// independently callable partial checks, which would give back the failure mode the single
+    /// conjunction exists to prevent.
+    /// </para>
     /// </remarks>
     Task<bool> IsActiveInspectorAsync(int userId, CancellationToken cancellationToken);
 }

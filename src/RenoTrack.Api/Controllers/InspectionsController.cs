@@ -5,6 +5,7 @@ using RenoTrack.Api.Inspections.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
+using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Inspections.Dtos;
 
 namespace RenoTrack.Api.Controllers;
@@ -24,7 +25,8 @@ namespace RenoTrack.Api.Controllers;
 [Route("api/v1/[controller]")]
 [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
 public sealed class InspectionsController(
-    ICommandHandler<ScheduleInspectionCommand, InspectionDto> scheduleInspectionHandler) : ControllerBase
+    ICommandHandler<ScheduleInspectionCommand, InspectionDto> scheduleInspectionHandler,
+    ICommandHandler<UploadInspectionPhotoCommand, PhotoDto> uploadPhotoHandler) : ControllerBase
 {
     /// <summary>
     /// Schedules an Inspection for a Lead (SRS FR-2.3). Admin only.
@@ -72,6 +74,56 @@ public sealed class InspectionsController(
         var inspection = await scheduleInspectionHandler.HandleAsync(command, cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, inspection);
+    }
+
+    /// <summary>
+    /// Uploads a photo to an Inspection (SRS FR-3.2, Sequence Diagram §3 Step B).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Inspector only — an Admin gets 403</b>, which inverts <see cref="Schedule"/>.
+    /// <c>PermissionMatrix.md</c> §2 grants Admin nothing here, and states why: evidence should come
+    /// from whoever was actually on site, keeping the chain of custody clear. The "S" marking means
+    /// the assigned Inspector specifically, enforced by <c>IOwnershipValidator</c> in the handler.
+    /// </para>
+    /// <para>
+    /// The inspector id is server-derived from the JWT (D61) — unlike <see cref="Schedule"/>'s
+    /// <c>InspectorId</c>, because here the Inspector acts on their own Inspection rather than
+    /// assigning work to a third party.
+    /// </para>
+    /// <para>
+    /// The upload size limit is Kestrel's framework default (~30 MB); no project-specific limit is
+    /// set because no document states one. Recorded so the effective cap is a known default rather
+    /// than an assumed decision.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/photos")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<PhotoDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UploadPhoto(
+        int id,
+        [FromForm] UploadInspectionPhotoRequest request,
+        CancellationToken cancellationToken)
+    {
+        // The controller owns the stream's lifetime; the handler only reads from it. Disposing here
+        // rather than in the handler keeps Application free of any assumption about where the
+        // content came from.
+        await using var content = request.File.OpenReadStream();
+
+        var command = new UploadInspectionPhotoCommand(
+            id,
+            content,
+            request.File.FileName,
+            request.Caption,
+            UploadedByInspectorId: CurrentUserId());
+
+        var photo = await uploadPhotoHandler.HandleAsync(command, cancellationToken);
+
+        return StatusCode(StatusCodes.Status201Created, photo);
     }
 
     /// <summary>The authenticated caller's own user id, from the JWT's <c>sub</c> claim.</summary>

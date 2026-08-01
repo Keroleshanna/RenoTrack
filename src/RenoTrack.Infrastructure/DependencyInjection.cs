@@ -71,7 +71,14 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<INumberGeneratorService, NumberGeneratorService>();
-        services.AddScoped<IFileStorage, PlaceholderFileStorage>();
+        // Real disk-backed storage as of Phase 4 Slice 8, replacing Phase 3's throwing placeholder
+        // (D42). Validated eagerly for the same reason as the connection string above: a missing
+        // root must fail at startup, not on the first photo upload.
+        var fileStorageOptions = configuration.GetSection(FileStorageOptions.SectionName).Get<FileStorageOptions>()
+            ?? new FileStorageOptions();
+        fileStorageOptions.Validate();
+        services.AddSingleton(fileStorageOptions);
+        services.AddScoped<IFileStorage, LocalDiskFileStorage>();
         services.AddScoped<IEmailSender, LoggingNoOpEmailSender>();
 
         return services;
