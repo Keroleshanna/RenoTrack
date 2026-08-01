@@ -183,8 +183,8 @@ Every command handler follows this shape, with no deviation unless explicitly ju
 
 ## 13. File Storage Principles
 
-- **`IFileStorage` lives in `RenoTrack.Application.Common.Interfaces`**, implemented by `LocalDiskFileStorage` in `RenoTrack.Infrastructure` (Phase 4 — `PROJECT_ROADMAP.md`'s Phase 4 deliverable list, not Phase 3; corrected during Phase 3's design review, see `ARCHITECTURE_DECISIONS.md`), swappable later for Azure Blob/S3 with zero change to calling code (Architecture.md §9). Phase 3 registers only a minimal placeholder so DI composition succeeds.
-- **Starts with only `SaveAsync(Stream content, string fileUrl, CancellationToken ct)`.** `GetAsync`/`DeleteAsync` (both named in Architecture §9's original description) are deliberately not built yet — no current command/query needs them. Add them only when one does, per the general repository-growth discipline (§4) applied to this interface too.
+- **`IFileStorage` lives in `RenoTrack.Application.Common.Interfaces`**, implemented by `LocalDiskFileStorage` in `RenoTrack.Infrastructure` — **built for real in Phase 4 Slice 8** (D42 assigned it to Phase 4; that deferral is now resolved and `PlaceholderFileStorage` is deleted). Swappable later for Azure Blob/S3 with zero change to calling code (Architecture.md §9).
+- **The interface has grown exactly on demand: `SaveAsync`, then `DeleteAsync` (Slice 8, once compensation needed it). `GetAsync` is still not built** — nothing reads a stored file back. That absence is now a *known gap* rather than a neutral deferral: Architecture §9 describes serving photos through an authenticated endpoint, and none exists, so the system can store photos it cannot serve. Build it when the endpoint is agreed, not before.
 - **The caller determines the `fileUrl`/key up front** — see §12. `IFileStorage` never invents an identifier.
 
 ---

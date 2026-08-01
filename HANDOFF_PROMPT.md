@@ -6,177 +6,225 @@ Copy everything in the code block below into the first message of a brand-new co
 
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system —
-public website + admin/inspector dashboard), an existing, actively-developed project. This
-is not a new project. A prior conversation completed Phase 3 in full, merged it to main, and
-prepared this handoff package so you can continue with zero loss of architectural context.
-Do not treat anything below as optional reading.
+public website + admin/inspector dashboard), an existing, actively-developed project. This is
+not a new project and not a fresh start. Phases 0–3 are merged to main; Phase 4 is in
+progress on a feature branch with 8 of 11 slices complete. A prior conversation ended for
+context reasons and persisted everything into the repository, so you depend on the files, not
+on any chat history. Do not treat anything below as optional reading.
 
-CURRENT STATE AT A GLANCE (verify all of this yourself in steps 1–7 below — do not trust it
-without re-checking):
+CURRENT STATE AT A GLANCE — verify every line of this yourself in steps 1–7. It was accurate
+when written; the repository is authoritative if anything disagrees.
 
-- Branch: main, at merge commit 85df430 (PR #6, "Phase 3: Infrastructure layer — EF Core
-  persistence, repositories, and Identity storage"). feature/phase-3-infrastructure-efcore
-  is merged and no longer the active branch (it still exists on the remote, unmerged-looking
-  tools aside — trust `git log`/`git merge-base --is-ancestor`, not a possibly-cached GitHub
-  API response, if you ever need to re-confirm this).
-- Phase: Phase 3 — Infrastructure (per PROJECT_ROADMAP.md) — COMPLETE AND MERGED. All 15
-  planned slices are done, reviewed, tested, documented, committed, and merged to main.
-- Tests: 371 passing, 0 failing (153 RenoTrack.Domain.Tests, 144 RenoTrack.Application.Tests,
-  74 RenoTrack.Infrastructure.Tests — all against real SQL Server LocalDB, never EF Core
-  InMemory, D40). RenoTrack.Api.Tests still has 0 tests (Phase 4 not started). Verified
-  directly against merged main, not carried over from the pre-merge branch state.
+- Branch: feature/phase-4-api-auth-leads-inspections
+- HEAD: 102dde7 ("feat(api): add Inspection photo upload with real LocalDiskFileStorage
+  (Phase 4 Slice 8)") — plus one documentation-only handoff commit made immediately after,
+  which is where this file's current content came from. `git log` is authoritative.
+- origin/main: babfff9. The branch is 12+ commits ahead, 0 behind. NOTHING IS PUSHED for the
+  handoff commit; earlier slices are also unpushed. No PR has been opened for Phase 4.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Migrations: 4 total (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity), all
-  Pending — none applied to any shared/persistent database yet.
-  `dotnet ef migrations has-pending-model-changes` confirms the model and migration history
-  are in sync.
-- CI: green, two jobs — build-and-test (ubuntu-latest: build + Domain/Application/Api
-  tests) and infrastructure-tests (windows-latest, gated on the first job, starts real
-  LocalDB then runs RenoTrack.Infrastructure.Tests). Split by OS specifically so
-  Infrastructure tests keep using real LocalDB in CI too, not a weaker substitute (D56).
-- Working tree: clean as of the last commit on main.
-- Between opening the PR and merging it: a lead-reviewer pass found and fixed three
-  Should-Fix issues (no Must-Fix issues); a real concurrency bug in IdentityRoleSeeder was
-  found (by rerunning its concurrency test repeatedly, not a single pass) and fixed with a
-  genuine design change, not a patch — IdentityRoleSeeder became a dedicated DI service with
-  constructor-injected IServiceScopeFactory (D55). Full record in PROJECT_STATE.md §11.7.
+- Tests: 516 passing, 0 failing — 153 Domain, 164 Application, 89 Infrastructure, 110 Api.
+- Migrations: 5 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity,
+  AddRefreshTokens). `dotnet ef migrations has-pending-model-changes` reported no pending
+  changes.
+- Working tree: clean apart from AGENTS.md, which is UNTRACKED AND PRE-EXISTING. It is not
+  part of this work and was deliberately excluded from every commit. Do not add it.
 
 BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
 
-1. Read CLAUDE.md in full. This is the permanent engineering-rules document for this
-   repository — every convention in it (Clean Architecture, DDD, CQRS without a mediator
-   library, rich domain model, thin handlers, repository-growth-on-demand, ownership vs.
-   role-based authorization, audit policy, notification policy, exception strategy, §21's
-   Infrastructure/EF Core conventions covering all 15 Phase 3 slices, and the newest entries
-   on concurrency-test verification and the IServiceScopeFactory/dedicated-service pattern)
-   is an established, binding convention, not a suggestion you're free to deviate from.
+1. Read CLAUDE.md in full — the permanent engineering rules. §22 (API layer) is the newest
+   and most relevant section; it grew substantially during Phase 4. Every rule there is
+   settled convention, not a suggestion.
 
-2. Read PROJECT_STATE.md in full, including §10 (Phase 2 Closeout, historical) and §11
-   (Phase 3 Closeout Review, including §11.7 — what happened between the initial closeout
-   review and the actual merge). This tells you exactly what exists right now: every
-   aggregate, every repository/service interface and its implementation, every command,
-   every DTO, every EF Core entity configuration, every test count.
+2. Read PROJECT_STATE.md in full — what exists right now, layer by layer.
 
-3. Read ARCHITECTURE_DECISIONS.md in full. This is a chronological log of every significant
-   decision made on this project, including alternatives considered and rejected, and why.
-   Several entries record real bugs caught and fixed (not hypothetical concerns) — read those
-   carefully so you don't reintroduce the same mistakes. Pay particular attention to the
-   Phase 3 entries (D40–D56): D45/D46 (two independent real bugs caught by two different
-   review steps); D49/D51/D53 (which Infrastructure types are Domain-excluded, and why the
-   reasoning differs between a judgment call and a hard framework constraint); D50/D52/D54
-   (the same "catch, re-verify, treat as benign" concurrency-safety pattern applied
-   independently to three different problems); D55 (a real concurrency bug found late, and
-   why the fix was a genuine design change — a dedicated DI service with constructor-injected
-   IServiceScopeFactory — rather than a patch); D56 (why CI is split by OS instead of
-   weakening D40's real-LocalDB requirement).
+3. Read NEXT_STEPS.md in full — especially §5a, which lists every open item carried out of
+   Phase 4 and explicitly separates deliberate deferrals from forgotten work. Also §3 ("What
+   Should NOT Be Changed") and §4 ("Decisions Considered Final").
 
-4. Read PHASE3_PROGRESS.md in full. This is the detailed, non-summarized log of all 15
-   vertical slices built in Phase 3 — goals, design discussions, what was introduced, what
-   documentation was updated, what tests were added, and the final outcome of each.
-   (PHASE2_PROGRESS.md is historical background at this point — read it only if you need
-   context on a specific Phase 2 decision.)
+4. Read PHASE4_PROGRESS.md in full — the detailed narrative of Slices 1–8: what was designed,
+   what was challenged and changed under review, what was proven by reproduction, and what was
+   deliberately not built. This is the densest source of Phase 4 context.
 
-5. Read NEXT_STEPS.md in full. §1b confirms Phase 3 is complete and merged. This file also
-   tells you what NOT to change, which decisions are considered final, and which questions
-   genuinely remain open.
+5. Read ARCHITECTURE_DECISIONS.md, at minimum D57–D62 (Phase 4's decisions) plus the
+   "Decisions Explicitly Rejected" table at the end. Several entries record real defects found
+   and fixed — read those carefully so you do not reintroduce them. Note D61 carries an
+   explicit self-correction made in Slice 7.
 
-6. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself. Confirm the
-   test counts match what's stated above (371 tests — 153 Domain, 144 Application,
-   74 Infrastructure — 0 warnings, 0 errors). RenoTrack.Infrastructure.Tests requires a real
-   SQL Server LocalDB instance to be available on the machine (`sqllocaldb info` should list
-   MSSQLLocalDB) — if it's not available, that is itself something to flag before proceeding.
-   Also run `dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure
-   --startup-project src/RenoTrack.Infrastructure` and confirm it reports no pending changes.
-   If any of this doesn't match, stop and investigate before writing any code — something
-   changed since this handoff was written, and the discrepancy itself is information you need
-   first.
+6. Run these yourself and confirm they match the figures above:
+     dotnet build RenoTrack.slnx
+     dotnet test RenoTrack.slnx
+     dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure --startup-project src/RenoTrack.Infrastructure
+   RenoTrack.Infrastructure.Tests and RenoTrack.Api.Tests both need real SQL Server LocalDB
+   (`sqllocaldb info` should list MSSQLLocalDB). If it is unavailable, say so before writing
+   code — that is information, not an obstacle to work around with a weaker substitute.
 
-7. Run `git status`, `git branch --show-current`, `git log --oneline -20`, and `git fetch
-   origin` to confirm main hasn't moved further since this handoff was written. Do not assume
-   the state this file describes still holds without checking.
+7. Run git status, git branch --show-current, git log --oneline origin/main..HEAD, and
+   git fetch origin. Confirm the branch has not moved and main has not advanced.
 
-WHAT PHASE 3 DELIVERED (verify against PROJECT_STATE.md / PHASE3_PROGRESS.md / ARCHITECTURE_DECISIONS.md,
-don't just trust this summary):
+WHAT PHASE 4 HAS DELIVERED SO FAR (Slices 1–8, all committed, none pushed)
 
-- Phases 0, 1, 1b, 2, 3 are all merged to main (Phase 2 via PR #5, merge commit dc85de1;
-  Phase 3 via PR #6, merge commit 85df430).
-- Phase 3: full EF Core persistence for every existing Domain aggregate, all 6
-  repository/query implementations, IUnitOfWork, IAuditService (Best-Effort Audit strategy,
-  D50), INumberGeneratorService (atomic, proven-concurrent-safe number generation, D52),
-  IFileStorage/IEmailSender placeholders (D42/CLAUDE.md §11 — real implementations remain
-  Phase 4/Phase 9), AddInfrastructure() DI composition, and ASP.NET Core Identity storage +
-  role seeding (D53/D54/D55) with the five FKs deferred since D44 now real constraints.
+Slice 1 — API foundation, conventions, docs.
+  api/v1 routing by literal URL segment, no versioning library (D57). [Authorize] on
+  controllers by default, [AllowAnonymous] opted into per action. RenoTrack.Api.Tests boots
+  the real app via WebApplicationFactory<Program> against real LocalDB, schema created with
+  Database.MigrateAsync() — deliberately NOT EnsureCreated, unlike Infrastructure.Tests, and
+  the two fixtures must not be "unified" (D58). Scalar serves the OpenAPI document; the JWT
+  bearer scheme is declared by a document transformer. Api.Tests runs in CI's Windows job
+  (database-backed-tests), never Linux.
 
-YOUR FIRST TASK IS PHASE 4:
+Slice 2 — Global RFC 7807 exception handling (D59).
+  ONE IExceptionHandler with a single explicit switch — never one handler per type, never a
+  try/catch in a controller. Mapping: NotFoundException→404, ForbiddenException→403,
+  ConflictException→409, FluentValidation ValidationException→400 with a field-keyed errors
+  dictionary, ArgumentException→400, InvalidOperationException→409, everything else→500.
+  Mapped exceptions surface their message as `detail`; unmapped ones deliberately do not (an
+  unexpected SqlException must not leak connection strings). The ArgumentException/
+  InvalidOperationException mapping is a KNOWINGLY ACCEPTED RISK — both are BCL-wide types —
+  mitigated by logging every mapped exception at Warning WITH ITS FULL STACK TRACE. Do not
+  remove that logging. traceId is added in AddProblemDetails' CustomizeProblemDetails, not in
+  the handler, so it covers responses ASP.NET produces itself.
 
-Phase 4 is the API layer (per PROJECT_ROADMAP.md) — controllers, the AddApplication() DI
-extension (IOwnershipValidator, FluentValidation validators, command handlers — none of
-these are wired into DI yet, deliberately deferred since RenoTrack.Api had no controllers to
-need them), authentication/JWT issuance (Architecture.md §7.1 — Phase 3 built storage only,
-no [Authorize] attributes or login endpoints exist yet), HTTP status-code mapping for Domain
-exceptions (RFC 7807 ProblemDetails, Architecture.md §5.3), and the real LocalDiskFileStorage
-(D42). Also worth an explicit early decision, not a silent default: how/when migrations get
-applied to a real database — nothing in the codebase does this yet (no Database.MigrateAsync()
-call, no CI/CD deployment step), so the first real run against a fresh database will fail at
-Identity role-seeding with an unhelpful raw SQL error until this is decided.
+Slice 3 — AddApplication() DI composition root.
+  Every registration explicit — no assembly scanning, no Scrutor, no AddValidatorsFromAssembly.
+  Handlers registered BY INTERFACE so ICommandHandler stays load-bearing. Uniformly Scoped.
+  Registrations grouped by category (validators, command handlers, query handlers, services)
+  and ordered by business workflow, not alphabetically. The "forgot to register" risk is
+  covered by a reflection-based test in Api.Tests that discovers every handler/validator in the
+  Application assembly and asserts each resolves — reflection in the test, explicit in
+  production. That test also asserts no service type is registered twice. ValidateOnBuild alone
+  would NOT catch a missing handler registration; do not weaken it to a container-build check.
 
-Do not start Phase 4 code without a design review and explicit user sign-off first, exactly
-as every Phase 2/3 slice was handled — read CLAUDE.md's process conventions again before
-assuming you know the expected workflow. Start Phase 4 work on a new branch created off
-current main (never commit directly to main, CLAUDE.md §19).
+Slice 4 — JWT authentication (D60), fifth migration AddRefreshTokens.
+  Access tokens (15 min) + persisted refresh tokens (7 days), both configurable. Refresh tokens
+  are stored ONLY as a SHA-256 hash, rotated on every use, and reuse of an already-revoked
+  token revokes the entire chain for that user. Retention is until ExpiresAt — revoked-but-
+  unexpired rows MUST be kept, because they are what makes reuse detection work. No cleanup
+  job and no logout endpoint, both deliberate. SRS FR-10.3 lockout is implemented explicitly
+  via IsLockedOutAsync/AccessFailedAsync/ResetAccessFailedCountAsync, because
+  UserManager.CheckPasswordAsync does not touch lockout counters and AddIdentityCore does not
+  register SignInManager — removing those calls silently removes a documented security
+  requirement. A deactivated user is rejected at login AND at refresh. Every login failure
+  returns an IDENTICAL 401 (unknown email, wrong password, inactive, locked out) to avoid
+  account enumeration; do not make those messages more helpful. AUTHENTICATION IS DELIBERATELY
+  OUTSIDE THE CQRS PIPELINE — AuthController calls UserManager and ITokenService directly,
+  and ITokenService lives in Infrastructure, not Application. This is not an inconsistency to
+  tidy up; read D60 before attempting to "fix" it.
 
-OUTSTANDING DECISIONS / OPEN QUESTIONS (do not assume an answer to any of these):
+Slice 5 — Public Lead creation (D61).
+  POST /api/v1/leads, anonymous. CreateLeadRequest is narrower than CreateLeadCommand: Source
+  and CreatedByUserId are server-derived, because Source gates the FR-9.2 Admin notification,
+  so a caller controlling it could suppress that notification. Enums serialize as NAMES, not
+  ordinals. Deliberately NOT idempotent — two identical submissions create two Leads. Note the
+  enum converter is on MVC's JsonOptions only; IProblemDetailsService uses a separate
+  Http.Json.JsonOptions that still has no converters (no ProblemDetails carries an enum today).
 
-- Whether AngebotItem should ever gain update/remove methods (open question, not a rule — D12).
-- The exact HTTP status-code mapping for Domain's ArgumentException/InvalidOperationException
-  (likely 400/409) — deferred to Phase 4's API middleware design.
-- SaveAngebotItemAsCatalogItemCommand's eventual lookup design (how to resolve an AngebotItem's
-  owning Angebot from the item's id alone) — deferred out of Phase 2's scope (D39); real EF
-  ids now exist (Phase 3 is done), which resolves the original blocker, but the command
-  itself still hasn't been built — revisit only with an explicit decision to do so.
-- OQ-1 through OQ-4 from SRS.md §10 remain open at the SRS level — check SRS.md before
-  assuming an answer to any of them.
-- Migration-application strategy for real environments (auto-migrate at startup vs.
-  CI/CD-driven `dotnet ef database update`) — not yet decided, flagged above as a likely
-  early Phase 4 item.
+Slice 6 — Lead read endpoints.
+  GET /leads/{id} goes through ILeadRepository + IOwnershipValidator (403, not 404) because
+  Lead owns no children so hydration costs nothing; GET /leads uses ILeadQueries with a
+  projection, pagination, and a WHERE clause. A collection cannot be ownership-checked after
+  loading — reads split by shape, not by symmetry.
+  *** THE MOST IMPORTANT LESSON IN PHASE 4: a fail-open authorization defect was found and
+  fixed here. NEVER interpret "not Inspector" as "Admin". Unrestricted access must only ever
+  be reached by POSITIVELY establishing the Admin role. The original helper returned "unscoped"
+  for anyone who merely was not an Inspector, which would have granted every Lead to a broken
+  role-claim mapping, a role-less account, a role-name typo, or any future third role. The fix
+  checks Inspector FIRST (so a dual-role account is scoped, not unrestricted), then Admin
+  explicitly, then refuses. The vulnerability was reproduced before being fixed. Do not
+  simplify that helper back into a single negated check. ***
+  Role-claim mapping is now actually tested; before this slice nothing proved it worked, and
+  that failure mode is silent. Paging limits live in Application.Common.Pagination; list
+  queries order deterministically with a tiebreaker before Skip/Take.
 
-CRITICAL WORKING RULES — THESE ARE NOT OPTIONAL:
+Slice 7 — Admin-only Inspection scheduling (D62).
+  POST /api/v1/leads/{leadId}/inspections, on InspectionsController with an absolute route so
+  all Inspection behaviour stays in one file. D61's wording was CORRECTED here: only values
+  describing the CALLER are server-derived. An Admin-selected InspectorId is legitimate request
+  input — deriving it from the token would make it impossible to schedule anyone but oneself.
+  New IUserQueries.IsActiveInspectorAsync rejects a nonexistent, non-Inspector, or DEACTIVATED
+  assignee BEFORE any mutation; previously the FK caught only the first case and surfaced it as
+  a 500. Keep that check atomic — one boolean, not three separate checks. Role names are now
+  constants on IdentityRoleSeeder, forwarded by the API's Roles class.
 
-- Never re-open an architectural decision recorded in ARCHITECTURE_DECISIONS.md or listed as
-  "final" in NEXT_STEPS.md §4 unless you have discovered genuinely new evidence (a real bug,
-  a newly-noticed documentation contradiction, an explicit new instruction from the user) —
-  not a fresh stylistic opinion arrived at by re-reading the same documents.
-- Never force-push to `main`. Always `git fetch origin` before any push and verify actual
-  remote state — do not assume your local view of `origin/main` is current (ARCHITECTURE_DECISIONS.md D5).
-- Never commit directly to `main`. All work happens on its own feature branch, merged via PR,
-  exactly like every prior phase.
-- Follow the same process every prior slice in this project used: for anything touching new
-  architectural territory, do analysis and get explicit user sign-off on the design BEFORE
-  writing code — do not implement first and explain after.
-- Grow repositories, interfaces, DTOs, and schema strictly on demand — add a
-  method/field/table only when one specific, real command or entity actually needs it.
-  No generic Repository<TEntity> base class, ever (same anti-generic-abstraction stance
-  as IOwnershipValidator, D28).
-- A component needing several independent units of scoped work outside a single request
-  (e.g. multi-item startup seeding) is a dedicated DI-registered class with IServiceScopeFactory
-  injected via its constructor — never a static utility, never IServiceScopeFactory as a
-  per-call method parameter (D55, CLAUDE.md §21). This pattern is now established, not
-  something to redesign from scratch if it recurs.
-- A concurrency test passing once is not proof — rerun it several times before trusting it
-  (D55 was found exactly this way; CLAUDE.md §14).
-- Before generating ANY new migration, perform the same three-way comparison established in
-  Phase 3: Domain code <-> EF configurations <-> ERD.md. After generating it, manually review
-  the migration's Up/Down methods before considering it complete. If the model changes after
-  a migration already exists, fix the configuration and regenerate (dotnet ef migrations
-  remove, then re-add) — never hand-edit a generated migration file. (Only remove a migration
-  that has never been applied to a shared database; once applied, add a new migration instead.)
-- Documentation is updated in the same commit as the code that depends on it, whenever a
-  design review or implementation reveals a genuine gap or contradiction — never left for
-  "later."
+Slice 8 — Inspection photo upload + real LocalDiskFileStorage.
+  POST /api/v1/inspections/{id}/photos, INSPECTOR ONLY — an Admin gets 403, inverting Slice 7,
+  because PermissionMatrix §2 keeps the evidence chain with whoever was on site.
+  ORDERING: every validation, ownership, and Domain rejection happens BEFORE the filesystem
+  write. This was proven by reproduction — reordering the handler made a test fail with
+  "expected 0 files, actual 1". Do not reorder it.
+  COMPENSATION: if the database commit fails after a successful write, the file is deleted
+  best-effort and the ORIGINAL commit exception is rethrown; a failure of the delete is logged
+  and swallowed. THIS IS COMPENSATION, NOT ATOMICITY — process death can still leave an
+  orphan. Never document or extend it as a consistency guarantee.
+  LocalDiskFileStorage independently enforces root containment (canonicalize, prove the
+  destination stays under the root, compare against root+separator so a sibling sharing the
+  prefix cannot pass) and refuses to overwrite an existing file. A caller's filename cannot
+  influence directory structure: keys are inspection id + GUID + sanitized extension, verified
+  empirically.
+  EXTENSION VALIDATION is platform-independent by design: an empty extension is allowed;
+  otherwise "." plus 1–31 ASCII alphanumerics, total max 32. This is a DEFENSIVE FILESYSTEM
+  RULE, NOT A FILE-TYPE ALLOWLIST — no document restricts formats. Path.GetInvalidFileNameChars()
+  was deliberately rejected: it returns 41 characters on Windows and 2 on Linux, so validation
+  built on it would behave differently per deployment OS and per CI job.
+  IFileStorage.DeleteAsync was added on demand for compensation. GetAsync still does not exist.
+  File.Delete's missing-DIRECTORY behaviour (it throws, unlike a missing file) was found by a
+  test and is handled, so DeleteAsync's documented idempotency is actually true.
+  Microsoft.Extensions.Logging.Abstractions is now an accepted Application dependency for this
+  orchestration concern; hosting, configuration, EF, and filesystem dependencies remain
+  forbidden there.
 
-YOUR FIRST TASK:
+YOUR FIRST TASK: SLICE 9 — INSPECTION COMPLETION — DESIGN REVIEW ONLY.
 
-Confirm you have completed steps 1–7 above, and give a brief summary (not a re-summary of
-history — the user was there for all of it) of exactly where the project stands before
-proposing a design for Phase 4's first slice.
+DO NOT IMPLEMENT SLICE 9. Produce a design review, present it, and wait for explicit approval.
+The user reviews and challenges designs before any code is written; that process has caught
+several real defects in this phase and is not a formality.
+
+Start by reading the code that already exists — CompleteInspectionCommand, its validator and
+handler, Inspection.Complete(), Lead.MarkInspectionDone(), and PermissionMatrix.md §2 — before
+proposing anything. The endpoint contract should be driven by the existing use case, not the
+reverse.
+
+The specific questions this design review must answer:
+
+- Atomicity across the Inspection and Lead mutations: completion touches two aggregates.
+  What is actually guaranteed, and by what mechanism?
+- Exact guard ordering: which guard runs first, and can one aggregate be mutated in memory
+  before a guard on the second throws? If so, does that matter given the scoped DbContext?
+- Inspector ownership and JWT-derived caller identity (this is the "who is acting" case, so
+  the inspector id is server-derived — contrast Slice 7).
+- Lead/Inspection state consistency: what happens if the Lead is not in the state
+  MarkInspectionDone expects while the Inspection is completable, or vice versa.
+- Repeated completion: what should a second completion attempt return, and which guard
+  produces it.
+- Whether photos are actually required before completion — DO NOT INVENT THIS RULE. Check the
+  documents; if no rule exists, say so and do not create one.
+- HTTP response contract and status codes.
+- Audit target: §10's rule is that the audit entry goes against the aggregate the business
+  cares about, which for completion is likely Lead rather than Inspection — verify against the
+  existing handler rather than assuming.
+- Cross-aggregate persistence tests: what must be asserted against the database, not just the
+  response.
+
+WORKING RULES — NOT OPTIONAL:
+
+- Process, every slice: design review → challenge assumptions → explicit approval →
+  implementation → adversarial verification → documentation in the same commit → commit.
+  Never implement first and explain after.
+- ADVERSARIAL VERIFICATION IS EXPECTED. This project's standard is to prove a safeguard works
+  by breaking it: temporarily remove a registration, reorder a call, weaken an attribute, and
+  confirm the test actually fails — then restore. Several real defects were caught this way.
+  A green test that has never been shown to fail proves little.
+- Never push, never merge, never open a PR without explicit permission. Never commit to main.
+  Never force-push (D5 records the incident behind this).
+- Verify claims against the repository rather than trusting prose, including this file's.
+- Grow interfaces, DTOs, repositories, and schema strictly on demand. No speculative
+  abstractions.
+- Before generating any migration: three-way review (Domain ↔ EF configuration ↔ ERD.md),
+  then manually review the generated migration, then confirm no pending model changes.
+- When a design review reveals a documentation gap or contradiction, fix the documentation in
+  the same commit as the code that depends on it.
+- Do not add AGENTS.md to any commit.
+- If something in the documents turns out to be false, say so plainly before working around it.
+
+CONFIRM YOU HAVE COMPLETED STEPS 1–7, then present the Slice 9 design review. Do not write
+implementation code until the design is approved.
 ```

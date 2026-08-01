@@ -71,7 +71,7 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
   1. It was never actually in Phase 2's roadmap-defined scope — `PROJECT_ROADMAP.md`'s Phase 2 command list doesn't include it or any CatalogItem command; Phase 1b's title names the "save as catalog item" concept but its own deliverable list only required the Domain-level `CatalogItem.Create(..., createdFromAngebotItemId)`, already built.
   2. Implementing it today would force a new Application-layer lookup capability — resolving an `AngebotItem`'s owning `Angebot`/`Section` from the item's id alone (its documented route, `POST /api/v1/angebot-items/{itemId}/save-as-catalog-item`, carries no `AngebotId`) — that no other command needs and that isn't justified by anything else in current scope.
   - **Revisit only when a phase that actually needs it arrives** — most naturally Phase 3, since real EF Core ids would trivially resolve the lookup problem. Do not build a one-off lookup mechanism just to unblock this single command.
-- **`IFileStorage.GetAsync`/`DeleteAsync`** — not built; no current command needs them (`CLAUDE.md` §4).
+- **`IFileStorage.DeleteAsync` — ✅ built in Phase 4 Slice 8** (compensation needs it). **`GetAsync` remains unbuilt, and is now a known gap:** Architecture §9 describes serving photos through an authenticated endpoint, none exists, so photos can be stored but not retrieved. See §5.
 - **`Angebot.Send()`, `RecordCustomerApproval()`, `RecordCustomerRejection()`** — Domain methods exist (Phase 1) but have no Application-layer commands yet; deliberately deferred to Phase 6 (Token-link mechanism), since they depend on `ITokenLinkService`, which doesn't exist.
 - **`AngebotItem` update/remove methods** — open question, not a rule (`ARCHITECTURE_DECISIONS.md` D12/`CLAUDE.md` §2). Revisit only with real evidence (a documented endpoint, an explicit business decision).
 - ~~**HTTP status-code mapping** for Domain's own `ArgumentException`/`InvalidOperationException`~~ — **resolved** in Phase 4 Slice 2 (D59): 400 and 409 respectively, as a knowingly-accepted risk with a logging mitigation.
@@ -129,11 +129,39 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 - Whether `OperationCanceledException` (client disconnect) needs its own handling — raised during Slice 2's review and deliberately left out: a hosting/runtime concern rather than Domain/Application exception mapping. Address with real evidence of log noise, not speculation.
 - OQ-1 through OQ-4 from `SRS.md` §10 remain open at the SRS level (Admin managing Inspector accounts; website language; email provider choice — needed before Phase 9; "revise and resend" after rejection) — none of these block current work, but do not assume an answer to any of them without checking `SRS.md` first.
 
+### 5a. Open items carried out of Phase 4 Slices 1–8 (every one is a deliberate deferral, none is forgotten work)
+
+**Not yet designed or implemented — the remaining agreed slices:**
+
+| # | Slice | State |
+|---|---|---|
+| 9 | **Inspection completion** | **NEXT. Not designed, not implemented.** Design review must come first and be approved before any code. |
+| 10 | Lead status update (Won/Lost) | Not started. Only `MarkWon`/`MarkLost` are legitimately reachable — the other transitions are already side effects of the Inspection commands or belong to Phase 5. The request shape was never settled. |
+| 11 | Migration-application strategy | Not started. **Nothing in the codebase applies migrations to a real database** — no `Database.MigrateAsync()` at startup, no CI/CD step. A first run against a fresh production database will still fail at Identity role seeding. `Api.Tests`' fixture migrates its own database, which is deliberately *not* a decision about production (D58). |
+
+**Requirements that exist in the documents but are not built:**
+
+- **Rate limiting on the public Lead endpoint.** `Architecture.md` §12 requires abuse protection on `/api/v1/public/...` and the contact form. `POST /api/v1/leads` is anonymous, state-creating, and **currently unthrottled**. Deferred by explicit decision in Slice 5 to a dedicated hardening slice (with CORS), not forgotten.
+- **Production user provisioning.** `IdentityRoleSeeder` seeds the two roles and no users; nothing creates an account. **Login works but is unusable outside tests.** Blocked on SRS OQ-1 (does Admin manage Inspector accounts from the dashboard?), deliberately not answered inside an authentication slice.
+- **`GET /api/v1/inspections/{id}`.** `PermissionMatrix.md` §2 grants "View an Inspection" (Admin `F`, Inspector `S`) — a permission for an endpoint absent from `Architecture.md` §5.2's table and from Phase 4's agreed slices. This is why scheduling returns 201 with no `Location` header. Needs a documents-first decision before being built.
+- **Authenticated photo-serving endpoint + `IFileStorage.GetAsync`.** `Architecture.md` §9 says photos are "served back through an authenticated API endpoint rather than direct static file exposure." Neither exists. **The system can store photos it cannot serve.**
+- **Upload size limit** is Kestrel's ~30 MB default. No project-specific limit was invented because no document states one; recorded so the effective cap is known rather than assumed.
+
+**Known technical debt, verified as still present at the time of writing:**
+
+- **`Roles.cs` folder/namespace mismatch.** The file is `src/RenoTrack.Api/Auth/Roles.cs` but declares `namespace RenoTrack.Api.Controllers` (so `[Authorize(Roles = ...)]` interpolation resolves without an extra `using`). Cosmetic, deliberately left twice rather than widening an unrelated diff. **Confirmed still present.**
+- **Orphaned files remain possible.** Slice 8's compensating delete is best-effort: a process crash between the file write and the compensation, or a failing delete, still leaves a file with no row. This is compensation, **not** atomicity — do not document or extend it as a consistency guarantee. No sweeper exists; the retention rule (delete anything past `ExpiresAt` for refresh tokens; orphan files have no equivalent rule yet) is recorded in D60 for tokens only.
+- **Refresh-token rows are never cleaned up.** Retention is until `ExpiresAt` by design, with no background job — steady state is a few hundred rows (D60). Revisit at tens of thousands, or an order-of-magnitude user increase.
+- **`IUserQueries.IsActiveInspectorAsync` returns a single boolean deliberately** — keeping it atomic is a safety property, since a split would let a caller check two of three conditions. **Revisit trigger:** when Phase 10 introduces the Inspector picker, an Admin can select a deactivated Inspector through normal use rather than by typo; at that point reconsider whether "exists but ineligible" should be distinguishable from "nonexistent", and redesign the *result* rather than splitting the check.
+
 ---
 
 ## 6. How to Start Your First Message in a Resumed Conversation
 
-1. Read `CLAUDE.md`, `PROJECT_STATE.md`, `ARCHITECTURE_DECISIONS.md`, `PHASE3_PROGRESS.md`, and this file, in that order, in full (`PHASE2_PROGRESS.md` is historical background at this point, not required reading for resuming Phase 4 work).
-2. `git fetch origin`; confirm `main` is current (`85df430` or later) and start any new work from a fresh branch off `origin/main` — do not resume work on `feature/phase-3-infrastructure-efcore`, which is merged and inactive.
-3. Run `dotnet build RenoTrack.slnx` and `dotnet test RenoTrack.slnx` yourself and confirm the counts in `PROJECT_STATE.md` §3 still hold (371 as of the Phase 3 merge: 153 Domain + 144 Application + 74 Infrastructure). If they don't, something changed since this handoff was written — investigate before proceeding, don't just trust the stale numbers.
-4. **Phase 3 is complete and merged.** The next deliverable is Phase 4 (the API layer) — but per the standing process, do a design review and get explicit user sign-off on the approach before writing any Phase 4 code, exactly as every prior phase/slice was handled.
+**`HANDOFF_PROMPT.md` is the canonical starting point — paste its code block into a fresh conversation.** This section is the short form of the same thing.
+
+1. Read `CLAUDE.md` (especially §22, the API-layer rules), `PROJECT_STATE.md`, this file (especially §5a), `PHASE4_PROGRESS.md`, and `ARCHITECTURE_DECISIONS.md` D57–D62 — in that order, in full. `PHASE2_PROGRESS.md` and `PHASE3_PROGRESS.md` are historical background, not required reading.
+2. `git fetch origin`. **Do not branch.** Phase 4 continues on the existing `feature/phase-4-api-auth-leads-inspections`, which is ahead of `origin/main` (`babfff9`) and unpushed. No PR has been opened.
+3. Run `dotnet build RenoTrack.slnx`, `dotnet test RenoTrack.slnx`, and `dotnet ef migrations has-pending-model-changes`, and confirm they match `PROJECT_STATE.md` §3 (516 tests as of Slice 8: 153 Domain + 164 Application + 89 Infrastructure + 110 Api; five migrations; no pending changes). If they don't, investigate before proceeding rather than trusting the numbers.
+4. **The next deliverable is Slice 9 — Inspection completion, DESIGN REVIEW ONLY.** It has not been designed or implemented. Produce the design, let it be challenged, and get explicit sign-off before writing any code — exactly as Slices 1–8 were handled.
+5. `AGENTS.md` is untracked, pre-existing, and unrelated to this work. Do not add it to any commit.
