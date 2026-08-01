@@ -1,13 +1,13 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — Slices 1–8 of 11 done; see `PHASE4_PROGRESS.md`.
+**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — Slices 1–9 of 11 done; see `PHASE4_PROGRESS.md`.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 4 — API layer**, per `PROJECT_ROADMAP.md`. **In progress** (Slices 1–8 of 11 done). Phases 0–3 are all complete and merged to `main`.
+**Phase 4 — API layer**, per `PROJECT_ROADMAP.md`. **In progress** (Slices 1–9 of 11 done). Phases 0–3 are all complete and merged to `main`.
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
@@ -15,9 +15,9 @@
 - **Phase 2 (Application layer) — ✅ merged to `main`** (PR #5, merge commit `dc85de1`; 15 vertical slices + documentation commits, branch `feature/phase-2-application-layer`). `CatalogItem`'s Application layer (Slices 11–14) was a justified in-scope insertion, needed by `AddAngebotItemCommand`. `SaveAngebotItemAsCatalogItemCommand` reviewed and confirmed out of scope (`ARCHITECTURE_DECISIONS.md` D39) — not a gap, a deliberate exclusion, to be revisited in Phase 3+.
 - **Phase 3 (Infrastructure) — ✅ complete and merged to `main`** (PR #6, merge commit `85df430`, branch `feature/phase-3-infrastructure-efcore`). All 15 slices done (`RenoTrackDbContext` + entity configurations + `RenoTrack.Infrastructure.Tests`; `InitialCreate`/`AddAuditLog`/`AddNumberSequence`/`AddIdentity` migrations; `UnitOfWork`; `ILeadRepository`; `IInspectionRepository`; `IAngebotRepository`; `IAngebotReviewCommentRepository`; `ICatalogItemRepository`; `ICatalogItemQueries`; `IAuditService`; `INumberGeneratorService`; `IFileStorage` placeholder; `IEmailSender` placeholder; `AddInfrastructure()` + `Program.cs` wiring; Identity storage + role seeding). A pre-merge code review found three Should-Fix issues, all fixed (`c085058`). A real concurrency bug in `IdentityRoleSeeder`, found during final CI verification (not by the original review), was root-caused and fixed with a genuine design change — `IdentityRoleSeeder` became a dedicated DI service (D55) — rather than patched around. CI was split into a Linux job (build + non-Infrastructure tests) and a Windows job (Infrastructure tests against real LocalDB) to fix an environmental CI failure without weakening D40 (D56). See `PHASE3_PROGRESS.md` and §11 below for the full closeout record.
 
-- **Phase 4 (API layer) — 🚧 in progress**, branch `feature/phase-4-api-auth-leads-inspections` (off `babfff9`). Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry (narrower than "the whole API layer"): API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Angebot/Catalog (Phase 5), token links (Phase 6), Projects (Phase 7), Invoices (Phase 8) are explicitly out of scope. **Slices 1–8 of 11 complete** (API foundation/conventions/docs — D57, D58; global exception-handling middleware — D59; `AddApplication()` DI extension; JWT authentication with persisted rotating refresh tokens — D60, plus a fifth migration `AddRefreshTokens`; public Lead creation — D61; Lead read endpoints with fail-secure role scoping and pagination; Inspection scheduling with assignee-eligibility enforcement — D62; Inspection photo upload with the real `LocalDiskFileStorage`, extension validation, and best-effort compensation after a failed commit). Full slice list and log in `PHASE4_PROGRESS.md`.
+- **Phase 4 (API layer) — 🚧 in progress**, branch `feature/phase-4-api-auth-leads-inspections` (off `babfff9`). Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry (narrower than "the whole API layer"): API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Angebot/Catalog (Phase 5), token links (Phase 6), Projects (Phase 7), Invoices (Phase 8) are explicitly out of scope. **Slices 1–9 of 11 complete** (API foundation/conventions/docs — D57, D58; global exception-handling middleware — D59; `AddApplication()` DI extension; JWT authentication with persisted rotating refresh tokens — D60, plus a fifth migration `AddRefreshTokens`; public Lead creation — D61; Lead read endpoints with fail-secure role scoping and pagination; Inspection scheduling with assignee-eligibility enforcement — D62; Inspection photo upload with the real `LocalDiskFileStorage`, extension validation, and best-effort compensation after a failed commit; Inspection completion, the first endpoint needing no request record and no Application-layer change at all). Full slice list and log in `PHASE4_PROGRESS.md`.
 
-**Immediate next step: Phase 4 Slice 9 (Inspection completion).** See §9.
+**Immediate next step: Phase 4 Slice 10 (Lead status update — Won/Lost).** See §9.
 
 ## 2. Current Branch State
 
@@ -27,14 +27,14 @@
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 8:
+As of the last verified run in this conversation, on `feature/phase-4-api-auth-leads-inspections` after Phase 4 Slice 9:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **516 tests passing, 0 failing.**
+- `dotnet test RenoTrack.slnx` → **527 tests passing, 0 failing.**
 - `dotnet ef migrations has-pending-model-changes` → no pending changes (**five** migrations now: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`).
   - `RenoTrack.Domain.Tests`: **153 tests.**
-  - `RenoTrack.Application.Tests`: **164 tests.**
+  - `RenoTrack.Application.Tests`: **165 tests.**
   - `RenoTrack.Infrastructure.Tests`: **89 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests` open no database connection — the last uses real disk I/O in a temporary root; the Identity tests do use real LocalDB).
-  - `RenoTrack.Api.Tests`: **110 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping (D59) + Slice 3 DI composition, the last of which discovers handlers/validators by reflection so an unregistered one fails CI).
+  - `RenoTrack.Api.Tests`: **120 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping (D59) + Slice 3 DI composition, the last of which discovers handlers/validators by reflection so an unregistered one fails CI, through to Slice 9's Inspection completion).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory
@@ -258,17 +258,19 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 4 is in progress — Slices 1–8 of 11 are done, committed, and NOT pushed.** No PR has been opened for Phase 4.
+**Phase 4 is in progress — Slices 1–9 of 11 are done, committed, and NOT pushed.** No PR has been opened for Phase 4.
 
-**The immediate next step is Slice 9 — Inspection completion. It has not been designed or implemented.** Per the standing process, a design review must be produced and explicitly approved before any code is written. `HANDOFF_PROMPT.md` lists the specific questions that review has to answer (cross-aggregate atomicity, guard ordering, repeated completion, whether photos are required before completion — a rule that must not be invented, audit target, and what the tests must assert against the database).
+**The immediate next step is Slice 10 — Lead status update (Won/Lost). It has not been designed or implemented.** Per the standing process, a design review must be produced and explicitly approved before any code is written. Only `MarkWon`/`MarkLost` are legitimately reachable by such an endpoint — `MarkInspectionScheduled`/`MarkInspectionDone` are already driven as side effects of the Inspection commands, and `MarkAngebotInProgress`/`MarkAngebotSent` belong to Phase 5. The request shape has never been settled.
 
 Everything Phase 4 has resolved so far is recorded per-slice in `PHASE4_PROGRESS.md`, with the cross-cutting rules folded into `CLAUDE.md` §22 and decisions D57–D62 in `ARCHITECTURE_DECISIONS.md`. Highlights worth knowing without opening those files:
 
 - A **fail-open authorization defect** was found and fixed in Slice 6 — "not Inspector" must never be read as "Admin". Unrestricted access is only ever reached by positively establishing the Admin role. The vulnerability was reproduced before being fixed.
 - D61's own wording was **corrected in Slice 7**: only values describing *the caller* are server-derived; an Admin-selected `InspectorId` is legitimate request input.
 - Slice 8's photo upload writes the file only after every Domain/ownership guard has passed, and compensates with a best-effort delete if the commit then fails — **compensation, not atomicity**.
+- Slice 9's completion, by contrast, **is** genuinely atomic across its two aggregates: both repositories and `UnitOfWork` share the one request-scoped `DbContext`, so a single `SaveChangesAsync` writes both in EF Core's implicit transaction. The **audit row is deliberately outside** that guarantee (D50).
+- Slice 9 also found two things empirically that were previously assumed: **`AuditService` shares the request's `DbContext`**, so its own `SaveChangesAsync` can flush unrelated pending changes (benign today, since every handler audits after committing); and **a status-code-only authorization test cannot tell a role-gate 403 from an ownership 403**, which let a deliberately-weakened role attribute go undetected until the test also asserted an empty response body.
 
-**Open items carried forward (all deliberate, none forgotten)** are enumerated in `NEXT_STEPS.md` §5a: Slices 9–11 themselves; rate limiting on the public Lead endpoint (required by Architecture §12, deferred to a hardening slice); production user provisioning (blocked on SRS OQ-1 — login works but is unusable outside tests); `GET /api/v1/inspections/{id}`; an authenticated photo-serving endpoint plus `IFileStorage.GetAsync` (**photos can be stored but not served**); and the `Roles.cs` folder/namespace mismatch.
+**Open items carried forward (all deliberate, none forgotten)** are enumerated in `NEXT_STEPS.md` §5a: Slices 10–11 themselves; rate limiting on the public Lead endpoint (required by Architecture §12, deferred to a hardening slice); production user provisioning (blocked on SRS OQ-1 — login works but is unusable outside tests); `GET /api/v1/inspections/{id}`; `PATCH /api/v1/inspections/{id}` for notes (**the command is built and registered but no endpoint reaches it**); an authenticated photo-serving endpoint plus `IFileStorage.GetAsync` (**photos can be stored but not served**); the non-isolated audit write; and the `Roles.cs` folder/namespace mismatch.
 
 §10 and §11 below remain the historical closeout records for Phase 2 and Phase 3 — they describe what was true at those merges and are deliberately not updated.
 

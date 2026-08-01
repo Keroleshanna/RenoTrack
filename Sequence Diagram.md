@@ -135,7 +135,7 @@ sequenceDiagram
     APP->>REPO: Inspection.CompletedAt = now
     APP->>REPO: Lead.Status = InspectionDone
     REPO->>DB: UPDATE Inspections, UPDATE Leads
-    APP->>AUD: LogAsync(InspectionCompleted)
+    APP->>AUD: LogAsync(InspectionDone)
     APP-->>API: OK
     API-->>DASH: 200 OK
     DASH-->>INS: "Inspection complete — you can now draft the Angebot"

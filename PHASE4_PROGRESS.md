@@ -32,7 +32,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 6 | Lead read endpoints | ✅ done |
 | 7 | Inspection scheduling | ✅ done |
 | 8 | Inspection photo upload + `LocalDiskFileStorage` | ✅ done |
-| 9 | Inspection completion | not started |
+| 9 | Inspection completion | ✅ done |
 | 10 | Lead status update (Won/Lost) | not started |
 | 11 | Migration-application strategy | not started |
 
@@ -589,3 +589,86 @@ The upload size limit remains Kestrel's ~30 MB default — no project-specific n
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **516 passing, 0 failing** (153 Domain + 164 Application + 89 Infrastructure + 110 Api).
+
+---
+
+## Slice 9 — Inspection Completion
+
+**Endpoint:** `POST /api/v1/inspections/{id}/complete` (SRS FR-3.4, Architecture.md §5.2, Sequence Diagram §3 Step B). **Inspector only, and specifically the assigned one** — `PermissionMatrix.md` §2 marks it `— | S`, so an Admin gets 403 exactly as in Slice 8, inverting Slice 7.
+
+### The slice added no Application-layer code, and that is a finding
+
+`CompleteInspectionCommand`, its validator, handler, `InspectionDto`, and 9 handler tests have all existed since Phase 2, and the handler was already registered in `AddApplication()`. Slices 6, 7 and 8 each added Application work; this one did not. The endpoint contract was genuinely driven by the existing use case rather than the reverse, which is the ideal the standing instruction aims at. Recorded explicitly so the absence never reads as an omission.
+
+### Design review conclusions
+
+- **No request record at all.** D61 says the wire contract is a strict subset of the command's parameters and that a request type is justified exactly when that subset differs. Here it is *empty*: `InspectionId` comes from the route, `CompletedByInspectorId` from the JWT's `sub`. This is unambiguously D61's "who is acting" case — the contrast with Slice 7's `InspectorId` (an assignment target) is what D61's own Slice 7 correction is about. First Phase 4 endpoint with no request DTO.
+- **No `IsActiveInspectorAsync` check, deliberately.** D62 exists because a *third party's* id arrived off the wire with nothing behind it. Here the id comes from a signed token: the caller authenticated moments ago, `AuthController` rejects deactivated accounts at both login and refresh, the role attribute enforces Inspector, and ownership proves they are *the* assigned Inspector. Adding it would re-verify the token issuer's own work. **Accepted residual:** an Inspector deactivated within the last 15 minutes can still complete their own Inspection until the access token expires — a documented property of D60's short-lived-JWT model, not a hole in this slice.
+- **Photos and notes are not required before completion, and no such rule was invented.** Checked exhaustively: SRS FR-3.2 grants a capability rather than stating a precondition; FR-3.4 states only the consequence; StateMachine.md §1.3's guard for `CompleteInspection` is exactly "Inspection belongs to this Lead"; Sequence Diagram §3's `loop For each photo` permits zero iterations; no `BusinessRules.md` entry mentions either (BR-10 runs the opposite direction — immutability *after* completion); `Inspection.Complete()` has one guard. A test pins the absence so a future edit that invents the rule fails CI rather than passing review. Same reasoning that rejected "`ScheduledAt` must be in the future" in Slice 7.
+- **200 OK with `InspectionDto`**, matching Sequence Diagram §3. Not 201 (nothing created), not 204 (the timestamp is server-generated and no `GET /inspections/{id}` exists to fetch it from).
+- **Repeated completion is not idempotent** — 409 from the Inspection's own guard, with the original `CompletedAt` never overwritten. A silent 200 would hide a real client bug (a double-tap on the mobile browser SRS §90 anticipates); rewriting the timestamp would undo the evidentiary value BR-10 protects. Same stance D61 took for `POST /api/v1/leads`.
+- **Audit target unchanged and verified rather than assumed** — against `Lead`, with `AuditAction.InspectionDone`, per §10's rule that the entry goes against the aggregate the business cares about.
+
+### Atomicity — genuine here, unlike Slice 8
+
+`InspectionRepository`, `LeadRepository` and `UnitOfWork` each constructor-inject `RenoTrackDbContext`, registered **Scoped**, so within one request all three hold the same instance; neither `GetByIdAsync` uses `AsNoTracking`. One `SaveChangesAsync` therefore emits both `UPDATE`s inside EF Core's single implicit transaction — the guarantee D48 relied on when it confirmed `UnitOfWork` needs no explicit transaction API. **Both land or neither does.** This is real atomicity, unlike Slice 8's photo upload, which spans a filesystem and a database and can only compensate.
+
+**The audit entry is deliberately outside that guarantee.** `IAuditService` is best-effort and commits after the business transaction (D50), so a completed Inspection with no audit row is possible and accepted. Do not describe the audit row as part of the atomic operation.
+
+### Guard ordering — kept, with the reason recorded
+
+Order is: validate → load Inspection (404) → ownership (403) → load Lead (404) → `inspection.Complete()` → `lead.MarkInspectionDone()` → one `SaveChangesAsync` → audit.
+
+So the Inspection **is** mutated in memory before the Lead's guard can throw. Nothing is written, because `SaveChangesAsync` is never reached and the request-scoped `DbContext` is disposed with its change tracker. **That safety comes from the scope lifetime, not from a guard** — it holds only while no handler shares a `DbContext` across two units of work and none saves after catching a Domain exception. Neither happens today (CLAUDE.md §17: Domain exceptions propagate unwrapped).
+
+Both orderings are equally safe, since nothing irreversible happens before either guard (§12/D29 do not apply). The deciding factor was **error quality on the most likely failure, a double-submit**: Inspection-first yields `"Inspection 7 is already completed."`, while Lead-first would yield `"…Lead 3 is in status 'InspectionDone', expected 'InspectionScheduled'."` — naming the wrong aggregate for the mistake and leaking a Lead id into an Inspection response. Rejected outright: pre-checking `inspection.CompletedAt` in the handler, which is D29's rejected `Inspection.IsEditable` in handler form and violates §6.
+
+### Two assumptions that turned out false, both found by the adversarial experiments
+
+**1. `AuditService` shares the request's `DbContext`, so its `SaveChangesAsync` is not write-isolated.** Under experiment 2 (commit moved ahead of the Lead mutation) the cross-aggregate test unexpectedly still passed. Cause: `AuditService` injects the same scoped `RenoTrackDbContext` and calls `dbContext.SaveChangesAsync()`, which flushed the still-pending Lead mutation along with the audit row. D50's "commits its own write independently" means independently of `IUnitOfWork`, **not** in an isolated context. Benign in production today — every handler calls `LogAsync` after its own commit, which is D50's own stated precondition, so nothing is ever pending — but it means a handler that ever had pending changes at `LogAsync` time would have them silently committed inside a `try/catch` that swallows failures. **Not changed in this slice** (it alters no Slice 9 behaviour); recorded in `NEXT_STEPS.md` §5a as a known property. It is a further reason not to reorder this handler.
+
+**2. A status-code-only Admin test proved nothing.** Experiment 3 (weakening the action's `[Authorize(Roles = Roles.Inspector)]` to bare `[Authorize]`) **did not fail** on the first attempt. The class-level attribute admits `Admin,Inspector`, so the Admin reached the handler and got 403 from `EnsureInspectionOwnership` instead — the same 403 the role gate would have produced. This is precisely the attribute-vs-guard drift CLAUDE.md §22 warns about, and the test could not see it. Fixed by asserting the 403 body is **empty**: an authorization-middleware rejection carries no body, while a `ForbiddenException` reaching the D59 handler produces a ProblemDetails document. Re-running the experiment then failed with the ProblemDetails body, proving the test now pins *which layer* rejected. The test was renamed to `An_admin_is_forbidden_by_the_role_gate_before_reaching_the_handler` to say what it actually asserts.
+
+### Adversarial verification — all four run, none assumed
+
+| # | Broken implementation | Observed failure | Restored |
+|---|---|---|---|
+| 1 | `lead.MarkInspectionDone()` removed | `Completion_persists_both…` → `Expected: InspectionDone / Actual: InspectionScheduled` (plus the mismatch test, whose guard also disappeared) | ✅ green again |
+| 2 | `SaveChangesAsync` moved ahead of the Lead mutation | `A_lead_in_the_wrong_state…` → `Expected: null / Actual: 2026-08-01T20:43:05` — the orphaned `CompletedAt` persisted | ✅ green again |
+| 3 | Action's `Roles = Roles.Inspector` removed | **Initially passed** — see finding 2 above; after strengthening, failed with a ProblemDetails body | ✅ green again |
+| 4 | `EnsureInspectionOwnership` removed | `A_non_owning_inspector…` → `Expected: Forbidden / Actual: OK` — one Inspector completed another's Inspection | ✅ green again |
+
+Experiment 4 could not even be compiled at first: `TreatWarningsAsErrors` turned the now-unread constructor parameter into `error CS9113`, so the check cannot be silently deleted without the build failing — a stronger safeguard than any test. The parameter had to be removed too before the experiment could run.
+
+`git diff` confirms `CompleteInspectionCommandHandler.cs` is byte-identical to its pre-experiment state.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Api/Controllers/InspectionsController.cs` | `Complete` action + the handler injected by interface |
+| `tests/RenoTrack.Api.Tests/Inspections/CompleteInspectionEndpointTests.cs` | New — 10 tests |
+| `tests/.../CompleteInspectionCommandHandlerTests.cs` | +1 test — the Lead-guard failure path |
+| `Sequence Diagram.md` §3 | `LogAsync(InspectionCompleted)` → `LogAsync(InspectionDone)` — a stale name; no such enum value has ever existed |
+
+No Application, Domain, Infrastructure, migration, or DI changes.
+
+### Tests
+
+11 new (527 total). The ones that carry the slice are the database reads, not the status codes — `InspectionDto` has no Lead field, so completion's cross-aggregate side effect is **invisible over HTTP**, and a response-only test would still pass with `lead.MarkInspectionDone()` deleted outright (experiment 1 proves exactly that).
+
+The Application-level Lead-guard test deliberately asserts only that `SaveChangesAsync` and the audit were never called. It does **not** assert the in-memory Inspection mutation was rolled back, because that would be asserting a falsehood: the mutation genuinely happened and the fakes have no change tracker. The discard is a property of the real request-scoped `DbContext`, provable only in `Api.Tests`. In-memory truth belongs in the Application test; storage truth belongs in the Api test.
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 120/120 each.
+
+### Environmental note
+
+LocalDB became unstartable partway through this slice (Windows error 575, seven consecutive attempts) because an orphaned `sqlservr.exe` still held the `MSSQLLocalDB` instance while `sqllocaldb info` reported it Stopped and `stop -k` reported success. Work was halted and reported rather than worked around; no test strategy was weakened and no instance or database was deleted. The orphaned processes exited on their own before any intervention, after which the instance started normally and a connection was verified. Recorded because the same failure will recur on this machine and the diagnosis is not obvious from the error message.
+
+### Still deliberately not built
+
+`PATCH /api/v1/inspections/{id}` for notes. `UpdateInspectionNotesCommand` exists and is registered, `PermissionMatrix.md` §2 grants "Edit Inspection notes — Inspector S", and Sequence Diagram §3 shows the `PATCH` between photo upload and completion — but `Architecture.md` §5.2's endpoint table omits it and no agreed Phase 4 slice covers it. After this slice it is a fully-built, registered, tested, **unreachable** handler. Recorded in `NEXT_STEPS.md` §5a rather than built, following Slice 7's precedent with the missing `GET /inspections/{id}` — the documentation disagreement needs a documents-first decision, not a scope expansion.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **527 passing, 0 failing** (153 Domain + 165 Application + 89 Infrastructure + 120 Api). `dotnet ef migrations has-pending-model-changes` → no pending changes. No new `ARCHITECTURE_DECISIONS.md` entry — every decision applies an existing rule (D48, D50, D59, D61, D62, §10, §16).

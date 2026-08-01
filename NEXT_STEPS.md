@@ -55,7 +55,11 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
    - **Verified by reproduction, not assertion:** reordering the handler so the file write preceded the BR-10 guard made the completed-Inspection test fail with "expected 0 files, actual 1".
    - **`File.Delete` is only partly idempotent** — it throws `DirectoryNotFoundException` for a missing directory. Found by a test, not by reading docs; `LocalDiskFileStorage` now catches it so the documented contract is true.
    - `RenoTrack.Application` gained `Microsoft.Extensions.Logging.Abstractions` (its third package, all pure abstractions) so the compensation-failure log is possible.
-9. Inspection completion — **next**.
+9. **Inspection completion — ✅ done.** `POST /api/v1/inspections/{id}/complete`, Inspector-only (Admin 403, as in Slice 8). **No Application/Domain/Infrastructure/migration/DI changes** — the command, validator, handler and DTO have existed since Phase 2 and were already registered; the endpoint contract was driven by the existing use case. **No request record at all**, the first such endpoint: D61's subset is empty (id from the route, inspector from the JWT `sub` — the "who is acting" case). 11 tests.
+   - **Atomicity is genuine here, unlike Slice 8.** Both repositories and `UnitOfWork` share the one request-scoped `RenoTrackDbContext` and neither read uses `AsNoTracking`, so a single `SaveChangesAsync` writes both aggregates in EF Core's implicit transaction. **The audit row is deliberately outside that guarantee** (D50) — do not describe it as part of the atomic operation.
+   - **Guard ordering kept deliberately:** the Inspection is mutated in memory before the Lead's guard can throw. Nothing is written because `SaveChangesAsync` is never reached and the scoped `DbContext` is disposed — safety from **scope lifetime, not a guard**. Inspection-first was chosen for error quality on a double-submit, not for safety. Do not reorder.
+   - **Photos and notes are NOT required before completion.** No document defines such a rule (SRS FR-3.2 grants a capability, FR-3.4 states only the consequence, StateMachine §1.3's guard is "Inspection belongs to this Lead", no BR mentions it). A test pins the absence. **Do not invent it.**
+   - **Two assumptions found false by the adversarial experiments** — see the two entries added to §5a below.
 10. Lead status update — in practice `MarkWon`/`MarkLost` only; the other transitions are already driven by the Inspection commands or belong to Phase 5. *(Exact request shape not yet decided.)*
 11. Migration-application strategy — deliberately last, since it affects application startup as a whole.
 
@@ -135,8 +139,8 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 
 | # | Slice | State |
 |---|---|---|
-| 9 | **Inspection completion** | **NEXT. Not designed, not implemented.** Design review must come first and be approved before any code. |
-| 10 | Lead status update (Won/Lost) | Not started. Only `MarkWon`/`MarkLost` are legitimately reachable — the other transitions are already side effects of the Inspection commands or belong to Phase 5. The request shape was never settled. |
+| 9 | Inspection completion | ✅ **done.** See §1c and `PHASE4_PROGRESS.md`. |
+| 10 | Lead status update (Won/Lost) | **NEXT. Not designed, not implemented.** Only `MarkWon`/`MarkLost` are legitimately reachable — the other transitions are already side effects of the Inspection commands or belong to Phase 5. The request shape was never settled. Design review must come first and be approved before any code. |
 | 11 | Migration-application strategy | Not started. **Nothing in the codebase applies migrations to a real database** — no `Database.MigrateAsync()` at startup, no CI/CD step. A first run against a fresh production database will still fail at Identity role seeding. `Api.Tests`' fixture migrates its own database, which is deliberately *not* a decision about production (D58). |
 
 **Requirements that exist in the documents but are not built:**
@@ -146,6 +150,15 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 - **`GET /api/v1/inspections/{id}`.** `PermissionMatrix.md` §2 grants "View an Inspection" (Admin `F`, Inspector `S`) — a permission for an endpoint absent from `Architecture.md` §5.2's table and from Phase 4's agreed slices. This is why scheduling returns 201 with no `Location` header. Needs a documents-first decision before being built.
 - **Authenticated photo-serving endpoint + `IFileStorage.GetAsync`.** `Architecture.md` §9 says photos are "served back through an authenticated API endpoint rather than direct static file exposure." Neither exists. **The system can store photos it cannot serve.**
 - **Upload size limit** is Kestrel's ~30 MB default. No project-specific limit was invented because no document states one; recorded so the effective cap is known rather than assumed.
+- **`PATCH /api/v1/inspections/{id}` (edit Inspection notes) — documented, built, and unreachable.** Recorded in Slice 9 as a deliberate gap, **not implemented**, following Slice 7's precedent with the missing `GET /inspections/{id}`. The four facts, all verified:
+  - `UpdateInspectionNotesCommand` + validator + handler exist and **are registered** in `AddApplication()` (`src/RenoTrack.Application/DependencyInjection.cs`), and the reflection-based DI test asserts the handler resolves.
+  - `PermissionMatrix.md` §2 grants the permission: "Edit Inspection notes | — | S" (assigned Inspector only).
+  - `Sequence Diagram.md` §3 shows the operation explicitly: `PATCH /api/v1/inspections/{id} { notes }`, between photo upload and completion.
+  - `Architecture.md` §5.2's endpoint table **omits it**, and no agreed Phase 4 slice covers it.
+  
+  So the use case is fully built beneath an API surface that cannot reach it. **Do not resolve the Architecture-vs-PermissionMatrix/Sequence-Diagram disagreement or build the endpoint as a side effect of another slice** — it needs a documents-first decision, exactly like the missing `GET /inspections/{id}` and the photo-serving endpoint.
+- **`AuditService.LogAsync` is not write-isolated — it shares the request's `DbContext`.** Found empirically during Slice 9's second adversarial experiment, where it masked a deliberately-introduced defect by flushing an unrelated pending mutation along with the audit row. D50's "commits its own write independently" means independently of `IUnitOfWork`, **not** in a separate context. **Benign today** — every handler calls `LogAsync` after its own `SaveChangesAsync`, which is D50's own stated precondition, so nothing is ever pending — but a handler that ever had uncommitted changes at `LogAsync` time would have them committed silently, inside a `try`/`catch` that swallows failures. Not changed in Slice 9 because it alters no current behaviour. **Revisit trigger:** any handler that would call `LogAsync` with pending changes, or any change to the audit-write mechanism. It is also a further reason not to reorder `CompleteInspectionCommandHandler`.
+- **A status-code-only assertion cannot distinguish a role-gate 403 from an ownership 403.** Found in Slice 9's third adversarial experiment: weakening the action's `[Authorize(Roles = Roles.Inspector)]` left the Admin test passing, because the class-level attribute admits both roles and `EnsureInspectionOwnership` then produced the same 403. This is exactly the attribute-vs-guard drift `CLAUDE.md` §22 requires both layers to be kept against. The fix — asserting the 403 body is **empty**, since an authorization-middleware rejection carries no body while a `ForbiddenException` yields ProblemDetails — is what makes such a test detect the drift. **Any future endpoint whose role gate and ownership check would produce the same status code needs this assertion, or its authorization test proves nothing.**
 
 **Known technical debt, verified as still present at the time of writing:**
 

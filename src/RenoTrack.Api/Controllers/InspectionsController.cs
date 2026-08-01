@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Api.Inspections.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
+using RenoTrack.Application.Inspections.Commands.CompleteInspection;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Inspections.Dtos;
@@ -26,7 +27,8 @@ namespace RenoTrack.Api.Controllers;
 [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
 public sealed class InspectionsController(
     ICommandHandler<ScheduleInspectionCommand, InspectionDto> scheduleInspectionHandler,
-    ICommandHandler<UploadInspectionPhotoCommand, PhotoDto> uploadPhotoHandler) : ControllerBase
+    ICommandHandler<UploadInspectionPhotoCommand, PhotoDto> uploadPhotoHandler,
+    ICommandHandler<CompleteInspectionCommand, InspectionDto> completeInspectionHandler) : ControllerBase
 {
     /// <summary>
     /// Schedules an Inspection for a Lead (SRS FR-2.3). Admin only.
@@ -124,6 +126,82 @@ public sealed class InspectionsController(
         var photo = await uploadPhotoHandler.HandleAsync(command, cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, photo);
+    }
+
+    /// <summary>
+    /// Marks an Inspection complete (SRS FR-3.4, Sequence Diagram §3 Step B, Architecture.md §5.2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Inspector only, and specifically the assigned one.</b> <c>PermissionMatrix.md</c> §2 marks
+    /// this "— | S", so an Admin gets 403 from the role attribute and a non-owning Inspector gets 403
+    /// from <c>IOwnershipValidator</c> inside the handler — the same shape as <see cref="UploadPhoto"/>
+    /// and the inverse of <see cref="Schedule"/>.
+    /// </para>
+    /// <para>
+    /// <b>No request record exists, deliberately.</b> D61 says the wire contract is a strict subset of
+    /// the command's parameters and that a request type is justified exactly when that subset differs.
+    /// Here the subset is empty: <c>InspectionId</c> comes from the route and <c>CompletedByInspectorId</c>
+    /// is the caller's own identity from the JWT's <c>sub</c> claim. This is the "who is acting" case,
+    /// unlike <see cref="Schedule"/>'s <c>InspectorId</c>, which names a third party. The absence of a
+    /// DTO here is a finding about this use case, not a forgotten file.
+    /// </para>
+    /// <para>
+    /// <b>Two aggregates change and they change atomically.</b> The handler completes the Inspection and
+    /// moves the Lead to <c>InspectionDone</c>, then calls <c>IUnitOfWork.SaveChangesAsync</c> once.
+    /// Both repositories and the unit of work share the one request-scoped <c>RenoTrackDbContext</c>, so
+    /// the two <c>UPDATE</c>s ride EF Core's single implicit transaction — either both land or neither
+    /// does. This is genuine atomicity, unlike Slice 8's photo upload, which spans a filesystem and a
+    /// database and can only compensate. <b>The audit entry is not part of it</b>: <c>IAuditService</c>
+    /// is best-effort and commits independently after that transaction (D50), so a completed Inspection
+    /// with no audit row is possible and accepted.
+    /// </para>
+    /// <para>
+    /// If the Lead's own guard rejects the transition, the Inspection has already been mutated in memory
+    /// by the preceding <c>Complete()</c> call. Nothing is written, because <c>SaveChangesAsync</c> is
+    /// never reached and the request-scoped <c>DbContext</c> is disposed with its change tracker when the
+    /// request ends. That safety comes from the scope lifetime, not from a guard — it holds only while no
+    /// handler shares a <c>DbContext</c> across two units of work and none saves after catching a Domain
+    /// exception. Neither happens today (CLAUDE.md §17: Domain exceptions propagate unwrapped).
+    /// </para>
+    /// <para>
+    /// Repeated completion is <b>not</b> idempotent: the second attempt is rejected by the Inspection's
+    /// own guard as 409, and the original <c>CompletedAt</c> is never overwritten. Silently returning 200
+    /// would hide a real client bug (a double-tap on the mobile browser SRS §90 anticipates), and
+    /// rewriting the timestamp would undo the evidentiary value BR-10 exists to protect.
+    /// </para>
+    /// <para>
+    /// <b>Nothing about the Inspection's content is required first.</b> No photo minimum and no notes
+    /// requirement exists anywhere — SRS FR-3.2 grants a capability rather than stating a precondition,
+    /// FR-3.4 states only the consequence, StateMachine.md §1.3's guard is "Inspection belongs to this
+    /// Lead", and no BusinessRules.md entry mentions either. Inventing one here would need a numbered
+    /// business rule first.
+    /// </para>
+    /// <para>
+    /// Returns 200 with the updated <see cref="InspectionDto"/> (Sequence Diagram §3 shows 200 OK) — not
+    /// 201, since nothing is created, and not 204, since the completion timestamp is server-generated and
+    /// no <c>GET /api/v1/inspections/{id}</c> exists to fetch it from. The DTO carries no Lead field, so a
+    /// client that needs the Lead's new status re-reads <c>GET /api/v1/leads/{id}</c> (Slice 6) rather
+    /// than this response growing a field for one endpoint.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/complete")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<InspectionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Complete(int id, CancellationToken cancellationToken)
+    {
+        var command = new CompleteInspectionCommand(
+            id,
+            // Who is acting — from the token, never the body (D61).
+            CompletedByInspectorId: CurrentUserId());
+
+        var inspection = await completeInspectionHandler.HandleAsync(command, cancellationToken);
+
+        return Ok(inspection);
     }
 
     /// <summary>The authenticated caller's own user id, from the JWT's <c>sub</c> claim.</summary>
