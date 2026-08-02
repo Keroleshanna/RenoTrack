@@ -4,7 +4,7 @@ using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
 using RenoTrack.Application;
 using RenoTrack.Infrastructure;
-using RenoTrack.Infrastructure.Identity;
+using RenoTrack.Infrastructure.Persistence;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -49,12 +49,17 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
-// Storage-only Identity setup (Slice 15) — seeds the two roles, nothing more. No
-// authentication/JWT wiring here; that's Phase 4's concern.
+// Database readiness (D63). In Production this only *verifies* — migration history matches this
+// build, required roles exist — and never writes, so the runtime login needs no DDL permission;
+// schema changes are applied by an explicit deployment step beforehand. Development may set
+// Database:Mode to Migrate to have startup apply migrations and seed roles instead. Failing here
+// deliberately prevents the application from serving requests: an unreachable database, an
+// incompatible migration history, or a missing role each mean traffic would misbehave rather than
+// fail cleanly. No user account is ever created here (SRS OQ-1 remains open).
 using (var scope = app.Services.CreateScope())
 {
-    var seeder = scope.ServiceProvider.GetRequiredService<IdentityRoleSeeder>();
-    await seeder.SeedRolesAsync();
+    var databaseInitializer = scope.ServiceProvider.GetRequiredService<DatabaseInitializer>();
+    await databaseInitializer.InitializeAsync();
 }
 
 // Configure the HTTP request pipeline.

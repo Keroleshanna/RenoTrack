@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RenoTrack.Application;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
@@ -53,6 +54,8 @@ public sealed class DependencyInjectionTests
         // something the application never actually does.
         var services = new ServiceCollection();
         services.AddLogging();
+        // Host-provided in production, absent here — DatabaseInitializer's Production guard reads it (D63).
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
         services.AddApplication();
         services.AddInfrastructure(configuration);
         services.AddJwtAuthentication(configuration);

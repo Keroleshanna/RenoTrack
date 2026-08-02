@@ -251,6 +251,27 @@ Two different concerns are both loosely called "authorization" but belong in dif
 - Environments: `Development` (local), `Staging` (optional), `Production`.
 - Configuration (connection strings, email provider keys, JWT signing key) via environment variables / `appsettings.{Environment}.json` + secrets manager — never committed to source control.
 
+### 13.1 Database migrations and startup (D63)
+
+**Schema changes are applied by an explicit deployment step, never by the application at startup.** The running application only *verifies* readiness, which is read-only — so the application's runtime database login needs **no DDL permission**, and a short-lived deployment credential holds it instead.
+
+Deployment order:
+
+1. **Apply migrations.** Primary mechanism: an **EF migration bundle** (`dotnet ef migrations bundle`), a self-contained executable produced in CI that needs no SDK on the target. Supported alternative for DBA-controlled environments: an **idempotent SQL script** (`dotnet ef migrations script --idempotent`), reviewed and applied under change control.
+2. **Initialize role reference data** — run the application once with `Database:Mode=Migrate` in a non-Production environment against that database, or apply the equivalent `AspNetRoles` rows. Roles are the two names in `PermissionMatrix.md`; **no user account is created by any of this.**
+3. **Start the application**, which verifies and then serves.
+
+`Database:Mode` has exactly two values:
+
+| Mode | Behaviour |
+|---|---|
+| `Verify` | **Default when the key is absent.** Read-only check: migration history matches this build, and the required roles exist. Never writes. |
+| `Migrate` | Apply migrations, seed roles, then verify. **Refused outright in Production** — startup fails rather than proceeding. |
+
+Startup **refuses to serve** when the database is unreachable, the migration history is incompatible in either direction, or a required role is missing. Migration-history compatibility compares the migrations this build knows about against `__EFMigrationsHistory`: missing ones mean the database is behind, and applied-but-unknown ones mean it is newer than this build (typically a rollback). It is a history comparison, not a schema diff.
+
+**A fresh database has schema and roles but no users** — nothing provisions an account, pending SRS OQ-1.
+
 ---
 
 ## 14. Build Roadmap (Suggested Phases)

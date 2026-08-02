@@ -33,6 +33,12 @@ namespace RenoTrack.Infrastructure;
 /// a classic captive-dependency bug. One uniform lifetime rule across every Infrastructure
 /// registration removes that whole class of mistake before it can happen.
 ///
+/// Requires two services the generic host registers for free and an isolated ServiceCollection does
+/// not: ILogger&lt;T&gt; (AuditService, LoggingNoOpEmailSender, DatabaseInitializer) and
+/// IHostEnvironment (DatabaseInitializer's Production guard, D63). Stated here because a container
+/// composed by hand — as three test helpers do — must add both, and discovering that from a
+/// ValidateOnBuild failure is worse than reading it.
+///
 /// AddIdentityCore (not AddIdentity) — D54: AddIdentity also wires cookie-authentication-scheme
 /// defaults meant for server-rendered web apps; this API commits to JWT bearer tokens
 /// (Architecture.md §7.1), not cookies. No AddAuthentication()/AddJwtBearer()/UseAuthentication()
@@ -58,6 +64,13 @@ public static class DependencyInjection
         // its own child scopes internally (IServiceScopeFactory is a Singleton-safe capability,
         // not itself Scoped state) — no reason to depart from the uniform lifetime rule above.
         services.AddScoped<IdentityRoleSeeder>();
+
+        // Parsed eagerly, at composition time, for the same reason as the connection string and the
+        // JWT settings above: an unrecognised mode must fail startup with a message naming the key
+        // and the allowed values, not fall back to a default and leave the operator guessing which
+        // behaviour they actually got. Singleton because it is immutable configuration (D63).
+        services.AddSingleton(DatabaseInitializationOptions.FromConfiguration(configuration));
+        services.AddScoped<DatabaseInitializer>();
 
         services.AddScoped<ILeadRepository, LeadRepository>();
         services.AddScoped<IInspectionRepository, InspectionRepository>();

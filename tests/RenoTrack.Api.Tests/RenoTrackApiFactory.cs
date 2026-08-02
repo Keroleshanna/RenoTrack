@@ -56,6 +56,18 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         // Each run gets its own storage root, deleted on teardown, so uploaded files never leak
         // between runs and a test can assert on the real directory's contents.
         builder.UseSetting($"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}", StorageRoot);
+
+        // Migrate, because this fixture needs the Identity roles seeded and, as of D63, normal
+        // startup no longer seeds them — Verify would fail on a database that has never been
+        // initialized. This is a real requirement of the harness, not routing the test lifecycle
+        // through the production initializer for consistency's sake: D58 is unchanged, and
+        // InitializeAsync below still owns this database's lifetime with its own
+        // EnsureDeleted/Migrate. The host is Development here, so the Production guard does not
+        // apply; that guard is proven separately, against a Production host, in
+        // DatabaseInitializerTests.
+        builder.UseSetting(
+            DatabaseInitializationOptions.ModeKey,
+            nameof(DatabaseInitializationMode.Migrate));
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RenoTrack.Infrastructure;
 
 namespace RenoTrack.Infrastructure.Tests.Identity;
@@ -31,6 +32,9 @@ internal static class IdentityTestServices
 
         var services = new ServiceCollection();
         services.AddLogging();
+        // Same category as AddLogging: host-provided in production, absent in an isolated container,
+        // and DatabaseInitializer's constructor needs it (D63).
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
         services.AddInfrastructure(configuration);
 
         return services.BuildServiceProvider();

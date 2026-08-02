@@ -994,6 +994,53 @@ A row carries information only until `ExpiresAt`. Revoked-but-unexpired rows **m
 
 ---
 
+## D63 — Production Applies Migrations Outside Application Startup; Startup Verifies Migration History and Required Roles
+
+**Problem:** nothing in `src/` had ever applied a migration. `grep` for `Migrate`/`EnsureCreated` across the whole of `src/` returned no match outside the migration files themselves, while `Program.cs` unconditionally ran `IdentityRoleSeeder.SeedRolesAsync()` at startup — whose first action is a `SELECT` against `AspNetRoles`. A fresh production deployment therefore could not start at all, and had never been able to.
+
+**Verified by reproduction, not inference.** Running the real application against a brand-new database produced:
+
+```
+Unhandled exception. Microsoft.Data.SqlClient.SqlException: Invalid object name 'AspNetRoles'.
+   at Microsoft.AspNetCore.Identity.RoleManager`1.RoleExistsAsync(String roleName)
+   at RenoTrack.Infrastructure.Identity.IdentityRoleSeeder.SeedRolesAsync() ... line 64
+```
+
+Two further findings came out of that reproduction:
+
+1. **There are two distinct fresh-deploy failures, not one.** A database that does not *exist* fails with SQL error 4060, which EF Core wraps as *"likely due to a transient failure. Consider enabling transient error resiliency by adding 'EnableRetryOnFailure'"* — actively misleading, pointing an operator at retry policies rather than a missing database. Only once the database exists but is empty does the error 208 above appear.
+2. **`RenoTrackApiFactory` already documented the bug.** Its comment reads *"The schema must exist before the host is first created: Program.cs seeds Identity roles during startup, which fails against a database with no tables."* The test harness had been working around, in test code, the exact step production lacked.
+
+**Alternatives considered:** (a) `Database.MigrateAsync()` at startup — rejected on three grounds: it requires the application's *runtime* login to hold DDL permission permanently, turning any future application-level compromise into a schema-destruction capability; it applies schema changes on every unplanned restart with no review, dry run, or backup window; and EF Core takes no cross-process lock, so two instances starting together race — which Azure App Service (Architecture §13's target) does on every overlapped-restart deploy, *even at one configured instance*. That last hazard is the one D54/D55 already refused to hand-wave for role seeding, so relying on "we only run one instance" here would contradict a decision this codebase has made. (b) A separate migrator process/init-container — has (a)'s permission profile without its convenience, and earns its keep with orchestration this project does not use. (c) Explicit deployment step, application verifies only.
+
+**Final decision:** (c), as a durable policy:
+
+> **Production applies schema changes through an explicit deployment step and the application never mutates schema at startup; startup instead performs a read-only readiness check — migration-history compatibility plus required roles — and refuses to serve if it fails. Development may opt into migrating, and must say so in configuration. Startup never provisions users, in any environment.**
+
+**Why chosen:** least-privilege is the decisive factor. Verification is read-only, so the runtime login needs no DDL rights at all, while a short-lived deployment credential holds them. The verification half is what makes this safe rather than merely correct: without it, "someone forgot to run migrations" surfaces as scattered runtime 500s instead of one unmissable startup failure.
+
+**Mechanism.** `DatabaseInitializationOptions` (`Database:Mode`) with exactly two modes, `Verify` and `Migrate`. **`Verify` is the default when the key is absent**, so an unconfigured deployment fails safe rather than silently mutating. An unrecognised value fails eagerly, naming the key and the allowed values. `Migrate` is **refused outright in Production** — a warning was explicitly rejected, since a setting that logs disapproval and then does the dangerous thing anyway provides none of the least-privilege benefit that motivates the policy.
+
+**A "None"/"Skip" mode was considered and deliberately not built.** Every environment that might seem to want one — including a DBA-managed database the application must not touch — is better served by `Verify`, which is already read-only. An escape hatch would exist only to disable the check that catches the exact failure this decision exists to prevent. If a real environment is ever found that genuinely cannot perform a read-only verification, that evidence should reopen this decision rather than a mode being added pre-emptively.
+
+**Migration-history compatibility is checked in both directions**, deliberately, and is *not* a schema diff:
+- *Known but not applied* → the database is behind this build → refuse, naming the pending migration ids.
+- *Applied but not known* → the schema is newer than this build, the realistic cause being a rollback to an older release → refuse, naming the unknown ids. **`GetPendingMigrationsAsync` alone cannot detect this direction**, which is why applied-vs-known sets are compared instead.
+
+Anything beyond that — a general schema-comparison engine, expand/contract compatibility checking — is explicitly out of scope.
+
+**Role seeding moved out of normal startup** into the same explicit initialization step, on operational grounds rather than symmetry: it shares migrations' precondition and failure mode, and it *writes*, which conflicts with a read-only startup posture. Startup verifies the roles exist instead, because a missing role otherwise presents as a fleet-wide permissions outage with no obvious cause — every `[Authorize(Roles = ...)]` silently denying. **`IdentityRoleSeeder` itself is unchanged**; D54/D55's race-tolerant design is orthogonal and only its caller moved.
+
+**User provisioning stays out.** Schema initialization, role reference data, and user provisioning are three separate concerns. SRS **OQ-1** remains unresolved, and a database having roles must never imply a privileged user silently exists. A fresh production database therefore has schema and roles and nobody able to log in — the known OQ-1 gap, sharpened rather than closed.
+
+**Deployment artifacts:** an **EF migration bundle** (`dotnet ef migrations bundle`) is the primary recommended mechanism — a self-contained executable needing no SDK on the target. An **idempotent SQL script** (`dotnet ef migrations script --idempotent`) is the supported alternative where a DBA reviews and applies changes. Building an actual deployment pipeline was explicitly out of this slice's scope.
+
+**Concurrency, stated honestly:** the Development `Migrate` path is *not* concurrency-safe, and deliberately so. Production never migrates at startup, so concurrent migration is not a production scenario, and adding distributed locking to make a developer convenience horizontally scalable would be architecture built for a case that does not exist.
+
+**Consequences:** `AddInfrastructure()` now depends on `IHostEnvironment` in addition to `ILogger<T>` — both supplied free by the generic host, both absent in a hand-composed container. Three test helpers add it, exactly as they already add `AddLogging()`; the requirement is documented on `AddInfrastructure` itself. **The Slice 3 DI safety net caught this within minutes**, failing with *"Unable to resolve service for type 'IHostEnvironment' while attempting to activate 'DatabaseInitializer'"* — the second time that test has caught a later slice's mistake (the first was `TokenService` in Slice 4). D40 and D58 are untouched: `Api.Tests` still migrates its own database and `Infrastructure.Tests` still uses `EnsureCreated`; neither test lifecycle is routed through the initializer.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1059,3 +1106,9 @@ A row carries information only until `ExpiresAt`. Revoked-but-unexpired rows **m
 | Splitting `IsActiveInspectorAsync` into separate exists/role/active checks | D62 | Every caller wants the same conjunction; splitting invites checking two of three and permitting the case the third would catch |
 | Taking `InspectorId` from the JWT when scheduling | D61 correction | It is the assignment target chosen by an Admin, not the caller's identity — deriving it would make it impossible to schedule anyone but oneself |
 | Validating that `ScheduledAt` is in the future | Slice 7 review | No document requires it, and back-dating a visit already carried out is plausible; it would need a numbered `BusinessRules.md` rule first |
+| An Admin-driven `MarkWon`/`MarkLost` endpoint (`PATCH /api/v1/leads/{id}/status`) | Slice 10 review | `AngebotSent` is unreachable (`Lead.MarkAngebotSent()` is called by nothing), so it would 409 for every Lead; and StateMachine §5 states Lead reaches `Won` only inside the Angebot decision handler's transaction — an Admin path would be a second route to a decision BR-4 makes tamper-proof |
+| `Database.MigrateAsync()` at application startup | D63 | Requires the runtime login to hold DDL permission permanently, applies schema changes on unplanned restarts with no review or backup window, and races across instances — which App Service does on every overlapped-restart deploy |
+| A separate migrator process / init-container | D63 | Same DDL-permission profile as startup migration without the convenience; earns its keep only with orchestration this project does not use |
+| A warning instead of a hard refusal for `Migrate` in Production | D63 | A setting that logs disapproval and then does the dangerous thing anyway provides none of the least-privilege benefit motivating the policy |
+| A `None`/`Skip` database initialization mode | D63 | Every environment that might want one is better served by `Verify`, which is already read-only; it would exist only to disable the check that catches the failure the decision exists to prevent |
+| Distributed locking for concurrent Development `Migrate` | D63 | Production never migrates at startup, so it is architecture for a case that does not exist |

@@ -1,6 +1,7 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Infrastructure.Email;
@@ -42,6 +43,10 @@ public sealed class DependencyInjectionTests
 
         var services = new ServiceCollection();
         services.AddLogging(); // Required for ILogger<T> resolution (AuditService, LoggingNoOpEmailSender) — the real host provides this for free via WebApplicationBuilder; an isolated container does not.
+        // Same category as AddLogging above: DatabaseInitializer needs IHostEnvironment (D63's
+        // Production guard reads it), which the generic host registers for free and an isolated
+        // container does not.
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
         services.AddInfrastructure(configuration);
 
         return services.BuildServiceProvider(new ServiceProviderOptions

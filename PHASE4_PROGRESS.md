@@ -34,7 +34,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 8 | Inspection photo upload + `LocalDiskFileStorage` | ✅ done |
 | 9 | Inspection completion | ✅ done |
 | 10 | Inspection notes (`PATCH`) — **redefined**; Lead Won/Lost moved to Phase 6 | ✅ done |
-| 11 | Migration-application strategy | not started |
+| 11 | Migration-application strategy | ✅ done |
 
 Three orderings changed from the first draft, each for a stated reason: exception middleware moved ahead of `AddApplication()` (it has no dependency on handlers/validators being resolvable); `LocalDiskFileStorage` folded into the photo-upload slice that consumes it rather than standing alone several slices earlier (a real implementation with no caller is the same speculative-growth mistake §4 forbids); Lead status update moved after the Inspection slices, which is what revealed that `MarkInspectionScheduled`/`MarkInspectionDone` are already driven as side effects of the Inspection commands and `MarkAngebotInProgress`/`MarkAngebotSent` belong to Phase 5 — leaving `MarkWon`/`MarkLost` as the only transitions that endpoint can legitimately drive in Phase 4.
 
@@ -745,3 +745,92 @@ Api suite run three consecutive times per `CLAUDE.md` §14 — 130/130 each.
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **537 passing, 0 failing** (153 Domain + 165 Application + 89 Infrastructure + 130 Api). `dotnet ef migrations has-pending-model-changes` → no pending changes. No new `ARCHITECTURE_DECISIONS.md` entry — the endpoint applies existing rules, and the documentation cleanup reconciles existing ones rather than creating any.
+
+---
+
+## Slice 11 — Migration Application & Database Bootstrap (D63)
+
+**The last Phase 4 slice.** Deployment/runtime architecture rather than an endpoint, and the one slice in this phase that genuinely warranted a numbered decision.
+
+### The failure mode, reproduced rather than predicted
+
+`grep` for `Migrate`/`EnsureCreated` across `src/` returned no match outside the migration files: **nothing in production had ever applied a migration**, while `Program.cs` unconditionally ran `IdentityRoleSeeder.SeedRolesAsync()` at startup. Running the real application against a genuinely fresh database produced:
+
+```
+Unhandled exception. Microsoft.Data.SqlClient.SqlException: Invalid object name 'AspNetRoles'.
+   at Microsoft.AspNetCore.Identity.RoleManager`1.RoleExistsAsync(String roleName)
+   at RenoTrack.Infrastructure.Identity.IdentityRoleSeeder.SeedRolesAsync() ... line 64
+```
+
+**Two findings the design review had not anticipated:**
+
+1. **There are two distinct fresh-deploy failures.** A database that does not *exist* fails with SQL error 4060, which EF Core wraps as *"likely due to a transient failure… Consider enabling transient error resiliency"* — pointing an operator at retry policies rather than at the missing database. Only once the database exists but is empty does error 208 above appear. The initializer's diagnostics now distinguish them explicitly.
+2. **`RenoTrackApiFactory` already documented the bug** — *"The schema must exist before the host is first created: Program.cs seeds Identity roles during startup, which fails against a database with no tables."* The harness had been working around, in test code, the exact step production lacked.
+
+### What was decided (full reasoning in D63)
+
+Strategy **C**: Development may explicitly migrate; Production applies migrations as a deployment step and startup only **verifies**, read-only, so the runtime login needs no DDL permission. Automatic startup migration was rejected on least-privilege grounds, on unreviewed-schema-change-on-restart grounds, and because EF takes no cross-process lock — App Service performs overlapped restarts even at one configured instance, the same hazard D54/D55 refused to hand-wave for role seeding.
+
+Two modes only, `Verify` (default when absent) and `Migrate` (**hard-refused in Production**; a warning was explicitly rejected). A `None`/`Skip` mode was considered and **not built** — a DBA-managed database is a reason to use `Verify`, not to bypass it.
+
+**Migration-history compatibility is checked in both directions**, which is a history comparison and deliberately not a schema diff: known-but-not-applied means the database is behind; applied-but-unknown means its schema is newer than this build, a direction `GetPendingMigrationsAsync` alone cannot detect.
+
+**Role seeding moved out of normal startup** into explicit initialization, on operational grounds rather than symmetry — it shares migrations' precondition and it writes. Startup verifies the roles instead. **`IdentityRoleSeeder` is unchanged**; only its caller moved. **No user is provisioned in any environment** — SRS OQ-1 stays open, and a fresh database has schema and roles and nobody able to log in.
+
+### An unexpected consequence, caught by an existing safety net
+
+`DatabaseInitializer` needs `IHostEnvironment`, which the generic host supplies free and a hand-composed container does not. The **Slice 3 DI test failed within minutes**: *"Unable to resolve service for type 'IHostEnvironment' while attempting to activate 'DatabaseInitializer'"*. This is the second time that test has caught a later slice's mistake (the first was `TokenService` in Slice 4).
+
+Resolved by following the existing `AddLogging()` precedent — the same category of host-provided dependency — rather than changing `AddInfrastructure`'s signature: three test helpers now register a hand-written `TestHostEnvironment`, and the requirement is documented on `AddInfrastructure` itself so it is declared rather than discovered.
+
+### D40/D58 untouched
+
+`Api.Tests` still migrates its own database; `Infrastructure.Tests` still uses `EnsureCreated`. Neither lifecycle is routed through the initializer. `RenoTrackApiFactory` does set `Database:Mode=Migrate` — not for consistency, but because normal startup no longer seeds roles and `Verify` would fail against its freshly-created database.
+
+### Tests — 12 new, all state-based
+
+Every assertion inspects real database state (`__EFMigrationsHistory` rows, `AspNetRoles` rows) or the refusal that state produces. A test that only checked "`MigrateAsync` was called" would pass against a database that failed to migrate.
+
+Bootstrap from zero; idempotency across repeated runs; `Verify` succeeds when ready; **both history directions proven independently**; missing role refused; `Verify` proven not to repair what it finds (it must not, or the runtime would need write permission); Production refuses `Migrate` **and writes nothing**; `Verify` permitted in Production; omitted mode defaults to `Verify` and writes nothing; unrecognised mode fails eagerly naming key and allowed values; non-existent database names the connection rather than a migration fault.
+
+**Concurrency deliberately not tested or defended:** Production never migrates at startup, so concurrent migration is not a production scenario, and distributed locking would be architecture for a case that does not exist.
+
+### Adversarial verification — five experiments, each observed
+
+| # | Broken implementation | Observed failure | Restored |
+|---|---|---|---|
+| 1 | "database behind" detection disabled | exactly 1 failure: `Verify_refuses_when_a_required_migration_is_missing` | ✅ |
+| 2 | "database ahead" detection disabled | exactly 1 failure: `Verify_refuses_when_the_database_has_an_unknown_applied_migration` | ✅ |
+| 3 | role verification disabled | 2 failures: the missing-role refusal and the does-not-repair test | ✅ |
+| 4 | Production guard downgraded to a warning | `Migrate_is_refused_in_production_and_writes_nothing` | ✅ |
+| 5 | migration application skipped in `Migrate` mode | 8 failures incl. the state-based bootstrap test | ✅ |
+
+Experiments 1 and 2 failing **exactly one test each** is what proves the two history directions are covered independently rather than by one combined assertion.
+
+### End-to-end bootstrap, verified against the real application
+
+| Step | Result |
+|---|---|
+| Production + `Verify`, database absent | Refused: *"Cannot connect… the database itself has been created — a database that does not yet exist reports a login failure rather than a missing schema."* |
+| Production + `Verify`, database empty | Refused, naming **all five** pending migration ids |
+| Production + `Migrate` | Refused: *"…refused in the Production environment…"* |
+| Development + `Migrate`, empty database | `Applying database migrations` → `Seeding Identity role reference data` → `verification succeeded` → `Now listening on: http://localhost:5000` |
+| Production + `Verify`, initialized database | `verification succeeded` → serving, with **no** "Applying database migrations" line |
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Infrastructure/Persistence/DatabaseInitializationOptions.cs` | New — two-value mode, eager hand-rolled parsing |
+| `src/RenoTrack.Infrastructure/Persistence/DatabaseInitializer.cs` | New — migrate/seed/verify, Production guard, both-direction history check |
+| `src/RenoTrack.Infrastructure/DependencyInjection.cs` | Registers both; documents the host-provided requirements |
+| `src/RenoTrack.Api/Program.cs` | Startup seeder block replaced by the initializer |
+| `src/RenoTrack.Api/appsettings.json` | `Database:Mode = Verify`, stated explicitly in a tracked file |
+| `src/RenoTrack.Infrastructure/RenoTrack.Infrastructure.csproj` | Explicit `Microsoft.Extensions.Hosting.Abstractions` |
+| `tests/.../DatabaseInitializerTests.cs` | New — 12 state-based tests |
+| `tests/RenoTrack.Infrastructure.Tests/TestHostEnvironment.cs`, `tests/RenoTrack.Api.Tests/TestHostEnvironment.cs` | New — hand-written host-environment doubles |
+| `Architecture.md` §13.1, `CLAUDE.md` §22, `ARCHITECTURE_DECISIONS.md` D63 | The durable policy |
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **549 passing, 0 failing** (153 Domain + 165 Application + 101 Infrastructure + 130 Api). `dotnet ef migrations has-pending-model-changes` → no pending changes. **The five existing migrations were not regenerated, squashed, renamed, or edited.**
