@@ -5,176 +5,153 @@ Copy everything in the code block below into the first message of a brand-new co
 ---
 
 ```
-You are continuing work on RenoTrack (a renovation company's project-tracking system —
-public website + admin/inspector dashboard), an existing, actively-developed project. This is
-not a new project and not a fresh start. Phases 0–3 are merged to main. **Phase 4 is COMPLETE —
-all 11 slices — on a feature branch, fully green, and awaiting review and merge.** Nothing is
-pushed. A prior conversation ended for context reasons and persisted everything into the
-repository, so you depend on the files, not on any chat history. Do not treat anything below as
-optional reading.
+You are continuing work on RenoTrack (a renovation company's project-tracking system — public
+website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
+project and not a fresh start. **Phases 0–4 are all complete and merged to `main`.** A prior
+conversation ended for context reasons and persisted everything into the repository, so you depend
+on the files, not on any chat history. Do not treat anything below as optional reading.
 
-CURRENT STATE AT A GLANCE — verify every line yourself in steps 1–6. It was accurate when
-written; the repository is authoritative if anything disagrees.
+CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- Branch: feature/phase-4-api-auth-leads-inspections
-- HEAD: the Phase 4 closeout-fix commit ("docs/test: close Phase 4 review findings"), which sits
-  on top of b05fb34 ("feat(infrastructure): apply migrations by deployment step, verify at
-  startup (Phase 4 Slice 11)"). `git log` is authoritative.
-- origin/main: babfff9. The branch is 17 commits ahead, 0 behind. NOTHING IS PUSHED — the branch
-  does not exist on the remote — and NO PULL REQUEST HAS BEEN OPENED.
+- Branch: main. Phase 4's feature branch is merged; its local copy was deleted and the remote copy
+  kept, matching how the Phase 2 and Phase 3 branches were left.
+- HEAD / origin/main: e1a4d9ef8d8653ab44f1ff7822c855a4be6ea40c
+  ("Merge pull request #8 from Keroleshanna/feature/phase-4-api-auth-leads-inspections").
+- PR #8 is MERGED. Phase 4 needs no further delivery work.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 549 passing, 0 failing — 153 Domain, 165 Application, 101 Infrastructure, 130 Api.
-- Migrations: 5 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens).
-  Only AddRefreshTokens was added by Phase 4; the four Phase 3 migrations are untouched.
-  `dotnet ef migrations has-pending-model-changes` reports no pending changes.
+- Tests: 553 passing, 0 failing — 153 Domain, 165 Application, 101 Infrastructure, 134 Api.
+- Migrations: 5 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens);
+  has-pending-model-changes reports none.
 - Working tree: clean.
+- Documentation is reconciled with merged reality as of this handoff. If you find a document that
+  still describes Phase 4 as in progress or unpushed, that is a regression — say so.
 
-YOUR TASK: PHASE 4 REVIEW AND PULL REQUEST. **Not implementation. Not Phase 5.**
+YOUR TASK: PHASE 5, STARTING WITH A DEVELOPMENT BOOTSTRAP / SEED DATA SLICE.
 
-A full closeout review has already been performed and its findings applied. It found **no
-Must-Fix items** and six Should-Fix items (a test assertion plus documentation currency), all of
-which are now closed. The remaining work is the user's own review, then — only with explicit
-permission — pushing the branch and opening the PR.
+Phase 5 per PROJECT_ROADMAP.md is "API: Angebot Builder + Internal Review Workflow", on branch
+feature/phase-5-angebot-builder-review. **It opens with a Development bootstrap / seed-data slice,
+before any business feature**, so the backend is manually testable as a real running application
+rather than only through the automated suites.
 
-Do not start Phase 5. Do not push, merge, or open a PR without explicit permission.
+Present a DESIGN REVIEW for that slice and wait for approval before writing any code.
+Intended direction (a direction, not a specification — challenge it):
+  - a Development-only Admin account and a Development-only Inspector account;
+  - opt-in, never silently running everywhere;
+  - idempotent;
+  - no passwords or secrets committed to the repository;
+  - MUST NEVER provision users in Production;
+  - this does NOT resolve SRS OQ-1 — production first-Admin provisioning stays an explicit open
+    question;
+  - do not seed large amounts of fake business data unless a later design review establishes a
+    real need.
+This interacts with D63, which deliberately separates schema initialization, role reference data,
+and user provisioning, and states that no code path creates a user in any environment. The seeding
+slice must respect that separation rather than quietly overturn it.
+
+After that slice is implemented and verified, run a MANUAL Phase 4 smoke test against the real API:
+Admin login → create/read Lead → schedule Inspection → Inspector login → access assigned Lead →
+upload photo → update notes → complete Inspection. Only then move to the first actual Phase 5
+business slice (Angebot/Catalog endpoints per PROJECT_ROADMAP.md).
 
 BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
 
-1. Read CLAUDE.md in full — the permanent engineering rules. §22 (API layer) is the newest and
-   largest section; every rule there is settled convention, not a suggestion.
-
-2. Read PROJECT_STATE.md in full — what exists right now, layer by layer.
-
-3. Read NEXT_STEPS.md in full — especially §5a (every open item carried out of Phase 4, with
-   deliberate deferrals separated from forgotten work), §3 ("What Should NOT Be Changed") and
-   §4 ("Decisions Considered Final").
-
-4. Read PHASE4_PROGRESS.md in full — the slice-by-slice narrative of all 11 slices: what was
-   designed, what was challenged and changed under review, what was proven by reproduction, and
-   what was deliberately not built. This is the densest source of Phase 4 context.
-
-5. Read ARCHITECTURE_DECISIONS.md, at minimum D57–D63 (Phase 4's decisions) plus the "Decisions
-   Explicitly Rejected" table at the end. Several entries record real defects found and fixed —
-   read those carefully so you do not reintroduce them. D61 carries an explicit self-correction
-   made in Slice 7.
-
-6. Run these yourself and confirm they match the figures above:
+1. Recover and verify context from `main`:
+     git fetch origin && git status && git log --oneline -5
      dotnet build RenoTrack.slnx
      dotnet test RenoTrack.slnx
      dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure --startup-project src/RenoTrack.Infrastructure
-     git status && git log --oneline origin/main..HEAD && git fetch origin
-   RenoTrack.Infrastructure.Tests and RenoTrack.Api.Tests both need real SQL Server LocalDB
-   (`sqllocaldb info` should list MSSQLLocalDB, State: Running). If it is unavailable, say so
-   before writing code — that is information, not an obstacle to work around with a weaker
-   substitute. Note this machine has repeatedly produced an orphaned sqlservr.exe that holds the
-   MSSQLLocalDB instance while `sqllocaldb info` reports it Stopped; `start` then fails with
-   Windows error 575. The fix is to terminate that one orphaned PID — ask first, and never touch
-   any other sqlservr.exe process.
 
-WHAT PHASE 4 DELIVERED (all 11 slices, committed, none pushed)
+2. Read, in full: CLAUDE.md (§22 is the API-layer ruleset and the newest), PROJECT_STATE.md
+   (especially §12, Phase 4's closeout record), NEXT_STEPS.md (especially §5a), PHASE4_PROGRESS.md
+   (including its closing "What Happened After Slice 11" section), and ARCHITECTURE_DECISIONS.md
+   D57–D63 plus the "Decisions Explicitly Rejected" table. PHASE2/3_PROGRESS.md are historical
+   background.
 
-  1  API foundation, conventions, docs — api/v1 by literal URL segment, no versioning library
-     (D57). [Authorize] on controllers by default, [AllowAnonymous] per action. Api.Tests boots
-     the real app via WebApplicationFactory<Program> against real LocalDB, schema via
-     MigrateAsync — deliberately NOT EnsureCreated, unlike Infrastructure.Tests; the two fixtures
-     must not be "unified" (D58). Scalar serves the OpenAPI document. Api.Tests runs in CI's
-     Windows job, never Linux.
-  2  Global RFC 7807 exception handling (D59) — ONE IExceptionHandler with a single explicit
-     switch. NotFoundException→404, ForbiddenException→403, ConflictException→409,
-     ValidationException→400 (field-keyed errors), ArgumentException→400,
-     InvalidOperationException→409, everything else→500. Mapped exceptions surface their message;
-     unmapped ones deliberately do not. The ArgumentException/InvalidOperationException mapping
-     is a KNOWINGLY ACCEPTED RISK mitigated by logging every mapped exception at Warning WITH ITS
-     FULL STACK TRACE — do not remove that logging. traceId lives in CustomizeProblemDetails.
-  3  AddApplication() DI composition root — every registration explicit, no scanning, no Scrutor.
-     Handlers registered BY INTERFACE. The "forgot to register" risk is covered by a
-     reflection-based test in Api.Tests. That test has now caught two later slices' mistakes
-     (TokenService in Slice 4, DatabaseInitializer in Slice 11) — do not weaken it.
-  4  JWT authentication (D60) — 15-min access tokens, persisted refresh tokens stored ONLY as
-     SHA-256 hashes, rotated every use, whole-chain revocation on reuse. Retention until
-     ExpiresAt; revoked-but-unexpired rows MUST be kept or reuse detection breaks. No cleanup job
-     and no logout endpoint, both deliberate. FR-10.3 lockout wired explicitly. Every login
-     failure returns an IDENTICAL 401. AUTHENTICATION IS DELIBERATELY OUTSIDE CQRS — read D60
-     before "fixing" it.
-  5  Public Lead creation (D61) — POST /api/v1/leads, anonymous. Source and CreatedByUserId are
-     server-derived, because Source gates the FR-9.2 Admin notification. Enums serialize as
-     NAMES. Deliberately NOT idempotent.
-  6  Lead read endpoints. *** THE MOST IMPORTANT LESSON IN PHASE 4: a fail-open authorization
-     defect was found and fixed here. NEVER interpret "not Inspector" as "Admin". Unrestricted
-     access must only ever be reached by POSITIVELY establishing the Admin role. The vulnerability
-     was reproduced before being fixed. Do not simplify that helper back into a single negated
-     check. *** Paging limits live in Application.Common.Pagination; list queries order
-     deterministically with a tiebreaker before Skip/Take.
-  7  Admin-only Inspection scheduling (D62) — D61's wording was CORRECTED here: only values
-     describing the CALLER are server-derived. An Admin-selected InspectorId is legitimate input.
-     IUserQueries.IsActiveInspectorAsync rejects a nonexistent, non-Inspector, or DEACTIVATED
-     assignee BEFORE any mutation. Keep that check atomic — one boolean, not three.
-  8  Inspection photo upload + real LocalDiskFileStorage — Inspector only. ORDERING: every
-     validation, ownership, and Domain rejection happens BEFORE the filesystem write, proven by
-     reproduction. COMPENSATION, NOT ATOMICITY: a failed commit triggers a best-effort delete and
-     rethrows the ORIGINAL exception; process death can still leave an orphan. Never document or
-     extend it as a consistency guarantee. Extension validation is a CHARACTER-CLASS rule, not a
-     file-type allowlist.
-  9  Inspection completion — 200 + InspectionDto. The first endpoint needing NO request record at
-     all (D61's subset is empty) and no Application-layer change. Genuinely ATOMIC across
-     Inspection and Lead: both repositories and UnitOfWork share the one request-scoped DbContext,
-     so a single SaveChangesAsync writes both. THE AUDIT ROW IS DELIBERATELY OUTSIDE that
-     guarantee (D50). Guard ordering is Inspection-first for error quality; do not reorder.
- 10  Inspection notes (PATCH /api/v1/inspections/{id}) — **this slice was redefined during design
-     review.** It was planned as "Lead status update (Won/Lost)", which did not survive contact
-     with the repository: Lead.MarkAngebotSent() is called by nothing, so AngebotSent is
-     unreachable and such an endpoint would 409 for every Lead; and StateMachine §5 states Lead
-     reaches Won only inside the Angebot decision handler's transaction. LEAD WON/LOST IS PHASE 6
-     WORK — do not create Admin MarkWon/MarkLost commands or endpoints. The slice also reconciled
-     a real contradiction: Architecture §5.2's obsolete PATCH /leads/{id}/status was removed and
-     PermissionMatrix §1's self-contradictory row corrected.
- 11  Migration application / database bootstrap (D63) — closed a real, reproduced defect: nothing
-     in src/ had ever applied a migration, so a fresh production database died with "Invalid
-     object name 'AspNetRoles'". Production now applies migrations by an explicit deployment step
-     (EF bundle primary, idempotent SQL script supported) and startup only VERIFIES — read-only,
-     so the runtime login needs no DDL permission. Database:Mode is Verify (default when absent)
-     or Migrate (Development opt-in, HARD-REFUSED in Production). Verification checks migration
-     history IN BOTH DIRECTIONS plus required roles. Role seeding moved out of normal startup;
-     IdentityRoleSeeder itself unchanged. NO USER IS PROVISIONED IN ANY ENVIRONMENT.
+   RenoTrack.Infrastructure.Tests and RenoTrack.Api.Tests need real SQL Server LocalDB
+   (`sqllocaldb info` should show MSSQLLocalDB Running; `sqllocaldb start MSSQLLocalDB` if not).
+   On this machine an orphaned sqlservr.exe has repeatedly held the instance while `sqllocaldb
+   info` reports it Stopped, with `start` then failing with Windows error 575. The fix is to
+   terminate that one orphaned PID — ask first, and never touch any other sqlservr.exe.
 
-TWO CROSS-CUTTING FINDINGS THAT MUST STAY VISIBLE
+PHASE 4 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
 
-- AuditService calls SaveChangesAsync on the SAME scoped RenoTrackDbContext. Its intended usage is
-  after the primary business commit. If called while unrelated tracked changes are pending, its
-  SaveChangesAsync will flush those too. This is not transaction isolation, and callers must not
-  rely on it to isolate pending changes. (Found empirically in Slice 9, where it masked a
-  deliberately-introduced defect.)
-- A status-code-only authorization test can be a FALSE POSITIVE when both the API role gate and
-  the Application ownership guard produce 403. Where that distinction matters, assert the response
-  body is empty (role gate) versus a ProblemDetails document (ownership). All three affected
-  endpoints now do this.
+- FAIL-SECURE ROLE SCOPING. "Not an Inspector" must never mean "Admin". Unrestricted access is only
+  ever reached by positively establishing the Admin role; the narrower role is checked first so a
+  dual-role account is scoped; anything else is refused. A fail-open version of this was found and
+  reproduced in Slice 6. Keep both the [Authorize(Roles=...)] attribute and the in-method guard.
+- REFRESH-TOKEN ROTATION IS DATABASE-ARBITRATED. RefreshToken.RevokedAt is an EF concurrency token.
+  Without it, 8 of 8 concurrent rotations of one token succeeded (reproduced 3/3) — this was not a
+  narrow or theoretical race. Revocation and its replacement must stay in ONE SaveChanges. Chain
+  revocation uses a set-based ExecuteUpdateAsync, because load-mutate-save threw
+  DbUpdateConcurrencyException and surfaced as a 500.
+- AUTHENTICATION SITS OUTSIDE CQRS (D60), and every login failure returns an identical 401. Do not
+  make those messages more helpful. Lockout depends on AuthController's explicit
+  IsLockedOutAsync/AccessFailedAsync/ResetAccessFailedCountAsync calls.
+- SERVER-DERIVED CALLER IDENTITY (D61, as corrected in Slice 7): only values describing *who is
+  acting* come from the JWT. A third party the caller legitimately chooses (an Admin picking which
+  Inspector to send) is genuine request input.
+- BUSINESS RULES ABOUT STAFF ACCOUNTS GO THROUGH IUserQueries (D62). A database FK is not a business
+  rule.
+- ONE EXCEPTION HANDLER, ONE SWITCH (D59). Mapped exceptions surface their message; unmapped ones
+  never do. Every mapped exception is logged at Warning WITH ITS STACK TRACE — do not remove that.
+- PRODUCTION NEVER MUTATES SCHEMA AT STARTUP (D63). Database:Mode is Verify (default) or Migrate
+  (Development opt-in, hard-refused in Production). Verification checks migration history in BOTH
+  directions plus required roles. Do not add a mode that skips verification.
+- FILE UPLOAD IS COMPENSATION, NOT ATOMICITY. Every rejection precedes the write; a failed commit
+  triggers a best-effort delete that rethrows the original exception. Orphans remain possible. Never
+  document it as a consistency guarantee.
+- AUDITSERVICE IS NOT WRITE-ISOLATED. It calls SaveChangesAsync on the same request-scoped
+  DbContext, so if called with unrelated pending changes it will flush them too. Always commit the
+  business operation first, then audit.
+- A STATUS-CODE-ONLY AUTHORIZATION TEST CAN BE A FALSE POSITIVE when a role gate and an ownership
+  guard both yield 403. Assert an empty body (role gate) versus a ProblemDetails body (ownership).
+- LEAD Won/Lost IS PHASE 6 WORK, driven by the customer's token-link decision. StateMachine §5
+  requires Lead to reach Won only inside the Angebot decision handler's transaction. Do NOT create
+  Admin MarkWon/MarkLost commands or endpoints.
+- TEST DISCIPLINE: Api.Tests migrates its database, Infrastructure.Tests uses EnsureCreated — do not
+  unify them (D58). Real LocalDB always, never InMemory (D40). Adversarial verification is expected:
+  prove a safeguard by breaking it, watch the test fail, restore byte-identically. Rerun concurrency
+  tests several times; one green run proves nothing.
+- Grow interfaces, DTOs, repositories and schema strictly on demand. Do not invent business rules —
+  if the documents do not state one, say so rather than creating it.
+
+UNRESOLVED / DEFERRED ITEMS CARRIED INTO PHASE 5 (all deliberate — NEXT_STEPS.md §5a is the full
+record with reasons)
+
+- Rate limiting on the anonymous POST /api/v1/leads, and CORS — deferred to a hardening slice.
+  The endpoint is public, state-creating and currently unthrottled.
+- Production user provisioning / SRS OQ-1 — unresolved. A freshly initialized production database
+  has schema and roles and nobody able to log in. The Development bootstrap slice must NOT be
+  treated as resolving this.
+- GET /api/v1/inspections/{id} — PermissionMatrix grants the permission; no endpoint exists and it
+  is absent from Architecture §5.2. Needs a documents-first decision. This is why scheduling returns
+  201 with no Location header.
+- Authenticated photo serving + IFileStorage.GetAsync — photos can be stored but not served.
+- Orphaned files remain possible despite compensation; no sweeper exists.
+- Refresh-token rows are never cleaned up (retention to ExpiresAt, by decision).
+- AuditService shared-DbContext caveat (above) — benign today because every handler audits after
+  committing.
+- IUserQueries.IsActiveInspectorAsync stays a single boolean; revisit when Phase 10's Inspector
+  picker makes "exists but ineligible" worth distinguishing.
+- Lead Won/Lost → Phase 6.
+- The deployment pipeline itself is specified (EF bundle primary, idempotent SQL script supported)
+  but not built.
+- OperationCanceledException is unmapped and yields 500 — a conscious Slice 2 scope decision.
+- ArgumentException→400 / InvalidOperationException→409 is a knowingly-accepted risk (D59),
+  mitigated by stack-trace logging.
+- Roles.cs sits in Auth/ but declares namespace RenoTrack.Api.Controllers — cosmetic, left twice.
+- TestProtectedController's "delete once redundant" note is now unmet; keeping it is defensible.
 
 WORKING RULES — NOT OPTIONAL
 
-- Process, every slice: design review → challenge assumptions → explicit approval →
-  implementation → adversarial verification → documentation in the same commit → commit.
-  Never implement first and explain after.
-- ADVERSARIAL VERIFICATION IS EXPECTED: prove a safeguard works by breaking it, confirm the test
-  actually fails, then restore. Several real defects were caught this way. A green test that has
-  never been shown to fail proves little.
-- Never push, never merge, never open a PR without explicit permission. Never commit to main.
-  Never force-push (D5 records the incident behind this).
+- Process, every slice: design review → challenge assumptions → explicit approval → implementation
+  → adversarial verification → documentation in the same commit → commit. Never implement first.
+- Never push, merge, or open a PR without explicit permission. Never commit to main. Never
+  force-push (D5 records the incident behind this).
 - Verify claims against the repository rather than trusting prose, including this file's.
-- Grow interfaces, DTOs, repositories, and schema strictly on demand. No speculative abstractions.
-- Do not invent business rules. If the documents do not state one, say so rather than creating it.
-- When a design review reveals a documentation gap or contradiction, fix the documentation in the
-  same commit as the code that depends on it.
 - If something in the documents turns out to be false, say so plainly before working around it.
+- Report unexpected findings rather than designing around them silently.
 
-KNOWN OPEN ITEMS (all deliberate — see NEXT_STEPS.md §5a for the full list with reasons)
-
-Rate limiting on the public Lead endpoint and CORS (hardening slice); production user provisioning
-(blocked on SRS OQ-1 — login works but nobody can log in on a fresh database); GET
-/api/v1/inspections/{id}; authenticated photo serving plus IFileStorage.GetAsync (photos can be
-stored but not served); orphaned files remain possible; no refresh-token cleanup job; Lead
-Won/Lost deferred to Phase 6; deployment pipeline documented but not built; Roles.cs
-folder/namespace mismatch (cosmetic).
-
-CONFIRM YOU HAVE COMPLETED STEPS 1–6, then report the branch's readiness and wait for the user's
-direction on the pull request. Do not begin Phase 5.
+CONFIRM STEP 1, THEN PRESENT THE DESIGN REVIEW FOR THE DEVELOPMENT BOOTSTRAP / SEED DATA SLICE.
+Do not implement it until it is explicitly approved.
 ```

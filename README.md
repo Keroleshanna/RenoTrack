@@ -83,8 +83,10 @@ tests/
 
 ## Status
 
-Phases 0–3 (solution bootstrap, Domain core, Domain CatalogItem, Application layer, Infrastructure/EF Core) are complete and merged to `main`.
+Phases 0–4 (solution bootstrap, Domain core, Domain CatalogItem, Application layer, Infrastructure/EF Core, API layer) are complete and merged to `main`.
 
-**Phase 4 (API layer) is complete** — all eleven slices — on `feature/phase-4-api-auth-leads-inspections`, pending review and merge: JWT authentication with rotating refresh tokens, public Lead creation, Lead reads with role-scoped access, the Inspection endpoints (schedule, notes, photos, complete), RFC 7807 error handling, real disk-backed file storage, and the database bootstrap policy.
+**Phase 4 (API layer) merged via PR #8** — all eleven slices: JWT authentication with rotating refresh tokens, public Lead creation, Lead reads with role-scoped access, the Inspection endpoints (schedule, notes, photos, complete), RFC 7807 error handling, real disk-backed file storage, and the database bootstrap policy.
+
+**Phase 5 (Angebot builder + internal review workflow) is next**, and opens with a Development bootstrap / seed-data slice — because a freshly initialized database currently has schema and roles and nobody able to log in (see the note above).
 
 See `PROJECT_STATE.md` for the current, precise snapshot, `PHASE4_PROGRESS.md` for the slice-by-slice record, `NEXT_STEPS.md` for open items, and `PROJECT_ROADMAP.md` for the full build plan.

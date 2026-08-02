@@ -834,3 +834,25 @@ Experiments 1 and 2 failing **exactly one test each** is what proves the two his
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **549 passing, 0 failing** (153 Domain + 165 Application + 101 Infrastructure + 130 Api). `dotnet ef migrations has-pending-model-changes` → no pending changes. **The five existing migrations were not regenerated, squashed, renamed, or edited.**
+
+---
+
+## Closeout — What Happened After Slice 11
+
+The eleven slices above are the phase's *planned* work. Two review passes followed them, and the second changed production authentication code. **The full record is `PROJECT_STATE.md` §12**; this section exists so the slice log does not appear to end at the last slice, which is what made the most important finding of the phase easy to miss.
+
+Both passes numbered their findings `B1`, `B2`, … independently. They are different findings.
+
+**Pass one — internal closeout review (`5371fe9`).** No Must-Fix, six Should-Fix, all closed. Docs and tests only; the sole `src/` change was a doc comment recording that `AuditService.LogAsync` shares the request's `DbContext`. The one test change strengthened Slice 8's Admin role-gate assertion to check for an **empty body**, since a status code alone cannot distinguish a role-gate 403 from an ownership 403 — the trap Slice 9 had already identified. State after this pass: **549 passing**.
+
+**Pass two — PR review (`e908c7d`).** Four findings, all authentication.
+
+- **B1 is the most consequential finding of Phase 4.** Refresh-token rotation could be raced. `RevokedAt` became an **EF concurrency token**, so the database — not request timing — guarantees a token is revoked exactly once, and the loser's replacement `INSERT` rolls back with its failed `UPDATE`. **Reproduced, not theorized: with the protection removed, all 8 concurrent refreshes of one token succeeded, producing 8 live chains and bypassing reuse detection entirely (3/3 runs).** The PR review had under-stated it as a narrow window. No migration was needed — a concurrency token on a non-`rowversion` column is model metadata only.
+- **B1 follow-on**, surfaced by the new test rather than by inspection: the concurrency token made `RevokeAllForUserAsync`'s load-mutate-save throw `DbUpdateConcurrencyException` under concurrency, surfacing as an **unmapped 500**. Replaced with a set-based `ExecuteUpdateAsync`. Measured: old failed **2 of 6** full-suite runs, replacement passed **6 of 6**.
+- **B2** — login/refresh 401s were a bare JSON string, the one place the API broke its own RFC 7807 contract. Now `ProblemDetails`, with `traceId` confirmed present. Status codes, message text, and non-enumeration behaviour unchanged.
+- **B3** — the no-role Lead test was proving the class-level role gate, not the fail-secure helper it was named for. Renamed and documented honestly, and the one HTTP-reachable rule — **narrower role wins for a dual-role account** — pinned by a real test with a newly seeded dual-role user.
+- **B4** — observed before changing anything: a missing multipart file part yields **400, not 500**, because implicit-required binding rejects it before the action. Production code unchanged; test retained to pin the behaviour.
+
+**Adversarial verification, each observed then restored byte-identically:** concurrency token removed → 8 of 8 rotations succeeded (3/3 runs); set-based revoke reverted → 500 in the distribution (2 of 6 runs); role-check order reversed → a dual-role account saw other inspectors' Leads.
+
+**Merged as PR #8 (`e1a4d9e`).** Final state on merged `main`: 0 Warnings, 0 Errors; **553 passing, 0 failing** (153 / 165 / 101 / 134); no pending model changes.
