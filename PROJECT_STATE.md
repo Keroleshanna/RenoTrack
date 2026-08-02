@@ -1,6 +1,6 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-07-31 — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — all 11 slices done; see `PHASE4_PROGRESS.md`.
+**Last updated:** 2026-08-02, at the Phase 4 closeout review (findings B1–B6 applied) — **Phase 3 is complete and merged to `main`** (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`). All 15 Phase 3 slices, the post-review Should-Fix fixes, the CI workflow split (D56), and the `IdentityRoleSeeder` redesign (D55) are all on `main`. Phase 2 merged to `main` earlier (PR #5, merge commit `dc85de1`). **Phase 4 is now in progress** on `feature/phase-4-api-auth-leads-inspections` — all 11 slices done; see `PHASE4_PROGRESS.md`.
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---

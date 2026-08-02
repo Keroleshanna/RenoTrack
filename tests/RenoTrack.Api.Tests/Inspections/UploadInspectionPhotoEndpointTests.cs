@@ -136,17 +136,34 @@ public sealed class UploadInspectionPhotoEndpointTests(RenoTrackApiFactory facto
 
     // ---- authorization ----
 
+    /// <summary>
+    /// Inverts <c>Schedule</c>: <c>PermissionMatrix.md</c> §2 grants Admin nothing here, so that
+    /// evidence comes from whoever was actually on site.
+    /// </summary>
+    /// <remarks>
+    /// The empty-body assertion is load-bearing, and was added during the Phase 4 closeout review after
+    /// the same gap was found and fixed in Slices 9 and 10. Two independent layers can produce this
+    /// 403 — the action's <c>[Authorize(Roles = Roles.Inspector)]</c> and
+    /// <c>EnsureInspectionOwnership</c> inside the handler (an Admin is never the assigned Inspector) —
+    /// and the class-level attribute admits both roles, so it does not close the gap. A status-code-only
+    /// check therefore passed even with the action's role requirement removed, leaving that role gate
+    /// pinned by no test at all.
+    ///
+    /// A role-gate rejection is emitted by the authorization middleware with <b>no body</b>; a
+    /// <c>ForbiddenException</c> reaching the D59 handler produces a ProblemDetails document. Asserting
+    /// the body is empty is what pins <em>which</em> layer rejected, making this test detect the
+    /// attribute-vs-guard drift CLAUDE.md §22 requires both layers to be kept against.
+    /// </remarks>
     [Fact]
-    public async Task An_admin_may_not_upload_photos()
+    public async Task An_admin_is_forbidden_by_the_role_gate_before_reaching_the_handler()
     {
         var inspectionId = await SeedInspectionAsync();
         using var client = await ClientAsync(RenoTrackApiFactory.AdminEmail, RenoTrackApiFactory.AdminPassword);
 
         var response = await UploadAsync(client, inspectionId, "admin.jpg");
 
-        // Inverts Schedule: PermissionMatrix §2 grants Admin nothing here, so that evidence comes
-        // from whoever was actually on site.
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

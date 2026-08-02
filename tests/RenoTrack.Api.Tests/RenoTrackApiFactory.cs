@@ -121,14 +121,20 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
 
     public async Task InitializeAsync()
     {
-        // The schema must exist before the host is first created: Program.cs seeds Identity roles
-        // during startup, which fails against a database with no tables.
+        // This fixture owns the database's lifetime (D58): dropped and migrated here, before the host
+        // is ever created. Startup does not depend on that ordering as of D63 — Migrate mode applies
+        // migrations itself — but recreating the database per run is this fixture's job, not the
+        // initializer's, and doing it first keeps the host's own initialization a no-op rather than
+        // the thing that creates the schema.
         await using var context = CreateDbContext();
         await context.Database.EnsureDeletedAsync();
         await context.Database.MigrateAsync();
 
-        // Touching Services starts the host, which runs Program.cs's IdentityRoleSeeder — so the
-        // Admin/Inspector roles exist before any user is assigned to one.
+        // Touching Services starts the host, which runs DatabaseInitializer (D63). ConfigureWebHost
+        // sets Database:Mode=Migrate, so this is where migrations are confirmed applied and the
+        // Admin/Inspector roles are seeded — normal startup no longer seeds roles, so without that
+        // setting Verify would refuse to start against this freshly-created database. The roles
+        // therefore exist before any user below is assigned to one.
         using var scope = Services.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
