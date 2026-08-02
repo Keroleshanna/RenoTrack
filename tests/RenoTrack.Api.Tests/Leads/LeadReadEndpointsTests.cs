@@ -83,8 +83,31 @@ public sealed class LeadReadEndpointsTests(RenoTrackApiFactory factory)
 
     // ---------- fail-secure authorization ----------
 
+    /// <summary>
+    /// An authenticated account holding neither role reaches no Lead data.
+    /// </summary>
+    /// <remarks>
+    /// <b>What this test actually proves, stated precisely:</b> the <em>class-level</em>
+    /// <c>[Authorize(Roles = "Admin,Inspector")]</c> rejects the request. It does not reach
+    /// <c>RequestingInspectorId()</c>'s final <c>ForbiddenException</c>, because the authorization
+    /// middleware runs before the action — so that inner branch is unreachable through HTTP while the
+    /// attribute stands, and no test here can exercise it without removing the attribute and thereby
+    /// testing a pipeline the application does not have.
+    ///
+    /// The inner guard is deliberate defence in depth (CLAUDE.md §22: the attribute and the in-method
+    /// guard can drift apart, and unnoticed drift means unrestricted data access). Its behaviour was
+    /// demonstrated adversarially during Slice 6 by weakening the attribute to a bare
+    /// <c>[Authorize]</c> and confirming a no-role account was still refused — restoring the original
+    /// fall-through at the same time produced <c>NotFound</c>, i.e. the caller reached the handler as
+    /// an unrestricted Admin. That is the vulnerability this guard prevents. <b>Do not remove it
+    /// because this test does not reach it.</b>
+    ///
+    /// The helper's other rule — that the narrower role wins for a mis-provisioned account — <em>is</em>
+    /// reachable over HTTP and is pinned by
+    /// <see cref="An_account_holding_both_roles_is_scoped_as_an_inspector_not_unrestricted"/>.
+    /// </remarks>
     [Fact]
-    public async Task An_account_with_no_role_is_refused_rather_than_treated_as_unrestricted()
+    public async Task An_account_with_no_role_is_rejected_by_the_role_gate()
     {
         using var client = await AuthenticatedClientAsync(RenoTrackApiFactory.NoRoleEmail, RenoTrackApiFactory.NoRolePassword);
 
@@ -95,6 +118,44 @@ public sealed class LeadReadEndpointsTests(RenoTrackApiFactory factory)
         // through to "unrestricted" because they merely are not an Inspector.
         Assert.Equal(HttpStatusCode.Forbidden, single.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, list.StatusCode);
+
+        // Empty body: the authorization middleware rejected this, not the handler. Asserted so that
+        // if the class attribute were ever weakened, this test would notice rather than silently
+        // start proving something else.
+        Assert.Empty(await single.Content.ReadAsStringAsync());
+        Assert.Empty(await list.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// A mis-provisioned account holding <b>both</b> roles must be scoped as an Inspector, never
+    /// treated as an unrestricted Admin — "when two rules could apply, the narrower one wins".
+    /// </summary>
+    /// <remarks>
+    /// This is the one fail-secure rule inside <c>RequestingInspectorId()</c> that a real HTTP request
+    /// can reach, so it is pinned here rather than argued for in a comment. Reversing the helper's
+    /// checks — testing Admin before Inspector — makes this test fail with the dual-role account
+    /// seeing every Lead in the system.
+    /// </remarks>
+    [Fact]
+    public async Task An_account_holding_both_roles_is_scoped_as_an_inspector_not_unrestricted()
+    {
+        var dualRoleId = await factory.GetUserIdAsync(RenoTrackApiFactory.DualRoleEmail);
+        var otherInspectorId = await factory.GetUserIdAsync(RenoTrackApiFactory.SecondInspectorEmail);
+
+        await SeedLeadAsync(assignedInspectorId: dualRoleId);
+        await SeedLeadAsync(assignedInspectorId: otherInspectorId);
+
+        using var client = await AuthenticatedClientAsync(RenoTrackApiFactory.DualRoleEmail, RenoTrackApiFactory.DualRolePassword);
+
+        var response = await client.GetAsync("/api/v1/leads?pageSize=100");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var returned = body.GetProperty("items").EnumerateArray().ToList();
+
+        Assert.NotEmpty(returned);
+        Assert.All(returned, item => Assert.Equal(dualRoleId, item.GetProperty("assignedInspectorId").GetInt32()));
     }
 
     [Fact]

@@ -7,8 +7,11 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using RenoTrack.Infrastructure.Persistence;
+using RenoTrack.Infrastructure.Persistence.Entities;
 
 namespace RenoTrack.Api.Tests.Auth;
 
@@ -22,8 +25,15 @@ public sealed class AuthenticationTests
 {
     private readonly WebApplicationFactory<Program> _factory;
 
+    /// <summary>
+    /// The un-wrapped fixture, kept for its seeding helpers (<c>GetUserIdAsync</c>) — the wrapped
+    /// factory above is a <c>WebApplicationFactory&lt;Program&gt;</c> and does not expose them.
+    /// </summary>
+    private readonly RenoTrackApiFactory _fixture;
+
     public AuthenticationTests(RenoTrackApiFactory factory)
     {
+        _fixture = factory;
         _factory = factory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
                 services.AddControllers().AddApplicationPart(typeof(TestProtectedController).Assembly)));
@@ -68,14 +78,29 @@ public sealed class AuthenticationTests
             && c.Type != ClaimTypes.Role);
     }
 
+    /// <summary>
+    /// A login failure is RFC 7807 <c>ProblemDetails</c> like every other error in this API
+    /// (Architecture.md §5.3, CLAUDE.md §22) — it used to be a bare JSON string, which made the most
+    /// frequently hit error the one a client could not parse uniformly.
+    /// </summary>
     [Fact]
-    public async Task Login_with_wrong_password_is_rejected()
+    public async Task Login_with_wrong_password_is_rejected_as_problem_details()
     {
         using var client = _factory.CreateClient();
 
         var response = await LoginAsync(client, RenoTrackApiFactory.AdminEmail, "NotTheRightPassword1!");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(401, problem.GetProperty("status").GetInt32());
+        Assert.Equal("Unauthorized", problem.GetProperty("title").GetString());
+        Assert.Equal("Invalid email or password.", problem.GetProperty("detail").GetString());
+
+        // traceId comes from Program.cs's CustomizeProblemDetails, so it must be present here too —
+        // that is the whole point of matching the API-wide contract rather than hand-rolling a body.
+        Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
     }
 
     [Fact]
@@ -89,11 +114,38 @@ public sealed class AuthenticationTests
         Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
 
-        // Identical responses, deliberately: any difference here would turn this endpoint into an
-        // account-enumeration oracle.
-        Assert.Equal(
-            await unknown.Content.ReadAsStringAsync(),
-            await wrongPassword.Content.ReadAsStringAsync());
+        // Read each body once — an HttpContent stream cannot be re-read.
+        var unknownBody = await unknown.Content.ReadAsStringAsync();
+        var wrongPasswordBody = await wrongPassword.Content.ReadAsStringAsync();
+
+        // Every field is compared *except* traceId, which is per-request by design and would defeat
+        // the comparison for a reason that has nothing to do with enumeration. Comparing the stable
+        // fields deliberately — rather than the raw body — is what keeps this test meaningful now
+        // that the response is ProblemDetails.
+        Assert.Equal(StableProblemFields(unknownBody), StableProblemFields(wrongPasswordBody));
+
+        // Both still carry a traceId; it is only its *value* that legitimately differs.
+        foreach (var body in new[] { unknownBody, wrongPasswordBody })
+        {
+            using var problem = JsonDocument.Parse(body);
+            Assert.False(string.IsNullOrWhiteSpace(problem.RootElement.GetProperty("traceId").GetString()));
+        }
+    }
+
+    /// <summary>
+    /// Every ProblemDetails member except <c>traceId</c>, rendered in a stable order so two responses
+    /// can be compared for the security-relevant difference only.
+    /// </summary>
+    private static string StableProblemFields(string problemJson)
+    {
+        using var problem = JsonDocument.Parse(problemJson);
+
+        return string.Join(
+            "\n",
+            problem.RootElement.EnumerateObject()
+                .Where(property => property.Name != "traceId")
+                .OrderBy(property => property.Name, StringComparer.Ordinal)
+                .Select(property => $"{property.Name}={property.Value}"));
     }
 
     [Fact]
@@ -173,13 +225,117 @@ public sealed class AuthenticationTests
     }
 
     [Fact]
-    public async Task Refresh_with_an_unknown_token_is_rejected()
+    public async Task Refresh_with_an_unknown_token_is_rejected_as_problem_details()
     {
         using var client = _factory.CreateClient();
 
         var response = await RefreshAsync(client, "not-a-real-refresh-token");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(401, problem.GetProperty("status").GetInt32());
+        Assert.Equal("Unauthorized", problem.GetProperty("title").GetString());
+        Assert.Equal("Invalid refresh token.", problem.GetProperty("detail").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+    }
+
+    /// <summary>
+    /// An unknown token and a reused (revoked) one must be indistinguishable, for the same
+    /// non-disclosure reason as login: telling them apart would confirm that a token once existed.
+    /// </summary>
+    [Fact]
+    public async Task A_reused_refresh_token_is_rejected_indistinguishably_from_an_unknown_one()
+    {
+        using var client = _factory.CreateClient();
+
+        var login = await LoginAsync(client, RenoTrackApiFactory.SecondInspectorEmail, RenoTrackApiFactory.SecondInspectorPassword);
+        var original = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refreshToken").GetString()!;
+
+        // Rotate once so the original becomes revoked, then present it again.
+        await RefreshAsync(client, original);
+
+        var reused = await RefreshAsync(client, original);
+        var unknown = await RefreshAsync(client, "not-a-real-refresh-token");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, reused.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
+
+        Assert.Equal(
+            StableProblemFields(await reused.Content.ReadAsStringAsync()),
+            StableProblemFields(await unknown.Content.ReadAsStringAsync()));
+    }
+
+    /// <summary>
+    /// Concurrent rotation of one refresh token: exactly one caller may win, and no second live chain
+    /// may ever exist.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without a database-enforced guarantee, two requests can both read the token as un-revoked, both
+    /// revoke it, and both insert a successor — producing two live chains from one token and bypassing
+    /// reuse detection entirely. <c>RevokedAt</c> is a concurrency token precisely so the losing
+    /// UPDATE matches zero rows; EF wraps <c>SaveChanges</c> in one transaction, so the loser's
+    /// replacement INSERT rolls back with it.
+    /// </para>
+    /// <para>
+    /// Each request gets its own DI scope and therefore its own <c>DbContext</c>, which is what makes
+    /// this a genuine test of the database's arbitration rather than of in-process state — the same
+    /// property that lets it hold across multiple application instances.
+    /// </para>
+    /// <para>
+    /// The surviving-token assertion is <b>at most one</b>, not exactly one, and that is deliberate: a
+    /// loser whose read happens after the winner has committed sees a revoked token and correctly
+    /// treats it as reuse, revoking the whole chain (D60). Both outcomes are safe; what must never
+    /// happen is two live chains.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Concurrent_rotation_of_one_refresh_token_lets_exactly_one_caller_win()
+    {
+        using var client = _factory.CreateClient();
+
+        var login = await LoginAsync(client, RenoTrackApiFactory.DualRoleEmail, RenoTrackApiFactory.DualRolePassword);
+        var original = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refreshToken").GetString()!;
+
+        const int attempts = 8;
+
+        var responses = await Task.WhenAll(
+            Enumerable.Range(0, attempts).Select(_ => RefreshAsync(client, original)));
+
+        var succeeded = responses.Count(r => r.StatusCode == HttpStatusCode.OK);
+        var rejected = responses.Count(r => r.StatusCode == HttpStatusCode.Unauthorized);
+
+        // Reported on failure: "one succeeded, six rejected" leaves the eighth response invisible,
+        // and an unexpected 500 here would be a real defect rather than a flaky count.
+        var distribution = string.Join(
+            ", ",
+            responses.GroupBy(r => r.StatusCode)
+                .OrderBy(group => group.Key)
+                .Select(group => $"{(int)group.Key}×{group.Count()}"));
+
+        Assert.True(succeeded == 1, $"Expected exactly one rotation to succeed. Distribution: {distribution}.");
+        Assert.True(rejected == attempts - 1, $"Expected every other attempt to be 401. Distribution: {distribution}.");
+
+        var userId = await _fixture.GetUserIdAsync(RenoTrackApiFactory.DualRoleEmail);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+        var stored = await dbContext.RefreshTokens
+            .AsNoTracking()
+            .Where(t => t.UserId == userId)
+            .ToListAsync();
+
+        // The presented token is revoked no matter which path ended the race.
+        var originalRow = Assert.Single(stored, t => t.TokenHash == RefreshToken.Hash(original));
+        Assert.NotNull(originalRow.RevokedAt);
+
+        // The security invariant: never a second live branch.
+        Assert.True(
+            stored.Count(t => t.RevokedAt is null) <= 1,
+            $"Expected at most one live refresh token, found {stored.Count(t => t.RevokedAt is null)}.");
     }
 
     // ---------- access-token validation ----------

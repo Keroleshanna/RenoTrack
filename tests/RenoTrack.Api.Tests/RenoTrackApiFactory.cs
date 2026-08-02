@@ -119,6 +119,13 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
     public const string NoRoleEmail = "norole@renotrack.test";
     public const string NoRolePassword = "NoRole#Pass123";
 
+    /// <summary>
+    /// Holds <b>both</b> Admin and Inspector — a mis-provisioned account. Exists so the fail-secure
+    /// scope helper's "narrower role wins" rule is pinned by a test rather than by argument.
+    /// </summary>
+    public const string DualRoleEmail = "dualrole@renotrack.test";
+    public const string DualRolePassword = "DualRole#Pass123";
+
     public async Task InitializeAsync()
     {
         // This fixture owns the database's lifetime (D58): dropped and migrated here, before the host
@@ -144,6 +151,15 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         await SeedUserAsync(userManager, LockoutEmail, LockoutPassword, "Lockout User", "Inspector", isActive: true);
         await SeedUserAsync(userManager, SecondInspectorEmail, SecondInspectorPassword, "Second Inspector", "Inspector", isActive: true);
         await SeedUserAsync(userManager, NoRoleEmail, NoRolePassword, "No Role User", role: null, isActive: true);
+
+        // Seeded as an Inspector and then *also* given Admin, producing the mis-provisioned account
+        // LeadsController.RequestingInspectorId() exists to handle safely: when both rules could
+        // apply, the narrower one must win. Adding the second role here rather than widening
+        // SeedUserAsync's signature keeps this to the one case that needs it.
+        await SeedUserAsync(userManager, DualRoleEmail, DualRolePassword, "Dual Role User", IdentityRoleSeeder.InspectorRole, isActive: true);
+        var dualRoleUser = await userManager.FindByEmailAsync(DualRoleEmail)
+            ?? throw new InvalidOperationException($"Test user '{DualRoleEmail}' was not seeded.");
+        await userManager.AddToRoleAsync(dualRoleUser, IdentityRoleSeeder.AdminRole);
     }
 
     /// <summary>Resolves a seeded user's id, so tests can assign Leads to a real Inspector.</summary>

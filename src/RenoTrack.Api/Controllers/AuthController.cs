@@ -34,6 +34,7 @@ public sealed class AuthController(
     ILogger<AuthController> logger) : ControllerBase
 {
     private const string InvalidCredentialsMessage = "Invalid email or password.";
+    private const string InvalidRefreshTokenMessage = "Invalid refresh token.";
 
     [HttpPost("login")]
     [AllowAnonymous]
@@ -48,7 +49,7 @@ public sealed class AuthController(
             // Logged (not returned) so a real brute-force attempt is visible in logs even though
             // the response says nothing.
             logger.LogWarning("Login failed: no user for the supplied email.");
-            return Unauthorized(InvalidCredentialsMessage);
+            return InvalidCredentials();
         }
 
         // Checked before the password so a locked account cannot be probed for password
@@ -56,7 +57,7 @@ public sealed class AuthController(
         if (await userManager.IsLockedOutAsync(user))
         {
             logger.LogWarning("Login failed: user {UserId} is locked out.", user.Id);
-            return Unauthorized(InvalidCredentialsMessage);
+            return InvalidCredentials();
         }
 
         if (!await userManager.CheckPasswordAsync(user, request.Password))
@@ -67,13 +68,13 @@ public sealed class AuthController(
             // JWT API never uses). So the counter is incremented explicitly here.
             await userManager.AccessFailedAsync(user);
             logger.LogWarning("Login failed: incorrect password for user {UserId}.", user.Id);
-            return Unauthorized(InvalidCredentialsMessage);
+            return InvalidCredentials();
         }
 
         if (!user.IsActive)
         {
             logger.LogWarning("Login failed: user {UserId} is inactive.", user.Id);
-            return Unauthorized(InvalidCredentialsMessage);
+            return InvalidCredentials();
         }
 
         await userManager.ResetAccessFailedCountAsync(user);
@@ -96,7 +97,7 @@ public sealed class AuthController(
         {
             // Unknown, expired, revoked, or belonging to a now-inactive user — all one answer, for
             // the same non-disclosure reason as login.
-            return Unauthorized("Invalid refresh token.");
+            return InvalidRefreshToken();
         }
 
         var user = await userManager.FindByIdAsync(tokens.UserId.ToString());
@@ -106,13 +107,31 @@ public sealed class AuthController(
         // response to an impossible state.
         if (user is null)
         {
-            return Unauthorized("Invalid refresh token.");
+            return InvalidRefreshToken();
         }
 
         var roles = await userManager.GetRolesAsync(user);
 
         return Ok(ToResponse(tokens, user, roles));
     }
+
+    /// <summary>
+    /// The single 401 every login failure produces — unknown email, wrong password, inactive account,
+    /// and lockout alike.
+    /// </summary>
+    /// <remarks>
+    /// RFC 7807 <c>ProblemDetails</c> rather than a bare string, so this endpoint matches the
+    /// API-wide error contract (Architecture.md §5.3, CLAUDE.md §22). Before this, the most frequently
+    /// hit error in the application was the one place a client could not parse errors uniformly.
+    /// <b>The message itself is unchanged and must stay generic</b> — the shape is what was wrong, not
+    /// the deliberate unhelpfulness that keeps this from being an account-enumeration oracle.
+    /// </remarks>
+    private IActionResult InvalidCredentials() =>
+        Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized", detail: InvalidCredentialsMessage);
+
+    /// <inheritdoc cref="InvalidCredentials" />
+    private IActionResult InvalidRefreshToken() =>
+        Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized", detail: InvalidRefreshTokenMessage);
 
     private static AuthResponse ToResponse(TokenPair tokens, ApplicationUser user, IEnumerable<string> roles) =>
         new(

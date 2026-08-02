@@ -187,6 +187,35 @@ public sealed class UploadInspectionPhotoEndpointTests(RenoTrackApiFactory facto
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    /// <summary>
+    /// Omitting the file part entirely is an ordinary client mistake and must not become a 500.
+    /// </summary>
+    /// <remarks>
+    /// The handler dereferences <c>request.File</c> directly, so this test exists to pin the
+    /// framework behaviour that keeps that safe: <c>Nullable</c> is enabled solution-wide and
+    /// <c>SuppressImplicitRequiredAttributeForNonNullableReferenceTypes</c> is not set, so
+    /// <c>[ApiController]</c> treats the non-nullable <c>IFormFile</c> as implicitly required and
+    /// rejects the request before the action runs. That was reasoning, not evidence, until this test
+    /// — and this project has twice had a "the framework handles it" assumption falsified
+    /// (<c>File.Delete</c>'s partial idempotency, and D62's mistyped id surfacing as a 500).
+    /// </remarks>
+    [Fact]
+    public async Task Omitting_the_file_part_is_a_bad_request_not_a_server_error()
+    {
+        var inspectionId = await SeedInspectionAsync();
+        using var client = await InspectorClientAsync();
+
+        using var form = new MultipartFormDataContent
+        {
+            { new StringContent("On-site"), "caption" },
+        };
+
+        var response = await client.PostAsync($"/api/v1/inspections/{inspectionId}/photos", form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.NotEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+    }
+
     // ---- helpers ----
 
     private const string PhotoContent = "fake-image-bytes";

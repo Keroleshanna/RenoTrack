@@ -101,29 +101,68 @@ public sealed class TokenService(RenoTrackDbContext dbContext, JwtOptions option
         var refreshTokenExpiresAt = now.AddDays(options.RefreshTokenDays);
 
         stored.Revoke(now, newHash);
-        dbContext.RefreshTokens.Add(new RefreshToken(user.Id, newHash, refreshTokenExpiresAt));
+        var replacement = new RefreshToken(user.Id, newHash, refreshTokenExpiresAt);
+        dbContext.RefreshTokens.Add(replacement);
 
         var accessTokenExpiresAt = now.AddMinutes(options.AccessTokenMinutes);
         var accessToken = CreateAccessToken(user.Id, user.Email!, user.Name, roles, now, accessTokenExpiresAt);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            // One SaveChangesAsync, so the revocation and its replacement share a single transaction:
+            // there is never a moment where the old token is dead and no successor exists, or where a
+            // successor exists alongside a still-live predecessor.
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another request rotated this same token between our read and our write. RevokedAt is a
+            // concurrency token, so that UPDATE matched zero rows — and because EF wraps SaveChanges
+            // in one transaction, the replacement INSERT rolled back with it. Exactly one caller wins
+            // and exactly one live chain exists.
+            //
+            // Deliberately NOT treated as reuse: the loser is a legitimate concurrent request, not a
+            // replay, and revoking the whole chain here would let any client with a double-submit bug
+            // log itself out. Returning null yields the same 401 as every other refresh failure, so a
+            // caller still cannot distinguish this from an unknown or revoked token.
+            //
+            // The tracked entities are detached because this DbContext is request-scoped and shared:
+            // leaving a failed INSERT sitting in Added state would let any later SaveChangesAsync on
+            // the same request commit it — the hazard Slice 9 found with AuditService.
+            dbContext.Entry(replacement).State = EntityState.Detached;
+            dbContext.Entry(stored).State = EntityState.Detached;
+
+            return null;
+        }
 
         return new TokenPair(accessToken, accessTokenExpiresAt, newRefreshToken, refreshTokenExpiresAt, user.Id);
     }
 
-    private async Task RevokeAllForUserAsync(int userId, DateTime now, CancellationToken cancellationToken)
-    {
-        var outstanding = await dbContext.RefreshTokens
+    /// <summary>
+    /// Revokes every outstanding token for a user — the response to a replayed (already-revoked)
+    /// token, where we cannot tell the legitimate holder from the thief.
+    /// </summary>
+    /// <remarks>
+    /// A set-based <c>ExecuteUpdateAsync</c> rather than load-mutate-save, and that is load-bearing
+    /// rather than an optimisation. Once <c>RevokedAt</c> became a concurrency token, the previous
+    /// implementation could throw <c>DbUpdateConcurrencyException</c> whenever a concurrent request
+    /// revoked one of the same rows first — which surfaced as an unmapped **500** under concurrent
+    /// replay, and would additionally have rolled the whole batch back, leaving tokens live that
+    /// nothing else was going to revoke. Found by the concurrency test added alongside this fix, not
+    /// by inspection.
+    ///
+    /// A single conditional <c>UPDATE ... WHERE UserId = @id AND RevokedAt IS NULL</c> states the
+    /// intent exactly — "no live token survives for this user" — is atomic at the database, and
+    /// cannot conflict with the change tracker because it bypasses it. It is still EF Core LINQ, so
+    /// D52's narrowly-scoped raw-SQL exception does not come into play.
+    ///
+    /// <c>ReplacedByTokenHash</c> is deliberately left untouched: these are terminal revocations, not
+    /// rotations, so there is no successor to record.
+    /// </remarks>
+    private async Task RevokeAllForUserAsync(int userId, DateTime now, CancellationToken cancellationToken) =>
+        await dbContext.RefreshTokens
             .Where(t => t.UserId == userId && t.RevokedAt == null)
-            .ToListAsync(cancellationToken);
-
-        foreach (var token in outstanding)
-        {
-            token.Revoke(now);
-        }
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
+            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAt, now), cancellationToken);
 
     private async Task<IReadOnlyList<string>> GetRolesAsync(int userId, CancellationToken cancellationToken) =>
         await (from userRole in dbContext.UserRoles

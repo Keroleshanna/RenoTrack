@@ -28,7 +28,12 @@ public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<Refresh
         builder.Property(t => t.UserId).IsRequired();
         builder.Property(t => t.ExpiresAt).IsRequired();
         builder.Property(t => t.CreatedAt).IsRequired();
-        builder.Property(t => t.RevokedAt);
+        // Concurrency token, which is what makes "a token may go from active to revoked exactly once"
+        // a guarantee the *database* enforces rather than one that depends on request timing. EF adds
+        // the original value to the UPDATE's WHERE clause, so a rotation issued from a second instance
+        // — or a second thread — matches zero rows and fails instead of silently creating a second
+        // live chain. No schema change: for a non-rowversion column this is model metadata only.
+        builder.Property(t => t.RevokedAt).IsConcurrencyToken();
         builder.Property(t => t.ReplacedByTokenHash).HasMaxLength(64).IsFixedLength();
 
         // Reuse detection revokes every outstanding token for one user, and that lookup is by
