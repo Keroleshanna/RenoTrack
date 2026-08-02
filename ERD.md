@@ -246,6 +246,7 @@ erDiagram
 | TokenLinks | Id | (polymorphic: EntityType + EntityId, no DB-level FK) | Token | Polymorphic reference is intentional — one table serves both Angebot and Invoice links (Architecture §7.2) |
 | NumberSequences | Id | — | (SequenceType, Year) | Incremented via a single atomic `UPDATE ... OUTPUT` statement, independently committed (not inside the same transaction as the entity it numbers — not achievable given `CreateAngebotCommandHandler`'s call order). Row-level lock scoped to that one statement avoids collisions under concurrent writes (Architecture §8, `ARCHITECTURE_DECISIONS.md` D52) |
 | AuditLogs | Id | — (PerformedByUserId is a plain nullable int, deliberately not a real FK — Architecture.md §11: "no cross-entity linkage") | — | Nullable = system-triggered action (e.g. scheduled Overdue transition) |
+| RefreshTokens | Id | UserId → AspNetUsers (Restrict) | TokenHash | Backs Architecture §7.1's "short-lived access token + refresh token" pattern. **Only a SHA-256 hash of the token is stored** — the plaintext is returned to the client once and never persisted, so a database read yields no usable credential. Rotated on every use: the presented row gets `RevokedAt` + `ReplacedByTokenHash` and a new row is inserted. Presenting an already-revoked token revokes every outstanding token for that user (stolen-token reuse detection). Unlike business tables, rows here are **not** kept forever — retention is until `ExpiresAt`, after which a row carries no information (an expired token is rejected on expiry grounds regardless of revocation state) and may be deleted. No cleanup job exists yet, deliberately: steady-state volume is roughly (users × 32 × 7) rows. See `ARCHITECTURE_DECISIONS.md` D60 |
 
 ---
 
@@ -260,6 +261,8 @@ erDiagram
 | Invoices | Status, DueDate | Overdue-detection scheduled check (StateMachine.md §3) |
 | TokenLinks | Token (unique) | Public token-link lookup is the hottest unauthenticated read path |
 | AuditLogs | EntityType, EntityId | Fetching an entity's full history efficiently |
+| RefreshTokens | TokenHash (unique) | Every refresh is a point lookup by hash; unique because two rows sharing a hash would make that lookup ambiguous |
+| RefreshTokens | UserId | Reuse detection revokes every outstanding token for one user — the only non-point-lookup query on this table |
 
 ---
 

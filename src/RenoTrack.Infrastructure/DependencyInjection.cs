@@ -1,9 +1,13 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
+using RenoTrack.Application.Leads;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
@@ -28,6 +32,12 @@ namespace RenoTrack.Infrastructure;
 /// DbContext, IHttpContextAccessor, etc.), and a Singleton wrapping a future Scoped dependency is
 /// a classic captive-dependency bug. One uniform lifetime rule across every Infrastructure
 /// registration removes that whole class of mistake before it can happen.
+///
+/// Requires two services the generic host registers for free and an isolated ServiceCollection does
+/// not: ILogger&lt;T&gt; (AuditService, LoggingNoOpEmailSender, DatabaseInitializer) and
+/// IHostEnvironment (DatabaseInitializer's Production guard, D63). Stated here because a container
+/// composed by hand — as three test helpers do — must add both, and discovering that from a
+/// ValidateOnBuild failure is worse than reading it.
 ///
 /// AddIdentityCore (not AddIdentity) — D54: AddIdentity also wires cookie-authentication-scheme
 /// defaults meant for server-rendered web apps; this API commits to JWT bearer tokens
@@ -55,18 +65,83 @@ public static class DependencyInjection
         // not itself Scoped state) — no reason to depart from the uniform lifetime rule above.
         services.AddScoped<IdentityRoleSeeder>();
 
+        // Parsed eagerly, at composition time, for the same reason as the connection string and the
+        // JWT settings above: an unrecognised mode must fail startup with a message naming the key
+        // and the allowed values, not fall back to a default and leave the operator guessing which
+        // behaviour they actually got. Singleton because it is immutable configuration (D63).
+        services.AddSingleton(DatabaseInitializationOptions.FromConfiguration(configuration));
+        services.AddScoped<DatabaseInitializer>();
+
         services.AddScoped<ILeadRepository, LeadRepository>();
         services.AddScoped<IInspectionRepository, InspectionRepository>();
         services.AddScoped<IAngebotRepository, AngebotRepository>();
         services.AddScoped<IAngebotReviewCommentRepository, AngebotReviewCommentRepository>();
         services.AddScoped<ICatalogItemRepository, CatalogItemRepository>();
         services.AddScoped<ICatalogItemQueries, CatalogItemQueries>();
+        services.AddScoped<ILeadQueries, LeadQueries>();
+        services.AddScoped<IUserQueries, UserQueries>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<INumberGeneratorService, NumberGeneratorService>();
-        services.AddScoped<IFileStorage, PlaceholderFileStorage>();
+        // Real disk-backed storage as of Phase 4 Slice 8, replacing Phase 3's throwing placeholder
+        // (D42). Validated eagerly for the same reason as the connection string above: a missing
+        // root must fail at startup, not on the first photo upload.
+        var fileStorageOptions = configuration.GetSection(FileStorageOptions.SectionName).Get<FileStorageOptions>()
+            ?? new FileStorageOptions();
+        fileStorageOptions.Validate();
+        services.AddSingleton(fileStorageOptions);
+        services.AddScoped<IFileStorage, LocalDiskFileStorage>();
         services.AddScoped<IEmailSender, LoggingNoOpEmailSender>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// JWT bearer authentication (Architecture.md §7.1). Deliberately a separate extension from
+    /// <see cref="AddInfrastructure"/> rather than folded into it: that method is storage
+    /// composition, and this is an HTTP authentication scheme, so <c>Program.cs</c> naming both
+    /// explicitly is clearer than one method quietly doing both. It lives in Infrastructure rather
+    /// than in RenoTrack.Api because it needs <see cref="JwtOptions"/> and the same signing key
+    /// <see cref="TokenService"/> issues with — keeping issuance and validation configured from one
+    /// place is what makes them impossible to drift apart.
+    /// </summary>
+    public static IServiceCollection AddJwtAuthentication(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Bound and validated eagerly, not via the options pattern's lazy resolution: a missing or
+        // too-short signing key must fail at startup with an actionable message, not at first login
+        // with a generic 500. Same fail-fast shape as the connection-string check above.
+        var options = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+        options.Validate();
+
+        services.AddSingleton(options);
+
+        // Registered here rather than in AddInfrastructure, even though it is a persistence-touching
+        // service: it depends on JwtOptions, which only this method provides. Splitting them would
+        // leave AddInfrastructure advertising an ITokenService that cannot actually be constructed —
+        // a container-validation failure for anyone composing storage without authentication.
+        services.AddScoped<ITokenService, TokenService>();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(jwt =>
+            {
+                jwt.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = options.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = options.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.SigningKey)),
+                    ValidateLifetime = true,
+
+                    // No clock skew. The default is five minutes, which would keep a 15-minute
+                    // access token usable for twenty — a third longer than intended, silently.
+                    ClockSkew = TimeSpan.Zero,
+                };
+            });
 
         return services;
     }

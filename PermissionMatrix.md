@@ -17,7 +17,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | View Lead pipeline (own assigned Leads) | F | S | Inspector only sees Leads where `AssignedInspectorId == self` |
 | Create Lead manually (phone/email) | F | — | FR-2.1 — Admin-only per SRS |
 | Edit Lead contact details | F | S | Inspector may correct details on their own assigned Lead (e.g. wrong phone number found on-site) |
-| Change Lead status directly | F | — | Status changes happen as side effects of other actions (BR-7), not a free-standing edit — neither role edits status directly except via the defined transitions |
+| Change Lead status directly | — | — | **No role may.** Status moves only through the named transitions in StateMachine.md §1.3, each performed by the command for the action that causes it (BR-7). This row previously read "F" for Admin while its own note said no free-standing edit exists; the "—" now matches the note, and Architecture.md §5.2's obsolete `PATCH /api/v1/leads/{id}/status` entry was removed to match. `Won`/`Lost` in particular are outcomes of the customer's token-link decision (§7 below, SRS FR-6.3/FR-6.5, StateMachine.md §5), never a staff action |
 | Assign/reassign Inspector to a Lead | F | — | Admin decision. Happens automatically whenever an Inspection is scheduled (BR-13) — this row covers standing this assignment up or changing it independently of scheduling a new Inspection |
 | Delete a Lead | — | — | Not supported in v1 — Leads are never hard-deleted (matches BR-9's spirit for Invoices; nothing legal requires it for Leads, but it keeps the audit trail intact) |
 | View Lead activity/audit timeline | F | S | Same scoping as the Lead itself |

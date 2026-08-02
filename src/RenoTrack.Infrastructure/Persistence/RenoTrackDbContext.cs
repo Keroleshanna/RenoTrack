@@ -27,6 +27,7 @@ public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> opti
     public DbSet<AngebotReviewComment> AngebotReviewComments => Set<AngebotReviewComment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

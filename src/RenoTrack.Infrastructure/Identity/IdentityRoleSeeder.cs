@@ -37,7 +37,18 @@ namespace RenoTrack.Infrastructure.Identity;
 /// </summary>
 public sealed class IdentityRoleSeeder(IServiceScopeFactory scopeFactory)
 {
-    public static readonly string[] RoleNames = ["Admin", "Inspector"];
+    /// <summary>
+    /// The two role names, as named constants rather than bare literals — they are now referenced
+    /// from three places (this seeder, <see cref="UserQueries"/>'s role predicate, and the API's
+    /// <c>[Authorize(Roles = ...)]</c> attributes), and a mismatch between any two of them fails
+    /// <em>open</em> for an <c>IsInRole</c>-based scope check. One definition removes that risk.
+    /// </summary>
+    public const string AdminRole = "Admin";
+
+    /// <inheritdoc cref="AdminRole" />
+    public const string InspectorRole = "Inspector";
+
+    public static readonly string[] RoleNames = [AdminRole, InspectorRole];
 
     // No CancellationToken parameter — RoleManager's API surface doesn't accept one anywhere
     // in this method's call chain, so a parameter here would be unused and misleading.

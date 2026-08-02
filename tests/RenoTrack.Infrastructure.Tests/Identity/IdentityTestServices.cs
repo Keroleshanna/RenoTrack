@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RenoTrack.Infrastructure;
 
 namespace RenoTrack.Infrastructure.Tests.Identity;
@@ -22,11 +23,18 @@ internal static class IdentityTestServices
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:RenoTrackDb"] = ConnectionString,
+
+                // AddInfrastructure validates this eagerly as of Slice 8, so the container cannot
+                // be built without it — even for tests that never touch file storage.
+                ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackIdentityTests"),
             })
             .Build();
 
         var services = new ServiceCollection();
         services.AddLogging();
+        // Same category as AddLogging: host-provided in production, absent in an isolated container,
+        // and DatabaseInitializer's constructor needs it (D63).
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
         services.AddInfrastructure(configuration);
 
         return services.BuildServiceProvider();

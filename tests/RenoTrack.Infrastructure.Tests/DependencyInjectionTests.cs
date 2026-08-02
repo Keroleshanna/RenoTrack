@@ -1,6 +1,7 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Infrastructure.Email;
@@ -33,11 +34,19 @@ public sealed class DependencyInjectionTests
                         IntegratedSecurity = true,
                         TrustServerCertificate = true,
                     }.ConnectionString,
+
+                // AddInfrastructure validates this eagerly as of Slice 8, so the container cannot
+                // even be built without it.
+                ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackDiTests"),
             })
             .Build();
 
         var services = new ServiceCollection();
         services.AddLogging(); // Required for ILogger<T> resolution (AuditService, LoggingNoOpEmailSender) — the real host provides this for free via WebApplicationBuilder; an isolated container does not.
+        // Same category as AddLogging above: DatabaseInitializer needs IHostEnvironment (D63's
+        // Production guard reads it), which the generic host registers for free and an isolated
+        // container does not.
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
         services.AddInfrastructure(configuration);
 
         return services.BuildServiceProvider(new ServiceProviderOptions
@@ -83,7 +92,7 @@ public sealed class DependencyInjectionTests
         Assert.IsType<UnitOfWork>(services.GetRequiredService<IUnitOfWork>());
         Assert.IsType<AuditService>(services.GetRequiredService<IAuditService>());
         Assert.IsType<NumberGeneratorService>(services.GetRequiredService<INumberGeneratorService>());
-        Assert.IsType<PlaceholderFileStorage>(services.GetRequiredService<IFileStorage>());
+        Assert.IsType<LocalDiskFileStorage>(services.GetRequiredService<IFileStorage>());
         Assert.IsType<LoggingNoOpEmailSender>(services.GetRequiredService<IEmailSender>());
     }
 

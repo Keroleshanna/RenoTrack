@@ -7,9 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  # Domain/Application/Api tests need no database at all — the fastest, cheapest runner.
-  # Building the whole solution here (including RenoTrack.Infrastructure) still catches any
-  # accidental Windows-only API usage early, even though its tests don't run in this job.
+  # Domain/Application tests need no database at all — the fastest, cheapest runner.
+  # Building the whole solution here (including RenoTrack.Infrastructure and RenoTrack.Api) still
+  # catches any accidental Windows-only API usage early, even though their tests don't run here.
   build-and-test:
     runs-on: ubuntu-latest
     steps:
@@ -25,18 +25,20 @@ jobs:
       - name: Build
         run: dotnet build RenoTrack.slnx --no-restore --configuration Release
 
-      - name: Test (Domain, Application, Api)
+      - name: Test (Domain, Application)
         run: |
           dotnet test tests/RenoTrack.Domain.Tests/RenoTrack.Domain.Tests.csproj --no-build --configuration Release
           dotnet test tests/RenoTrack.Application.Tests/RenoTrack.Application.Tests.csproj --no-build --configuration Release
-          dotnet test tests/RenoTrack.Api.Tests/RenoTrack.Api.Tests.csproj --no-build --configuration Release
 
   # RenoTrack.Infrastructure.Tests deliberately runs against real SQL Server LocalDB, never EF
   # Core InMemory or SQLite (D40) — LocalDB doesn't enforce the unique constraints, FKs, or
-  # decimal(18,2) precision this layer exists to verify. LocalDB is Windows-only, so this job
-  # runs on windows-latest, not ubuntu-latest. Gated on build-and-test succeeding first, since
-  # Windows runners are slower/costlier to spin up than Linux ones.
-  infrastructure-tests:
+  # decimal(18,2) precision this layer exists to verify. RenoTrack.Api.Tests joined this job in
+  # Phase 4 Slice 1 for the same reason (D58): it boots the real application against a real
+  # migrated database, and Identity's UserManager/password hashing needs a real store to be
+  # meaningful. LocalDB is Windows-only, so this job runs on windows-latest, not ubuntu-latest.
+  # Gated on build-and-test succeeding first, since Windows runners are slower/costlier to spin
+  # up than Linux ones.
+  database-backed-tests:
     needs: build-and-test
     runs-on: windows-latest
     steps:
@@ -58,5 +60,7 @@ jobs:
       - name: Build
         run: dotnet build RenoTrack.slnx --no-restore --configuration Release
 
-      - name: Test (Infrastructure)
-        run: dotnet test tests/RenoTrack.Infrastructure.Tests/RenoTrack.Infrastructure.Tests.csproj --no-build --configuration Release
+      - name: Test (Infrastructure, Api)
+        run: |
+          dotnet test tests/RenoTrack.Infrastructure.Tests/RenoTrack.Infrastructure.Tests.csproj --no-build --configuration Release
+          dotnet test tests/RenoTrack.Api.Tests/RenoTrack.Api.Tests.csproj --no-build --configuration Release

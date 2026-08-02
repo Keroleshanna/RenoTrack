@@ -12,6 +12,18 @@ namespace RenoTrack.Infrastructure.Persistence;
 /// depends on that write succeeding: any failure is caught and logged as a warning, never
 /// rethrown, so an already-committed business operation is never reported as failed because of a
 /// secondary audit-write fault.
+///
+/// <para><b>Caveat on what "independently" means here.</b> LogAsync calls SaveChangesAsync on the
+/// <em>same scoped RenoTrackDbContext</em> the rest of the request uses — independently of
+/// IUnitOfWork, not in an isolated context. Its intended usage is strictly after the primary
+/// business commit, at which point nothing is pending. If it is ever called while unrelated tracked
+/// changes are still pending, its SaveChangesAsync will flush those changes too.</para>
+///
+/// <para>Consequences a caller must not get wrong: this is <b>not</b> transaction isolation, and
+/// callers must not rely on this service to isolate pending tracked changes. Keep the established
+/// ordering — commit the business operation first, then audit. (Found empirically during Phase 4
+/// Slice 9, where an audit write masked a deliberately-introduced defect by committing a mutation
+/// that should never have reached the database.)</para>
 /// </summary>
 public sealed class AuditService(RenoTrackDbContext dbContext, ILogger<AuditService> logger) : IAuditService
 {

@@ -130,6 +130,33 @@ public class CompleteInspectionCommandHandlerTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
 
+    /// <summary>
+    /// The Lead's guard runs after <c>inspection.Complete()</c> has already mutated the Inspection, so
+    /// this test deliberately asserts only that <b>nothing was persisted and nothing was audited</b>.
+    ///
+    /// It does <em>not</em> assert that <c>inspection.CompletedAt</c> is null, because that would be
+    /// asserting a falsehood: the in-memory mutation genuinely happened, and these fakes have no change
+    /// tracker to discard it. In production the discard comes from the request-scoped
+    /// <c>RenoTrackDbContext</c> being disposed without <c>SaveChangesAsync</c> ever being reached, which
+    /// is a property of the real persistence layer — proven in
+    /// <c>RenoTrack.Api.Tests</c>' <c>CompleteInspectionEndpointTests</c>, where the row is read back from
+    /// the database. In-memory truth belongs here; storage truth belongs there.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_LeadNotInInspectionScheduled_ThrowsAndPersistsNothing()
+    {
+        // Lead deliberately left at New — the Inspection is completable, the Lead is not.
+        var lead = _leadRepository.Seed(Lead.Create("Jane Doe", "0176 1234567", "jane@example.com", LeadSource.Phone));
+        var inspection = _inspectionRepository.Seed(Inspection.Schedule(lead.Id, ScheduledAt, AssignedInspectorId));
+        var command = new CompleteInspectionCommand(inspection.Id, AssignedInspectorId);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
+        Assert.Equal(LeadStatus.New, lead.Status);
+    }
+
     // ---- Validation ----------------------------------------------------
 
     [Theory]
