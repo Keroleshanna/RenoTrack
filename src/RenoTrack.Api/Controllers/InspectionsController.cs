@@ -6,6 +6,7 @@ using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Inspections.Commands.CompleteInspection;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
+using RenoTrack.Application.Inspections.Commands.UpdateInspectionNotes;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Inspections.Dtos;
 
@@ -28,7 +29,8 @@ namespace RenoTrack.Api.Controllers;
 public sealed class InspectionsController(
     ICommandHandler<ScheduleInspectionCommand, InspectionDto> scheduleInspectionHandler,
     ICommandHandler<UploadInspectionPhotoCommand, PhotoDto> uploadPhotoHandler,
-    ICommandHandler<CompleteInspectionCommand, InspectionDto> completeInspectionHandler) : ControllerBase
+    ICommandHandler<CompleteInspectionCommand, InspectionDto> completeInspectionHandler,
+    ICommandHandler<UpdateInspectionNotesCommand, InspectionDto> updateNotesHandler) : ControllerBase
 {
     /// <summary>
     /// Schedules an Inspection for a Lead (SRS FR-2.3). Admin only.
@@ -126,6 +128,63 @@ public sealed class InspectionsController(
         var photo = await uploadPhotoHandler.HandleAsync(command, cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, photo);
+    }
+
+    /// <summary>
+    /// Records or revises an Inspection's notes (SRS FR-3.3, Sequence Diagram §3 Step B).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Inspector only, and specifically the assigned one</b> — <c>PermissionMatrix.md</c> §2 marks
+    /// "Edit Inspection notes" as "— | S", the same shape as photo upload and completion. An Admin gets
+    /// 403 from the role attribute; a non-owning Inspector gets 403 from <c>IOwnershipValidator</c>.
+    /// </para>
+    /// <para>
+    /// <c>PATCH</c> rather than <c>POST</c>, matching Sequence Diagram §3's own route, and semantically
+    /// correct: this is a partial update of an existing resource, not a new sub-resource or a state
+    /// transition. It is genuinely <b>idempotent</b> — sending the same notes twice leaves the same
+    /// state — which is the opposite of <see cref="Complete"/>, where a repeat is a 409. No guard
+    /// against repeat submission is invented here, because for an edit a repeat is legitimate.
+    /// </para>
+    /// <para>
+    /// <b>Sending <c>null</c> clears the notes</b>, deliberately. `Inspection.UpdateNotes` accepts null
+    /// and the command's validator places no rule on the field, so clearing is a supported operation
+    /// rather than an edge case to reject.
+    /// </para>
+    /// <para>
+    /// BR-10 makes a completed Inspection immutable, enforced by the aggregate's own guard inside
+    /// <c>UpdateNotes</c> and surfacing as 409 through D59 — the controller checks no status itself. No
+    /// audit entry is written: editing notes is operational activity, not a workflow milestone (§10),
+    /// the same classification photo upload carries.
+    /// </para>
+    /// <para>
+    /// This endpoint closes a gap recorded since Slice 7: <c>UpdateInspectionNotesCommand</c> has existed,
+    /// registered and tested, since Phase 2 while no HTTP route reached it. `Architecture.md` §5.2 omitted
+    /// the route that `PermissionMatrix.md` §2 and Sequence Diagram §3 both documented; that omission is
+    /// corrected in the same commit as this action, per the documentation-first rule (CLAUDE.md §15).
+    /// </para>
+    /// </remarks>
+    [HttpPatch("{id:int}")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<InspectionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateNotes(
+        int id,
+        UpdateInspectionNotesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var command = new UpdateInspectionNotesCommand(
+            id,
+            request.Notes,
+            // Who is acting — from the token, never the body (D61).
+            UpdatedByInspectorId: CurrentUserId());
+
+        var inspection = await updateNotesHandler.HandleAsync(command, cancellationToken);
+
+        return Ok(inspection);
     }
 
     /// <summary>

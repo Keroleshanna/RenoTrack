@@ -112,8 +112,8 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 |---|---|---|
 | Leads | `POST /api/v1/leads` | Public — used by the website contact form |
 | Leads | `GET /api/v1/leads`, `GET /api/v1/leads/{id}` | Dashboard, Admin/Inspector (scoped) |
-| Leads | `PATCH /api/v1/leads/{id}/status` | Admin |
 | Inspections | `POST /api/v1/leads/{leadId}/inspections` | Admin schedules |
+| Inspections | `PATCH /api/v1/inspections/{id}` | Inspector records/revises notes (SRS FR-3.3) |
 | Inspections | `POST /api/v1/inspections/{id}/photos` | Inspector uploads |
 | Inspections | `POST /api/v1/inspections/{id}/complete` | Inspector |
 | Angebote | `POST /api/v1/leads/{leadId}/angebote` | Inspector drafts |
@@ -128,6 +128,10 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Invoices | `POST /api/v1/projects/{id}/invoices` | Admin |
 | Invoices | `POST /api/v1/invoices/{id}/send`, `/mark-paid` | Admin |
 | Invoice (public) | `GET /api/v1/public/invoices/{token}` | Token-link view, no auth |
+
+**There is deliberately no endpoint for editing a Lead's status directly.** An earlier draft of this table listed `PATCH /api/v1/leads/{id}/status` (Admin); it was removed as obsolete rather than implemented, because three other documents already say a free-standing status edit does not exist. `BusinessRules.md` BR-7: a Lead's status *"can only move forward through the defined pipeline via explicit, named actions — never silently or as a side effect."* `PermissionMatrix.md` §1: *"neither role edits status directly except via the defined transitions."* `StateMachine.md` §1.3 gives every transition a named event with its own guard. Lead status therefore changes only as a consequence of the action that causes it — `ScheduleInspection`, `CompleteInspection`, `CreateAngebot`, `SendAngebot`, and the customer's own Angebot decision.
+
+**`Won` and `Lost` specifically are outcomes of the customer's token-link decision, not staff actions.** `StateMachine.md` §1.3 guards both on *"TokenLink valid & unused"*; §5 states the invariant that *"Lead.Status is only set to `Won` inside the same transaction as the Angebot decision handler"*; SRS FR-6.3/FR-6.5 assign the decision to the Lead and require it to update status immediately; and Sequence Diagram §6 routes it through `POST /api/v1/public/angebote/{token}/decision` → `RecordAngebotDecisionCommand`. Those transitions arrive with that endpoint, not before it — an Admin-driven alternative would create a second path to a decision BR-4's single-use rule exists to make tamper-proof.
 
 ### 5.3 Error Handling
 All errors funnel through a single exception-handling middleware producing RFC 7807 `ProblemDetails` (type, title, status, detail, and a `traceId`), so both the Dashboard and any future client can handle errors uniformly.

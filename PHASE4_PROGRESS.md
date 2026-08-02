@@ -33,7 +33,7 @@ Angebot/Catalog endpoints (Phase 5), token links (Phase 6), Projects (Phase 7), 
 | 7 | Inspection scheduling | ✅ done |
 | 8 | Inspection photo upload + `LocalDiskFileStorage` | ✅ done |
 | 9 | Inspection completion | ✅ done |
-| 10 | Lead status update (Won/Lost) | not started |
+| 10 | Inspection notes (`PATCH`) — **redefined**; Lead Won/Lost moved to Phase 6 | ✅ done |
 | 11 | Migration-application strategy | not started |
 
 Three orderings changed from the first draft, each for a stated reason: exception middleware moved ahead of `AddApplication()` (it has no dependency on handlers/validators being resolvable); `LocalDiskFileStorage` folded into the photo-upload slice that consumes it rather than standing alone several slices earlier (a real implementation with no caller is the same speculative-growth mistake §4 forbids); Lead status update moved after the Inspection slices, which is what revealed that `MarkInspectionScheduled`/`MarkInspectionDone` are already driven as side effects of the Inspection commands and `MarkAngebotInProgress`/`MarkAngebotSent` belong to Phase 5 — leaving `MarkWon`/`MarkLost` as the only transitions that endpoint can legitimately drive in Phase 4.
@@ -672,3 +672,76 @@ LocalDB became unstartable partway through this slice (Windows error 575, seven 
 ### Outcome
 
 `dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **527 passing, 0 failing** (153 Domain + 165 Application + 89 Infrastructure + 120 Api). `dotnet ef migrations has-pending-model-changes` → no pending changes. No new `ARCHITECTURE_DECISIONS.md` entry — every decision applies an existing rule (D48, D50, D59, D61, D62, §10, §16).
+
+---
+
+## Slice 10 — Inspection Notes (`PATCH`), and Lead Won/Lost Reassigned to Phase 6
+
+**Endpoint:** `PATCH /api/v1/inspections/{id}` (SRS FR-3.3, Sequence Diagram §3 Step B). **Inspector only, assigned one only** — `PermissionMatrix.md` §2's "Edit Inspection notes — | S", the same shape as photo upload and completion.
+
+### The slice was redefined during design review, because the planned one rested on a false premise
+
+Slice 10 was planned as *"Lead status update — in practice `MarkWon`/`MarkLost` only."* Reading the repository rather than that title produced four findings, and the user chose to redefine the slice rather than design around them:
+
+1. **No Application command for Won/Lost exists.** `grep` for `MarkWon|MarkLost` across the solution returns six hits, all in `Lead.cs` or `LeadTests.cs`. Unlike Slice 9, this would have been net-new Application work.
+2. **`AngebotSent` is unreachable — not merely over HTTP, but in Application code at all.** `Lead.MarkAngebotSent()` is called by nothing; no `SendAngebotCommand` exists (Phase 6, gated on `ITokenLinkService`). Both `MarkWon` and `MarkLost` guard on `Status == AngebotSent`, so the endpoint would have returned 409 for every Lead in every environment, and its happy path could only ever have been exercised by seeding that state directly in a test. The user's position was explicit: do not build an endpoint whose success state can only be manufactured in tests.
+3. **Won/Lost is the customer's decision, not a staff action.** `StateMachine.md` §1.3 guards both on "TokenLink valid & unused"; **§5 states the invariant outright** — *"Lead.Status is only set to `Won` inside the same transaction as the Angebot decision handler"*; SRS FR-6.3/FR-6.5 assign the decision to the Lead; Sequence Diagram §6 routes it through `RecordAngebotDecisionCommand`. **SRS.md never contains the words "Won" or "Lost" at all.** An Admin override would have created a second path to a decision BR-4 exists to make tamper-proof.
+4. **A real document contradiction**, reconciled below.
+
+**Decision: Lead Won/Lost is formally reassigned to Phase 6**, where the token-link decision workflow makes those transitions reachable. No Admin `MarkWon`/`MarkLost` command or endpoint was created, and **no speculative `AuditAction` values were added** — `LeadWon`/`LeadLost` arrive with the use case that performs them, per §10's growth-on-demand rule.
+
+### Documentation reconciliation (evidence re-verified before any edit)
+
+`PATCH /api/v1/leads/{id}/status` appeared in **exactly one place repo-wide** (`Architecture.md` §5.2) with no code and no other document referencing it, while three documents said a free-standing status edit does not exist. `PermissionMatrix.md` §1's row **contradicted itself**, granting Admin "F" for an action its own note said was not a free-standing edit.
+
+Reconciled, inventing nothing:
+
+- `Architecture.md` §5.2 — obsolete `PATCH /api/v1/leads/{id}/status` row **removed**; two paragraphs added recording why no such endpoint exists and that Won/Lost belong to the token-link decision, each citing the pre-existing rule it restates (BR-7, BR-4, StateMachine §1.3/§5, SRS FR-6.3/6.5, Sequence Diagram §6).
+- `PermissionMatrix.md` §1 — "Change Lead status directly" corrected from **`F | —`** to **`— | —`**, so the permission and its explanation finally agree.
+- `Architecture.md` §5.2 — `PATCH /api/v1/inspections/{id}` **added**, closing the omission that had left this use case undocumented in the endpoint table while `PermissionMatrix.md` §2 and Sequence Diagram §3 both described it.
+- `StateMachine.md` — **unchanged**, because it was already correct on every point.
+
+### The endpoint
+
+- **No new Application, Domain, Infrastructure, migration, or DI work.** `UpdateInspectionNotesCommand`, its validator and handler have existed since Phase 2 and were already registered. This closes the gap recorded since Slice 7: a fully-built, registered, tested handler that no HTTP route reached. **After this slice, `UpdateInspectionNotesCommand` is no longer unreachable** — every remaining unreachable handler belongs to Phase 5/6.
+- **`PATCH`, not `POST`** — Sequence Diagram §3's own route, and semantically a partial update rather than a state transition or a new sub-resource.
+- **Genuinely idempotent, unlike completion.** Repeating the same update is legitimate and returns 200; a test pins it. No repeat-submission guard was invented, because for an edit a repeat is not an error.
+- **`null` clears the notes** — supported, not an edge case: `Inspection.UpdateNotes` accepts null and the validator deliberately places no rule on the field.
+- **No length cap**, matching Slice 5's stance on `Lead.Notes`: no document states one, so the effective bound remains Kestrel's ~30 MB default rather than an invented number.
+- **BR-10** makes a completed Inspection immutable, enforced by the aggregate's own guard and surfacing as 409 via D59. **No audit entry** — editing notes is operational activity, not a workflow milestone (§10), the same classification photo upload carries.
+- `UpdateInspectionNotesRequest` carries only `Notes`. D61's subset rule now has three distinct shapes in one controller from one principle: `ScheduleInspectionRequest` (a third party's id is a legitimate input), completion (empty — nothing but route and token), and this (one caller-suppliable field).
+
+### Tests — 10 new, and zero added to the Application layer
+
+The existing `UpdateInspectionNotesCommandHandlerTests` was inspected first, per instruction. Its 8 tests already cover the happy path, clearing to null, save-count, not-found, ownership, BR-10 (asserting both notes-unchanged **and** `SaveChangesCallCount == 0`), and validation. **No behavioural gap existed, so no Application test was added** — count is not a goal.
+
+The 10 Api tests assert against the database rather than the returned DTO, since the DTO is built from the same in-memory aggregate the handler mutated and so proves the mutation but not the commit.
+
+### Adversarial verification — all four run, none assumed
+
+| # | Broken implementation | Observed failure | Restored |
+|---|---|---|---|
+| 1 | `EnsureInspectionOwnership` removed | `A_non_owning_inspector…` → `Expected: Forbidden / Actual: OK` | ✅ |
+| 2 | Action's `Roles = Roles.Inspector` removed | `An_admin_is_forbidden_by_the_role_gate…` → failed on the **body** assertion (ProblemDetails present ⇒ reached the handler) | ✅ |
+| 3 | `inspection.UpdateNotes(...)` removed, flow preserved | 5 failures incl. `The_notes_are_persisted_to_the_database` → `Expected: "Re-tile…" / Actual: null` | ✅ |
+| 4 | BR-10 guard bypassed in `Inspection.UpdateNotes` | `A_completed_inspection_cannot_be_edited…` → `Expected: Conflict / Actual: OK` | ✅ |
+
+**Experiment 2 is the direct payoff from Slice 9's finding.** A status-code-only Admin assertion would have passed with the role gate removed, because ownership produces the same 403. The empty-body assertion — carried over deliberately — caught it. Experiment 1 again required removing the constructor parameter too, since `TreatWarningsAsErrors` turns the unread parameter into `error CS9113` before any test can run.
+
+`git diff` confirms `Inspection.cs` and `UpdateInspectionNotesCommandHandler.cs` are byte-identical to their pre-experiment state.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/RenoTrack.Api/Inspections/Dtos/UpdateInspectionNotesRequest.cs` | New — one field |
+| `src/RenoTrack.Api/Controllers/InspectionsController.cs` | `UpdateNotes` action + handler injected by interface |
+| `tests/RenoTrack.Api.Tests/Inspections/UpdateInspectionNotesEndpointTests.cs` | New — 10 tests |
+| `Architecture.md` §5.2 | Obsolete Lead-status row removed; Inspection `PATCH` row added; two explanatory paragraphs |
+| `PermissionMatrix.md` §1 | "Change Lead status directly" corrected `F | —` → `— | —` |
+
+Api suite run three consecutive times per `CLAUDE.md` §14 — 130/130 each.
+
+### Outcome
+
+`dotnet build RenoTrack.slnx` → 0 Warnings, 0 Errors. `dotnet test RenoTrack.slnx` → **537 passing, 0 failing** (153 Domain + 165 Application + 89 Infrastructure + 130 Api). `dotnet ef migrations has-pending-model-changes` → no pending changes. No new `ARCHITECTURE_DECISIONS.md` entry — the endpoint applies existing rules, and the documentation cleanup reconciles existing ones rather than creating any.
