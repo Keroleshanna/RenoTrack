@@ -132,6 +132,50 @@ public sealed class Angebot
         return item;
     }
 
+    /// <summary>
+    /// Removes a section and everything in it. <c>PermissionMatrix.md</c> §3 documents
+    /// "Add/**remove** Sections &amp; Items — Inspector S", which is the evidence CLAUDE.md §2
+    /// requires before a remover exists at all.
+    /// </summary>
+    /// <remarks>
+    /// <b>This does not contradict BR-12's "retire, never delete".</b> That rule governs historical
+    /// records — Leads, Invoices, completed Inspections, Catalog entries — which have business
+    /// meaning once created. A section in a Draft Angebot is unsent working material that no one
+    /// outside the owning Inspector has seen; a mistyped line the author cannot take back would make
+    /// the builder unusable. The edit-lock is what keeps the two apart: once an Angebot leaves
+    /// Draft/ChangesRequested it becomes a record, and nothing here can touch it.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The Angebot is not editable, or the section does not belong to it.</exception>
+    public void RemoveSection(AngebotSection section)
+    {
+        EnsureEditable();
+
+        if (!_sections.Remove(section))
+            throw new InvalidOperationException($"The given section does not belong to Angebot {Id}.");
+
+        RecalculateTotals();
+    }
+
+    /// <summary>
+    /// Removes a single item, leaving its section in place. Takes the section as well as the item
+    /// for the same reason <see cref="AddItemToSection"/> takes it — the aggregate verifies the
+    /// section is its own, and the Application layer resolves both instances from the already-loaded
+    /// tree rather than trusting ids to be unambiguous.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The Angebot is not editable, the section does not belong to it, or the item does not belong to the section.</exception>
+    public void RemoveItem(AngebotSection section, AngebotItem item)
+    {
+        EnsureEditable();
+
+        if (!_sections.Contains(section))
+            throw new InvalidOperationException($"The given section does not belong to Angebot {Id}.");
+
+        if (!section.RemoveItem(item))
+            throw new InvalidOperationException($"The given item does not belong to section {section.Id}.");
+
+        RecalculateTotals();
+    }
+
     /// <summary>StateMachine.md §2.3: <c>Draft → InReview</c>.</summary>
     /// <exception cref="InvalidOperationException">Thrown if not currently Draft, or if no section has at least one item.</exception>
     public void SubmitForReview()

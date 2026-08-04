@@ -118,6 +118,9 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Inspections | `POST /api/v1/inspections/{id}/complete` | Inspector |
 | Angebote | `POST /api/v1/leads/{leadId}/angebote` | Inspector drafts |
 | Angebote | `POST /api/v1/angebote/{id}/sections`, `.../items` | Inspector builds line items; `items` accepts an optional `catalogItemId` to pre-fill from Catalog (SRS FR-4.9) |
+| Angebote | `DELETE /api/v1/angebote/{id}/sections/{sectionId}`, `.../items/{itemId}` | Inspector removes line items while the Angebot is editable — `PermissionMatrix.md` §3's "Add/**remove** Sections & Items". Returns the refreshed totals; refused with 409 once the Angebot leaves `Draft`/`ChangesRequested` |
+| Angebote | `GET /api/v1/angebote/{id}` | The full tree — header, sections, items, VAT breakdown. Admin `F`, Inspector `S`. **Added in Phase 5**: internal review is impossible without a read, and this table previously listed only writes |
+| Angebote | `GET /api/v1/leads/{leadId}/angebote` | That Lead's Angebote, newest first. Admin `F`; an Inspector sees only their own (scoped by `WHERE`, not after loading). Unpaged — StateMachine §2.4 bounds this list |
 | Catalog | `GET /api/v1/catalog-items`, `POST /api/v1/catalog-items` | Admin manages; Inspector reads for selection while building an Angebot |
 | Catalog | `POST /api/v1/angebot-items/{id}/save-as-catalog-item` | Inspector, one-click (SRS FR-4.10) |
 | Angebote | `POST /api/v1/angebote/{id}/submit-for-review` | Inspector → Admin |

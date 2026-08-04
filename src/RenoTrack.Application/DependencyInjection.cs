@@ -5,6 +5,10 @@ using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
+using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
+using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.CatalogItems.Commands.CreateCatalogItem;
@@ -113,6 +117,8 @@ public static class DependencyInjection
         services.AddScoped<IValidator<SubmitAngebotForReviewCommand>, SubmitAngebotForReviewCommandValidator>();
         services.AddScoped<IValidator<ApproveAngebotCommand>, ApproveAngebotCommandValidator>();
         services.AddScoped<IValidator<RequestAngebotChangesCommand>, RequestAngebotChangesCommandValidator>();
+        services.AddScoped<IValidator<RemoveAngebotSectionCommand>, RemoveAngebotSectionCommandValidator>();
+        services.AddScoped<IValidator<RemoveAngebotItemCommand>, RemoveAngebotItemCommandValidator>();
 
         services.AddScoped<IValidator<CreateCatalogItemCommand>, CreateCatalogItemCommandValidator>();
         services.AddScoped<IValidator<UpdateCatalogItemCommand>, UpdateCatalogItemCommandValidator>();
@@ -139,6 +145,8 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto>, SubmitAngebotForReviewCommandHandler>();
         services.AddScoped<ICommandHandler<ApproveAngebotCommand, AngebotDto>, ApproveAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<RequestAngebotChangesCommand, AngebotDto>, RequestAngebotChangesCommandHandler>();
+        services.AddScoped<ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto>, RemoveAngebotSectionCommandHandler>();
+        services.AddScoped<ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto>, RemoveAngebotItemCommandHandler>();
 
         services.AddScoped<ICommandHandler<CreateCatalogItemCommand, CatalogItemDto>, CreateCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateCatalogItemCommand, CatalogItemDto>, UpdateCatalogItemCommandHandler>();
@@ -153,6 +161,9 @@ public static class DependencyInjection
     {
         services.AddScoped<IQueryHandler<GetLeadByIdQuery, LeadDto>, GetLeadByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetLeadsQuery, PagedResult<LeadDto>>, GetLeadsQueryHandler>();
+
+        services.AddScoped<IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>, GetAngebotByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>>, GetLeadAngeboteQueryHandler>();
 
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, IReadOnlyList<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
     }

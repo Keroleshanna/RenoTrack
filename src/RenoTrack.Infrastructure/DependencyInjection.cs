@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using RenoTrack.Application.Angebote;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Leads;
@@ -87,6 +88,7 @@ public static class DependencyInjection
         services.AddScoped<IAngebotReviewCommentRepository, AngebotReviewCommentRepository>();
         services.AddScoped<ICatalogItemRepository, CatalogItemRepository>();
         services.AddScoped<ICatalogItemQueries, CatalogItemQueries>();
+        services.AddScoped<IAngebotQueries, AngebotQueries>();
         services.AddScoped<ILeadQueries, LeadQueries>();
         services.AddScoped<IUserQueries, UserQueries>();
 
