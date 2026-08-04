@@ -33,9 +33,9 @@ Design review + dependency map approved before any code was written (per the sta
 - CI failed on Linux because `RenoTrack.Infrastructure.Tests` needs real LocalDB (Windows-only) — fixed by splitting `ci.yml` into a Linux build/test job and a Windows Infrastructure-tests job, **without** touching tests or replacing LocalDB (**D56**).
 - A real concurrency bug in `IdentityRoleSeeder` — found by rerunning the concurrency test repeatedly, not by a single pass — led to a genuine design change: `IdentityRoleSeeder` became a dedicated DI service with constructor-injected `IServiceScopeFactory`, isolating each role's seeding attempt into its own scope (**D55**).
 
-## 1c. Phase 4 — In Progress (Slice 1 of 11 done)
+## 1c. Phase 4 — Complete and Merged to `main`
 
-Branch: `feature/phase-4-api-auth-leads-inspections`, off `main` at `babfff9`. Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry — narrower than the "whole API layer" wording elsewhere: API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Everything else stays in Phases 5–8.
+Branch: `feature/phase-4-api-auth-leads-inspections`, off `main` at `babfff9`, **merged via PR #8 (merge commit `e1a4d9e`)**. Scope confirmed against `PROJECT_ROADMAP.md`'s own Phase 4 entry — narrower than the "whole API layer" wording elsewhere: API foundation, JWT authentication, Lead endpoints, Inspection endpoints, global exception handling, `LocalDiskFileStorage`, `AddApplication()` DI. Everything else stays in Phases 5–8.
 
 Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 
@@ -68,7 +68,7 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
     - **Do not add a mode that skips verification.** A DBA-managed database is a reason to use `Verify`, not to bypass it.
     - **Do not add distributed locking** for concurrent Development `Migrate` — Production never migrates at startup.
 
-**The immediate next step is Phase 4 Slice 9.** Do a design review and get explicit sign-off before writing its code, exactly as Slices 1–8 were handled.
+**All eleven slices are done, and two review passes followed them** — an internal closeout review (six Should-Fix findings, docs/test only) and a PR review (four findings, all authentication, including a fully reproducible refresh-token rotation race). Both are recorded in `PROJECT_STATE.md` §12; neither appears in `PHASE4_PROGRESS.md`'s per-slice narrative, which ends at Slice 11.
 
 **Gap recorded in Slice 8:** the system now stores photos it cannot serve. Architecture §9 says photos are "served back through an authenticated API endpoint", but none exists and `IFileStorage` has no `GetAsync`. Alongside the missing `GET /inspections/{id}` from Slice 7, this awaits a documents-first decision rather than a scope expansion.
 
@@ -139,15 +139,9 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 - Whether `OperationCanceledException` (client disconnect) needs its own handling — raised during Slice 2's review and deliberately left out: a hosting/runtime concern rather than Domain/Application exception mapping. Address with real evidence of log noise, not speculation.
 - OQ-1 through OQ-4 from `SRS.md` §10 remain open at the SRS level (Admin managing Inspector accounts; website language; email provider choice — needed before Phase 9; "revise and resend" after rejection) — none of these block current work, but do not assume an answer to any of them without checking `SRS.md` first.
 
-### 5a. Open items carried out of Phase 4 Slices 1–8 (every one is a deliberate deferral, none is forgotten work)
+### 5a. Open items carried out of Phase 4 (every one is a deliberate deferral, none is forgotten work)
 
-**Not yet designed or implemented — the remaining agreed slices:**
-
-| # | Slice | State |
-|---|---|---|
-| 9 | Inspection completion | ✅ **done.** See §1c and `PHASE4_PROGRESS.md`. |
-| 10 | Inspection notes (`PATCH`) | ✅ **Done** — redefined from "Lead status update (Won/Lost)", which was withdrawn as unbuildable and misassigned. Won/Lost now belongs to Phase 6. |
-| 11 | Migration application / database bootstrap | ✅ **Done (D63).** Production applies migrations as an explicit deployment step; startup verifies (both history directions + required roles) and never mutates schema. `Migrate` is Development-only and hard-refused in Production. Role seeding moved out of normal startup; no user is provisioned anywhere. |
+**All eleven agreed slices are built and merged** — the table that used to track slices 9–11 as outstanding has been removed, since none of them is. The per-slice record is `PHASE4_PROGRESS.md`; the two post-slice review passes are `PROJECT_STATE.md` §12.
 
 **Requirements that exist in the documents but are not built:**
 
@@ -175,6 +169,6 @@ Agreed slice order (full log in `PHASE4_PROGRESS.md`):
 **`HANDOFF_PROMPT.md` is the canonical starting point — paste its code block into a fresh conversation.** This section is the short form of the same thing.
 
 1. Read `CLAUDE.md` (especially §22, the API-layer rules), `PROJECT_STATE.md`, this file (especially §5a), `PHASE4_PROGRESS.md`, and `ARCHITECTURE_DECISIONS.md` D57–D63 — in that order, in full. `PHASE2_PROGRESS.md` and `PHASE3_PROGRESS.md` are historical background, not required reading.
-2. `git fetch origin`. **Do not branch.** Phase 4 lives on the existing `feature/phase-4-api-auth-leads-inspections`, which is ahead of `origin/main` (`babfff9`) and **unpushed** — the branch does not exist on the remote, and no PR has been opened.
-3. Run `dotnet build RenoTrack.slnx`, `dotnet test RenoTrack.slnx`, and `dotnet ef migrations has-pending-model-changes`, and confirm they match `PROJECT_STATE.md` §3 (**549 tests**: 153 Domain + 165 Application + 101 Infrastructure + 130 Api; five migrations; no pending changes). If they don't, investigate before proceeding rather than trusting the numbers.
-4. **Phase 4 is complete — all 11 slices — and its closeout review is done** (no Must-Fix findings; six Should-Fix findings applied). **The next deliverable is the Phase 4 pull request**, not implementation, and it needs explicit permission before any push. Do not start Phase 5.
+2. `git fetch origin` and confirm `main` is at `e1a4d9e` with a clean tree. **Phase 4 is merged (PR #8)**; its branch is merged on the remote and deleted locally. Phase 5 gets a **new** branch off verified `main` — `feature/phase-5-angebot-builder-review` — and, per `CLAUDE.md` §19, never a direct commit to `main` and never a force-push.
+3. Run `dotnet build RenoTrack.slnx`, `dotnet test RenoTrack.slnx`, and `dotnet ef migrations has-pending-model-changes`, and confirm they match `PROJECT_STATE.md` §3 (**553 tests**: 153 Domain + 165 Application + 101 Infrastructure + 134 Api; five migrations; no pending changes). If they don't, investigate before proceeding rather than trusting the numbers.
+4. **The next deliverable is Phase 5's first slice: a Development bootstrap / seed-data slice**, before any business feature, so the backend can be exercised as a real running application rather than only through the automated suites. It needs a design review and explicit approval before any code. Its constraints are non-negotiable: Development-only accounts, opt-in rather than silently running everywhere, idempotent, **no secrets committed**, and **never provisioning users in Production**. It **does not resolve SRS OQ-1**, and it must respect D63's separation of schema initialization, role reference data, and user provisioning rather than quietly overturning it.

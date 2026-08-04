@@ -289,7 +289,7 @@ Three Application-layer exception types exist, added one at a time exactly when 
 
 ---
 
-## 22. API Layer — Conventions (Phase 4, in progress)
+## 22. API Layer — Conventions (Phase 4, complete — all 11 slices)
 
 - **Routes are versioned by literal URL segment: `[Route("api/v1/[controller]")]`. No versioning library.** `Architecture.md` §5.1 mandates `/api/v1/...` from day one; there is exactly one version and no documented plan for a second, so `Asp.Versioning.Mvc` would be version-negotiation infrastructure for something that doesn't exist — the same speculative-abstraction failure §4 forbids for repositories/DTOs/schema, applied to routing (D57). A future v2 is added as v2 controllers alongside v1 under `api/v2/...`, so v1's behavior never silently changes underneath existing clients; a library is reconsidered only if content negotiation or deprecation headers become a real recurring need. Sub-resource routes (`POST /api/v1/leads/{leadId}/inspections`) are explicit route templates on the owning controller.
 - **Controllers are `[Authorize]` by default; `[AllowAnonymous]` is opted into per action.** A forgotten `[Authorize]` silently exposes an endpoint; a forgotten `[AllowAnonymous]` merely fails closed. The known anonymous actions are `POST /api/v1/leads` (website contact form) and `POST /api/v1/auth/login`.
