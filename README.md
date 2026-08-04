@@ -45,6 +45,8 @@ Building and testing need no configuration — both test projects that touch a d
 | `Jwt:AccessTokenMinutes` / `Jwt:RefreshTokenDays` | 15 / 7 | No | |
 | `FileStorage:RootPath` | — | **Yes** | Where inspection photos are written |
 | `Database:Mode` | `Verify` | No | `Verify` or `Migrate` — see below |
+| `DevelopmentBootstrap:Enabled` | `false` | No | Development only — see below |
+| `DevelopmentBootstrap:Admin:Password` / `…:Inspector:Password` | — | Only if the above is `true` — **secret** | No default. **Never commit them** |
 
 Every required setting is validated at startup and fails immediately, naming the exact key.
 
@@ -59,7 +61,44 @@ Every required setting is validated at startup and fails immediately, naming the
 
 **Production:** leave `Database:Mode` at `Verify` and apply migrations as an explicit deployment step *before* starting the application — an EF migration bundle (`dotnet ef migrations bundle`, recommended) or an idempotent SQL script (`dotnet ef migrations script --idempotent`) where a DBA reviews changes. Role reference data is seeded by the same explicit initialization step. See `Architecture.md` §13.1 and `ARCHITECTURE_DECISIONS.md` D63.
 
-> **No user account is created by any of this, in any environment.** A freshly initialized database has the schema and the two roles and **nobody who can log in**. How Inspector/Admin accounts are provisioned is SRS open question **OQ-1** and is still unresolved — see `NEXT_STEPS.md`.
+> **No user account is created by any of this.** A freshly initialized database has the schema and the two roles and **nobody who can log in**. In Production that is final. For Development, see the next section. How real Inspector/Admin accounts are provisioned is SRS open question **OQ-1** and is still unresolved — see `NEXT_STEPS.md`.
+
+### Getting a login on a fresh Development database (`DevelopmentBootstrap`)
+
+Since the above leaves nobody able to log in, a separate startup step can provision two development accounts — one Admin and one Inspector, because an Admin alone cannot exercise any ownership-scoped permission. **Development only, off by default, and refused outright anywhere else.**
+
+Passwords have no default and are never compiled in. **User Secrets is the recommended source** — not merely for tidiness: the user-secrets configuration provider is registered only when the environment is Development, so a password stored there cannot reach a Production host at all.
+
+```bash
+dotnet user-secrets set "DevelopmentBootstrap:Admin:Password" "<choose-one>" --project src/RenoTrack.Api
+```
+
+```bash
+dotnet user-secrets set "DevelopmentBootstrap:Inspector:Password" "<choose-one>" --project src/RenoTrack.Api
+```
+
+Then run the API with the feature on (and `Database:Mode=Migrate` if the database is new):
+
+```bash
+DevelopmentBootstrap__Enabled=true Database__Mode=Migrate dotnet run --project src/RenoTrack.Api
+```
+
+`appsettings.Development.json` (gitignored) and environment variables also work; standard configuration precedence applies, so User Secrets override the file and environment variables override both.
+
+| | |
+|---|---|
+| Default addresses | `dev-admin@renotrack.test`, `dev-inspector@renotrack.test` — override with `DevelopmentBootstrap:Admin:Email` / `…:Inspector:Email` |
+| Passwords must satisfy | ASP.NET Core Identity's real password policy; a rejected password fails startup and names the key to change |
+| Outside Development | **Startup fails.** Enabled in Staging or Production is a hard refusal, never a silent skip |
+| Enabled with no password | **Startup fails**, naming the exact key |
+
+**Provisioning is create-only: an existing account is never modified.** Changing the configured password does *not* change an existing account's password, and an account you deactivated to test the rejected-login path stays deactivated. To repair a development account, delete its row (or drop the database) and let the next start recreate it.
+
+Existing accounts are still *inspected*, which is not the same as modified. If one exists without its expected role — possible if a previous run was interrupted between creating the account and assigning its role — startup logs a **warning** naming the account and the role, and continues. That account can log in but will be refused by every role-protected endpoint; the fix is to delete it and restart.
+
+The two accounts must have **different** addresses. Configuring the same address for both fails startup naming both keys, because create-only would otherwise leave you with a single account holding only the Admin role. Addresses are compared case-insensitively, matching how Identity normalizes them.
+
+This is a development convenience and **does not resolve OQ-1**. See `Architecture.md` §13.2 and `ARCHITECTURE_DECISIONS.md` D64.
 
 ## Solution Structure
 

@@ -270,7 +270,27 @@ Deployment order:
 
 Startup **refuses to serve** when the database is unreachable, the migration history is incompatible in either direction, or a required role is missing. Migration-history compatibility compares the migrations this build knows about against `__EFMigrationsHistory`: missing ones mean the database is behind, and applied-but-unknown ones mean it is newer than this build (typically a rollback). It is a history comparison, not a schema diff.
 
-**A fresh database has schema and roles but no users** — nothing provisions an account, pending SRS OQ-1.
+**A fresh database has schema and roles but no users.** In **Production this is unchanged and final** — no code path provisions an account, pending SRS OQ-1.
+
+### 13.2 Development account bootstrap (D64)
+
+Because the above leaves nobody able to log in, and every endpoint except `POST /api/v1/leads` and `POST /api/v1/auth/login` requires authentication, a separate startup step provisions **development** accounts (D64). It is a distinct component from the database initializer above, runs immediately after it, and checks its own preconditions — "the database is ready to serve" and "a convenience account exists" are different claims, and only the first belongs to a step whose Production posture is read-only.
+
+Three conditions must **all** hold, or nothing is provisioned:
+
+| Condition | Behaviour when unmet |
+|---|---|
+| `DevelopmentBootstrap:Enabled` is `true` | Absent or `false` ⇒ silent no-op (the normal state of every environment, including Production) |
+| The environment is **Development** | Enabled anywhere else — Staging included — ⇒ **startup fails**, never a silent skip |
+| A password is configured for each account | Missing ⇒ **startup fails**, naming the exact key |
+
+The environment check is a **positive allowlist** (`IsDevelopment()`), deliberately stricter than `Database:Mode`'s `Migrate` guard (`!IsProduction()`): migrating a Staging database is recoverable, minting a known-credential Admin on a reachable non-development host is not.
+
+Two accounts are provisioned — one Admin, one Inspector — because an Admin alone cannot exercise any ownership-scoped (`S`) permission. Each account's **role is fixed in code, never read from configuration**. Provisioning is **create-only**: an existing account is never modified, so a locally-changed password or a deliberately deactivated account survives a restart. It is still *inspected* — an existing account missing its expected role is reported with a warning and left alone, never repaired — and the two accounts must have distinct addresses, which is validated before anything is created.
+
+Passwords have **no default and are never compiled in**. The recommended source is `dotnet user-secrets`, because the user-secrets configuration provider is registered only when the environment is Development — so the credential cannot reach a Production host at all, independently of the guard above. `appsettings.Development.json` (gitignored) and environment variables are also supported.
+
+**This does not resolve SRS OQ-1**, which concerns how real staff accounts are provisioned and remains open.
 
 ---
 

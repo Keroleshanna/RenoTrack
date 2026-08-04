@@ -342,7 +342,7 @@ This is explicitly meant to be a **simple, working v1** — not an exhaustive en
 
 ## 10. Open Questions
 
-- OQ-1: Should the Admin be able to create/manage Users (Inspectors) from within the dashboard, or is that a one-time setup task done directly in the database for v1?
+- OQ-1: Should the Admin be able to create/manage Users (Inspectors) from within the dashboard, or is that a one-time setup task done directly in the database for v1? **Still open.** Phase 5's Development account bootstrap (`ARCHITECTURE_DECISIONS.md` D64) does **not** answer this: it provisions convenience accounts in the Development environment only, refuses to run anywhere else, and leaves Production with no code path that creates a user.
 - OQ-2: Does the company need the website in German only, or German + English for v1?
 - OQ-3: What is the expected email-sending method (existing company mailbox via SMTP, or a transactional provider such as SendGrid/Postmark)?
 - OQ-4: Should rejected Angebote support a "revise and resend" path (Inspector edits and a new version is sent), or is rejection simply a dead end for that Lead in v1?

@@ -117,6 +117,25 @@ public sealed class DatabaseInitializerTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// Schema initialization, role reference data, and user provisioning are three separate concerns,
+    /// and this component performs only the first two (D63) — user provisioning belongs to
+    /// <c>DevelopmentBootstrap</c>, which is a different startup step entirely (D64). A regression
+    /// pin, not a restatement: this is what would fail if account creation ever crept back in here,
+    /// and the consequence of that going unnoticed is a component with a read-only Production posture
+    /// quietly gaining the ability to mint a credential.
+    /// </summary>
+    [Fact]
+    public async Task Migrate_seeds_roles_but_creates_no_user_accounts()
+    {
+        await RunInitializerAsync(DatabaseInitializationMode.Migrate);
+
+        await using var context = CreateDbContext();
+
+        Assert.NotEmpty(await context.Roles.ToListAsync());
+        Assert.Empty(await context.Users.ToListAsync());
+    }
+
+    /// <summary>
     /// Explicitly required: running Development initialization twice must be safe. The second run
     /// re-applies nothing and must not duplicate role rows.
     /// </summary>

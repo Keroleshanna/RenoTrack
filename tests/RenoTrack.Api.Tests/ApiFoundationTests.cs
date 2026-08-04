@@ -1,5 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
+using RenoTrack.Infrastructure.Identity;
 
 namespace RenoTrack.Api.Tests;
 
@@ -20,6 +23,33 @@ public sealed class ApiFoundationTests(RenoTrackApiFactory factory)
         using var client = factory.CreateClient();
 
         Assert.NotNull(client.BaseAddress);
+    }
+
+    /// <summary>
+    /// The real <c>Program.cs</c> runs <c>DevelopmentBootstrap</c> immediately after
+    /// <c>DatabaseInitializer</c> (D64), and this host is Development — so this proves the step is
+    /// genuinely a no-op when it is not enabled, through the production startup path rather than
+    /// against the component in isolation.
+    /// </summary>
+    /// <remarks>
+    /// The factory disables it explicitly rather than leaving it unconfigured, because Development is
+    /// exactly the environment in which the API project's user secrets are loaded — so a developer
+    /// who has set bootstrap passwords on their own machine would otherwise get accounts provisioned
+    /// into this database, and this test would pass in CI while failing locally.
+    /// </remarks>
+    [Fact]
+    public async Task No_development_bootstrap_accounts_are_provisioned_when_it_is_disabled()
+    {
+        using var client = factory.CreateClient();
+
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        // The bootstrap's own default addresses, which carry a dev- prefix precisely so they are
+        // distinct from the accounts this factory seeds for its own tests — otherwise this assertion
+        // could not tell the two apart, and would fail for the wrong reason.
+        Assert.Null(await users.FindByEmailAsync("dev-admin@renotrack.test"));
+        Assert.Null(await users.FindByEmailAsync("dev-inspector@renotrack.test"));
     }
 
     [Fact]
