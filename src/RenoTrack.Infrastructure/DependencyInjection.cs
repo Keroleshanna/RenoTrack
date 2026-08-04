@@ -35,7 +35,8 @@ namespace RenoTrack.Infrastructure;
 ///
 /// Requires two services the generic host registers for free and an isolated ServiceCollection does
 /// not: ILogger&lt;T&gt; (AuditService, LoggingNoOpEmailSender, DatabaseInitializer) and
-/// IHostEnvironment (DatabaseInitializer's Production guard, D63). Stated here because a container
+/// IHostEnvironment (DatabaseInitializer's Production guard, D63, and DevelopmentBootstrap's
+/// Development-only allowlist, D64). Stated here because a container
 /// composed by hand — as three test helpers do — must add both, and discovering that from a
 /// ValidateOnBuild failure is worse than reading it.
 ///
@@ -71,6 +72,14 @@ public static class DependencyInjection
         // behaviour they actually got. Singleton because it is immutable configuration (D63).
         services.AddSingleton(DatabaseInitializationOptions.FromConfiguration(configuration));
         services.AddScoped<DatabaseInitializer>();
+
+        // Development login accounts (D64) — a separate startup step from DatabaseInitializer, not a
+        // fourth responsibility of it: readiness-to-serve and minting a credential are different
+        // claims, and only one of them belongs to a component whose Production posture is read-only.
+        // Only Enabled is parsed eagerly here; the account-level validation deliberately waits until
+        // after the environment guard has run (see DevelopmentBootstrapOptions.Validate).
+        services.AddSingleton(DevelopmentBootstrapOptions.FromConfiguration(configuration));
+        services.AddScoped<DevelopmentBootstrap>();
 
         services.AddScoped<ILeadRepository, LeadRepository>();
         services.AddScoped<IInspectionRepository, InspectionRepository>();

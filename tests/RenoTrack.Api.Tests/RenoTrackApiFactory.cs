@@ -68,6 +68,14 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         builder.UseSetting(
             DatabaseInitializationOptions.ModeKey,
             nameof(DatabaseInitializationMode.Migrate));
+
+        // Explicitly off, never merely left unconfigured (D64). The host is Development here, which
+        // is exactly the environment in which WebApplication.CreateBuilder loads the API project's
+        // user secrets — so a developer who has set DevelopmentBootstrap passwords on their own
+        // machine would otherwise have accounts provisioned into this test database, making these
+        // tests behave differently locally than in CI's fresh clone. Same reasoning as the JWT
+        // settings above: test configuration comes from the test project, never from a machine.
+        builder.UseSetting(DevelopmentBootstrapOptions.EnabledKey, "false");
     }
 
     /// <summary>

@@ -4,6 +4,7 @@ using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
 using RenoTrack.Application;
 using RenoTrack.Infrastructure;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using Scalar.AspNetCore;
 
@@ -55,11 +56,23 @@ var app = builder.Build();
 // Database:Mode to Migrate to have startup apply migrations and seed roles instead. Failing here
 // deliberately prevents the application from serving requests: an unreachable database, an
 // incompatible migration history, or a missing role each mean traffic would misbehave rather than
-// fail cleanly. No user account is ever created here (SRS OQ-1 remains open).
+// fail cleanly. No user account is ever created here — that is a separate step below, and it is
+// unreachable in Production (SRS OQ-1 remains open).
 using (var scope = app.Services.CreateScope())
 {
     var databaseInitializer = scope.ServiceProvider.GetRequiredService<DatabaseInitializer>();
     await databaseInitializer.InitializeAsync();
+}
+
+// Development login accounts (D64). A deliberately separate step, in its own scope, immediately
+// after the database is known to be ready: "the database can serve requests" and "a convenience
+// account exists" are different claims, and DatabaseInitializer makes only the first. This is a
+// no-op unless DevelopmentBootstrap:Enabled is true, and it refuses outright in any environment
+// other than Development, so no code path here can create an account in Production.
+using (var scope = app.Services.CreateScope())
+{
+    var developmentBootstrap = scope.ServiceProvider.GetRequiredService<DevelopmentBootstrap>();
+    await developmentBootstrap.RunAsync();
 }
 
 // Configure the HTTP request pipeline.

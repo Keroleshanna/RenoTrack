@@ -4,6 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Enables `dotnet user-secrets`, the recommended source for the DevelopmentBootstrap account
+         passwords (D64). WebApplication.CreateBuilder registers the user-secrets configuration
+         provider only when the environment is Development, so a credential stored here cannot reach
+         a Production host at all — a gate independent of DevelopmentBootstrap's own. -->
+    <UserSecretsId>renotrack-api-dev-secrets</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
