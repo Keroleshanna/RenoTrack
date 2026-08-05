@@ -39,4 +39,30 @@ public sealed class AngebotQueries(RenoTrackDbContext dbContext) : IAngebotQueri
                 a.NetTotal.Amount,
                 a.GrossTotal.Amount))
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Reaches the item through its Angebot's navigations, since <c>AngebotItem</c> has no
+    /// <c>DbSet</c> of its own — child entities are only ever reachable through their aggregate root
+    /// (CLAUDE.md §21), and that rule holds for reads as well as writes.
+    /// </summary>
+    public async Task<ItemDto?> GetItemAsync(int itemId, CancellationToken cancellationToken) =>
+        await dbContext.Angebote
+            .AsNoTracking()
+            .SelectMany(a => a.Sections)
+            .SelectMany(s => s.Items)
+            .Where(i => i.Id == itemId)
+            .Select(i => new ItemDto(
+                i.Id,
+                i.CatalogItemId,
+                i.Description,
+                i.Specification,
+                i.Quantity,
+                i.Unit.Code,
+                i.UnitPrice.Amount,
+                i.VatRate,
+
+                // LineTotal is a computed Domain property with no column, so the projection
+                // restates Architecture.md §6.1 step 1 rather than reading it.
+                i.Quantity * i.UnitPrice.Amount))
+            .SingleOrDefaultAsync(cancellationToken);
 }

@@ -21,4 +21,10 @@ public sealed class FakeAngebotQueries : IAngebotQueries
         Calls.Add((leadId, requestingInspectorId));
         return Task.FromResult(Result);
     }
+
+    /// <summary>Items seeded by id, for the FR-4.10 "save as Catalog item" handler.</summary>
+    public Dictionary<int, ItemDto> Items { get; } = [];
+
+    public Task<ItemDto?> GetItemAsync(int itemId, CancellationToken cancellationToken) =>
+        Task.FromResult(Items.GetValueOrDefault(itemId));
 }

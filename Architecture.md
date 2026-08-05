@@ -121,7 +121,8 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Angebote | `DELETE /api/v1/angebote/{id}/sections/{sectionId}`, `.../items/{itemId}` | Inspector removes line items while the Angebot is editable — `PermissionMatrix.md` §3's "Add/**remove** Sections & Items". Returns the refreshed totals; refused with 409 once the Angebot leaves `Draft`/`ChangesRequested` |
 | Angebote | `GET /api/v1/angebote/{id}` | The full tree — header, sections, items, VAT breakdown. Admin `F`, Inspector `S`. **Added in Phase 5**: internal review is impossible without a read, and this table previously listed only writes |
 | Angebote | `GET /api/v1/leads/{leadId}/angebote` | That Lead's Angebote, newest first. Admin `F`; an Inspector sees only their own (scoped by `WHERE`, not after loading). Unpaged — StateMachine §2.4 bounds this list |
-| Catalog | `GET /api/v1/catalog-items`, `POST /api/v1/catalog-items` | Admin manages; Inspector reads for selection while building an Angebot |
+| Catalog | `GET /api/v1/catalog-items`, `POST /api/v1/catalog-items` | Admin manages; Inspector reads for selection while building an Angebot. `GET` takes `?searchTerm=` (Wireframe D2's "Search Catalog" box) plus `?page=`/`?pageSize=` per §5.1; retired items never appear and there is no flag to include them (BR-12, D37) |
+| Catalog | `PUT /api/v1/catalog-items/{id}`, `POST /api/v1/catalog-items/{id}/retire` | Admin only (`PermissionMatrix.md` §6). **Retire, not `DELETE`** — BR-12 keeps the row so trace links stay valid (BR-8) and it remains a usable direct reference (BR-14); retirement affects discovery only |
 | Catalog | `POST /api/v1/angebot-items/{id}/save-as-catalog-item` | Inspector, one-click (SRS FR-4.10) |
 | Angebote | `POST /api/v1/angebote/{id}/submit-for-review` | Inspector → Admin |
 | Angebote | `POST /api/v1/angebote/{id}/approve`, `/request-changes`, `/send` | Admin |

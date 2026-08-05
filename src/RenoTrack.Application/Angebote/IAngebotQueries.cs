@@ -21,4 +21,16 @@ public interface IAngebotQueries
         int leadId,
         int? requestingInspectorId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One line item, found by its own id. Needed by FR-4.10 "save as Catalog item", whose route
+    /// (<c>POST /api/v1/angebot-items/{id}/save-as-catalog-item</c>) names the item alone.
+    /// </summary>
+    /// <remarks>
+    /// A read rather than a repository load: the caller copies values out of the item and never
+    /// mutates it or its Angebot, so hydrating the whole aggregate to reach one child would be work
+    /// with no purpose. Access needs no scope parameter — PermissionMatrix.md §3 marks this action
+    /// "F" for Inspectors, since the Catalog is shared company-wide rather than per-Lead.
+    /// </remarks>
+    Task<ItemDto?> GetItemAsync(int itemId, CancellationToken cancellationToken);
 }
