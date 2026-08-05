@@ -53,4 +53,13 @@ public sealed class AngebotSection
         _items.Add(item);
         return item;
     }
+
+    /// <summary>
+    /// Removes one of this section's items. <c>internal</c> like <see cref="AddItem"/>, so the only
+    /// way to reach it is <see cref="Angebot.RemoveItem"/> — which enforces the edit-lock and
+    /// recalculates totals afterwards. A public remover here would let a caller shrink an Angebot
+    /// without either.
+    /// </summary>
+    /// <returns><see langword="true"/> if the item belonged to this section and was removed.</returns>
+    internal bool RemoveItem(AngebotItem item) => _items.Remove(item);
 }

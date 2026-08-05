@@ -4,11 +4,18 @@ using RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
+using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
+using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
+using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
+using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.CatalogItems.Commands.CreateCatalogItem;
 using RenoTrack.Application.CatalogItems.Commands.RetireCatalogItem;
+using RenoTrack.Application.CatalogItems.Commands.SaveAngebotItemAsCatalogItem;
 using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
@@ -91,9 +98,10 @@ public static class DependencyInjection
 
     /// <summary>
     /// Shape-only request validation (CLAUDE.md §5) — never business rules, never a repository
-    /// call. One per command that has parameters worth checking; <c>SearchCatalogItemsQuery</c>
-    /// deliberately has none, because it takes no parameters at all (D37) — which is why this
-    /// category has 14 entries where the handler categories together have 15.
+    /// call. One per command or query that has parameters worth checking — which is not all of them,
+    /// so this category is legitimately shorter than the handler categories together.
+    /// <c>SearchCatalogItemsQuery</c> gained one in Phase 5 when it gained paging; its search term
+    /// stays unvalidated, since any string is a legitimate search.
     /// Ordering follows the file-level rule above.
     /// </summary>
     private static void AddValidators(IServiceCollection services)
@@ -113,10 +121,15 @@ public static class DependencyInjection
         services.AddScoped<IValidator<SubmitAngebotForReviewCommand>, SubmitAngebotForReviewCommandValidator>();
         services.AddScoped<IValidator<ApproveAngebotCommand>, ApproveAngebotCommandValidator>();
         services.AddScoped<IValidator<RequestAngebotChangesCommand>, RequestAngebotChangesCommandValidator>();
+        services.AddScoped<IValidator<RemoveAngebotSectionCommand>, RemoveAngebotSectionCommandValidator>();
+        services.AddScoped<IValidator<RemoveAngebotItemCommand>, RemoveAngebotItemCommandValidator>();
+        services.AddScoped<IValidator<DuplicateAngebotCommand>, DuplicateAngebotCommandValidator>();
 
         services.AddScoped<IValidator<CreateCatalogItemCommand>, CreateCatalogItemCommandValidator>();
         services.AddScoped<IValidator<UpdateCatalogItemCommand>, UpdateCatalogItemCommandValidator>();
         services.AddScoped<IValidator<RetireCatalogItemCommand>, RetireCatalogItemCommandValidator>();
+        services.AddScoped<IValidator<SaveAngebotItemAsCatalogItemCommand>, SaveAngebotItemAsCatalogItemCommandValidator>();
+        services.AddScoped<IValidator<SearchCatalogItemsQuery>, SearchCatalogItemsQueryValidator>();
     }
 
     /// <summary>
@@ -139,10 +152,14 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto>, SubmitAngebotForReviewCommandHandler>();
         services.AddScoped<ICommandHandler<ApproveAngebotCommand, AngebotDto>, ApproveAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<RequestAngebotChangesCommand, AngebotDto>, RequestAngebotChangesCommandHandler>();
+        services.AddScoped<ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto>, RemoveAngebotSectionCommandHandler>();
+        services.AddScoped<ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto>, RemoveAngebotItemCommandHandler>();
+        services.AddScoped<ICommandHandler<DuplicateAngebotCommand, AngebotDto>, DuplicateAngebotCommandHandler>();
 
         services.AddScoped<ICommandHandler<CreateCatalogItemCommand, CatalogItemDto>, CreateCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateCatalogItemCommand, CatalogItemDto>, UpdateCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<RetireCatalogItemCommand, CatalogItemDto>, RetireCatalogItemCommandHandler>();
+        services.AddScoped<ICommandHandler<SaveAngebotItemAsCatalogItemCommand, CatalogItemDto>, SaveAngebotItemAsCatalogItemCommandHandler>();
     }
 
     /// <summary>
@@ -154,7 +171,11 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetLeadByIdQuery, LeadDto>, GetLeadByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetLeadsQuery, PagedResult<LeadDto>>, GetLeadsQueryHandler>();
 
-        services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, IReadOnlyList<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
+        services.AddScoped<IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>, GetAngebotByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>>, GetLeadAngeboteQueryHandler>();
+        services.AddScoped<IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>>, GetAngebotReviewCommentsQueryHandler>();
+
+        services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, PagedResult<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
     }
 
     /// <summary>

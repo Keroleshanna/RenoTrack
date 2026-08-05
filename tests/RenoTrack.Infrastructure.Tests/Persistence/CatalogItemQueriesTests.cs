@@ -1,3 +1,4 @@
+using RenoTrack.Application.Common;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.ValueObjects;
 using RenoTrack.Infrastructure.Persistence.Queries;
@@ -29,9 +30,9 @@ public sealed class CatalogItemQueriesTests(RenoTrackDbContextFixture fixture)
         await using var readContext = fixture.CreateContext();
         var queries = new CatalogItemQueries(readContext);
 
-        var results = await queries.SearchAsync(CancellationToken.None);
+        var results = await queries.SearchAsync(null, Pagination.FirstPage, Pagination.DefaultPageSize, CancellationToken.None);
 
-        var dto = Assert.Single(results, r => r.Id == catalogItem.Id);
+        var dto = Assert.Single(results.Items, r => r.Id == catalogItem.Id);
         Assert.Equal("Fliesen verlegen", dto.Title);
         Assert.Equal("Feinsteinzeug", dto.DefaultSpecification);
         Assert.Equal("m2", dto.DefaultUnit);
@@ -57,10 +58,10 @@ public sealed class CatalogItemQueriesTests(RenoTrackDbContextFixture fixture)
         await using var readContext = fixture.CreateContext();
         var queries = new CatalogItemQueries(readContext);
 
-        var results = await queries.SearchAsync(CancellationToken.None);
+        var results = await queries.SearchAsync(null, Pagination.FirstPage, Pagination.DefaultPageSize, CancellationToken.None);
 
-        Assert.Contains(results, r => r.Id == active.Id);
-        Assert.DoesNotContain(results, r => r.Id == retired.Id);
+        Assert.Contains(results.Items, r => r.Id == active.Id);
+        Assert.DoesNotContain(results.Items, r => r.Id == retired.Id);
     }
 
     [Fact]
@@ -72,15 +73,19 @@ public sealed class CatalogItemQueriesTests(RenoTrackDbContextFixture fixture)
         // total emptiness beforehand.
         await using var context = fixture.CreateContext();
         var queries = new CatalogItemQueries(context);
-        var beforeCount = (await queries.SearchAsync(CancellationToken.None)).Count;
+        var beforeCount = (await queries.SearchAsync(null, Pagination.FirstPage, Pagination.DefaultPageSize, CancellationToken.None)).TotalCount;
 
         var item = CatalogItem.Create("Isolation Check Item", ItemUnit.Piece(), Money.FromExact(1.00m));
         context.CatalogItems.Add(item);
         await context.SaveChangesAsync();
 
-        var afterResults = await queries.SearchAsync(CancellationToken.None);
+        var afterResults = await queries.SearchAsync(null, Pagination.FirstPage, Pagination.DefaultPageSize, CancellationToken.None);
 
-        Assert.Equal(beforeCount + 1, afterResults.Count);
-        Assert.Contains(afterResults, r => r.Id == item.Id);
+        Assert.Equal(beforeCount + 1, afterResults.TotalCount);
+
+        // Located by a targeted search rather than scanned from page one: this class shares its
+        // database, so the new row is not guaranteed to fall on the first page of a title ordering.
+        var found = await queries.SearchAsync("Isolation Check Item", Pagination.FirstPage, Pagination.DefaultPageSize, CancellationToken.None);
+        Assert.Contains(found.Items, r => r.Id == item.Id);
     }
 }
