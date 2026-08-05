@@ -16,6 +16,12 @@ public sealed record CreateAngebotRequest(int? InspectionId);
 public sealed record AddSectionRequest(string Title, int SortOrder);
 
 /// <summary>
+/// The Admin's comment when returning an Angebot to the Inspector (SRS FR-5.2). The reviewing
+/// Admin's id comes from the token, so the comment text is the only genuine input.
+/// </summary>
+public sealed record RequestChangesRequest(string Comment);
+
+/// <summary>
 /// Adds a line item, in either of SRS FR-4.9's two modes: pick a Catalog entry
 /// (<paramref name="CatalogItemId"/> set, description/specification/unit pre-filled from it), or
 /// type a fully custom line. The existing handler resolves which mode applies; the controller does

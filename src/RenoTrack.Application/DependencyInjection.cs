@@ -8,6 +8,7 @@ using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
@@ -164,6 +165,7 @@ public static class DependencyInjection
 
         services.AddScoped<IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>, GetAngebotByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>>, GetLeadAngeboteQueryHandler>();
+        services.AddScoped<IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>>, GetAngebotReviewCommentsQueryHandler>();
 
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, IReadOnlyList<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
     }

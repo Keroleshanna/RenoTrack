@@ -4,11 +4,15 @@ using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Api.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
+using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
+using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
@@ -25,11 +29,12 @@ namespace RenoTrack.Api.Controllers;
 /// onto <c>LeadsController</c> would give that controller a dependency it has no other use for.
 /// </para>
 /// <para>
-/// <b>Every mutating action on this controller is Inspector-only and ownership-scoped.</b>
+/// <b>Building is Inspector-only and ownership-scoped; reviewing is Admin-only and unscoped.</b>
 /// <c>PermissionMatrix.md</c> §3 marks Admin as "R" for a draft in progress — they may view one but
 /// never edit it, which keeps authorship and accountability clean; if an Admin wants a change they
-/// use Request Changes during review. The review actions themselves (approve, request-changes) are
-/// Admin-only and arrive in the next slice.
+/// use Request Changes during review. §4 then marks approve and request-changes "F", so those carry
+/// no ownership check at all: any Admin may act on any Angebot, which is the point of the review
+/// gate (BR-1). That asymmetry is deliberate — see CLAUDE.md §16.
 /// </para>
 /// <para>
 /// There is deliberately <b>no endpoint returning a <c>ChangesRequested</c> Angebot to
@@ -48,7 +53,11 @@ public sealed class AngeboteController(
     ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto> removeSectionHandler,
     ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto> removeItemHandler,
     IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto> getAngebotByIdHandler,
-    IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>> getLeadAngeboteHandler) : ControllerBase
+    IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>> getLeadAngeboteHandler,
+    ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto> submitForReviewHandler,
+    ICommandHandler<ApproveAngebotCommand, AngebotDto> approveHandler,
+    ICommandHandler<RequestAngebotChangesCommand, AngebotDto> requestChangesHandler,
+    IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>> getReviewCommentsHandler) : ControllerBase
 {
     /// <summary>
     /// Creates a Draft Angebot for a Lead (SRS FR-4.1). Owning Inspector only.
@@ -216,6 +225,101 @@ public sealed class AngeboteController(
             cancellationToken);
 
         return Ok(summary);
+    }
+
+    // ---- Internal review loop (SRS FR-5.1–5.4, StateMachine.md §2.3) --------
+
+    /// <summary>
+    /// Submits a draft for Admin review (SRS FR-5.1). Owning Inspector only.
+    /// </summary>
+    /// <remarks>
+    /// The "at least one section with at least one item" guard is the aggregate's own and surfaces
+    /// as 409 — the controller checks nothing. Submitting from any state other than <c>Draft</c>
+    /// fails the same way.
+    /// </remarks>
+    [HttpPost("{id:int}/submit-for-review")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitForReview(int id, CancellationToken cancellationToken)
+    {
+        var angebot = await submitForReviewHandler.HandleAsync(
+            new SubmitAngebotForReviewCommand(id, InspectorId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// Approves an Angebot internally (SRS FR-5.2, BR-1). Admin only.
+    /// </summary>
+    /// <remarks>
+    /// <b>No ownership check, deliberately.</b> PermissionMatrix.md §4 marks this "F": any
+    /// authenticated Admin may approve any Angebot, which is the entire point of the internal review
+    /// gate. Calling <c>IOwnershipValidator</c> here would be a semantic error, not merely redundant
+    /// (CLAUDE.md §16). This is where Phase 5 ends — <c>ApprovedInternally</c> is what Phase 6's
+    /// send/token-link work starts from.
+    /// </remarks>
+    [HttpPost("{id:int}/approve")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
+    {
+        var angebot = await approveHandler.HandleAsync(
+            new ApproveAngebotCommand(id, ReviewedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// Returns an Angebot to the Inspector with a comment (SRS FR-5.2/FR-5.3). Admin only, "F".
+    /// </summary>
+    /// <remarks>
+    /// The comment is saved as an <c>AngebotReviewComment</c> and the Inspector is notified, both
+    /// inside the handler. The Angebot moves to <c>ChangesRequested</c>, and returns to <c>Draft</c>
+    /// by itself the moment the Inspector edits it again — FR-5.3's loop, with no extra endpoint.
+    /// </remarks>
+    [HttpPost("{id:int}/request-changes")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RequestChanges(
+        int id,
+        RequestChangesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var angebot = await requestChangesHandler.HandleAsync(
+            new RequestAngebotChangesCommand(id, request.Comment, ReviewedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// The review comment history, oldest first (SRS FR-5.4). Admin "F", Inspector "R" for their own.
+    /// </summary>
+    [HttpGet("{id:int}/review-comments")]
+    [ProducesResponseType<IReadOnlyList<AngebotReviewCommentDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetReviewComments(int id, CancellationToken cancellationToken)
+    {
+        var comments = await getReviewCommentsHandler.HandleAsync(
+            new GetAngebotReviewCommentsQuery(id, RequestingInspectorId()),
+            cancellationToken);
+
+        return Ok(comments);
     }
 
     /// <summary>The authenticated caller's user id, from the token's subject claim (D61).</summary>

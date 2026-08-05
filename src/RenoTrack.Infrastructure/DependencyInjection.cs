@@ -89,6 +89,7 @@ public static class DependencyInjection
         services.AddScoped<ICatalogItemRepository, CatalogItemRepository>();
         services.AddScoped<ICatalogItemQueries, CatalogItemQueries>();
         services.AddScoped<IAngebotQueries, AngebotQueries>();
+        services.AddScoped<IAngebotReviewCommentQueries, AngebotReviewCommentQueries>();
         services.AddScoped<ILeadQueries, LeadQueries>();
         services.AddScoped<IUserQueries, UserQueries>();
 
