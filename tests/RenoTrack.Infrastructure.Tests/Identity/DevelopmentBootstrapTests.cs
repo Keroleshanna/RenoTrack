@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
+using RenoTrack.Infrastructure.TokenLinks;
 
 namespace RenoTrack.Infrastructure.Tests.Identity;
 
@@ -68,6 +69,7 @@ public sealed class DevelopmentBootstrapTests : IAsyncLifetime
         ["ConnectionStrings:RenoTrackDb"] = ConnectionString,
         [$"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}"] =
             Path.Combine(Path.GetTempPath(), DatabaseName),
+        [$"{TokenLinkOptions.SectionName}:{nameof(TokenLinkOptions.LifetimeDays)}"] = "30",
     };
 
     /// <summary>

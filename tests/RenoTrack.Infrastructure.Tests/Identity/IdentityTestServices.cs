@@ -27,6 +27,7 @@ internal static class IdentityTestServices
                 // AddInfrastructure validates this eagerly as of Slice 8, so the container cannot
                 // be built without it — even for tests that never touch file storage.
                 ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackIdentityTests"),
+                ["TokenLink:LifetimeDays"] = "30",
             })
             .Build();
 

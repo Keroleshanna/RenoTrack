@@ -9,6 +9,7 @@ using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Queries;
 using RenoTrack.Infrastructure.Persistence.Repositories;
+using RenoTrack.Infrastructure.TokenLinks;
 
 namespace RenoTrack.Infrastructure.Tests;
 
@@ -38,6 +39,10 @@ public sealed class DependencyInjectionTests
                 // AddInfrastructure validates this eagerly as of Slice 8, so the container cannot
                 // even be built without it.
                 ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "RenoTrackDiTests"),
+
+                // Same category as FileStorage:RootPath above — validated eagerly as of Phase 6
+                // Slice 1, so the container cannot be built without it.
+                ["TokenLink:LifetimeDays"] = "30",
             })
             .Build();
 
@@ -94,6 +99,8 @@ public sealed class DependencyInjectionTests
         Assert.IsType<NumberGeneratorService>(services.GetRequiredService<INumberGeneratorService>());
         Assert.IsType<LocalDiskFileStorage>(services.GetRequiredService<IFileStorage>());
         Assert.IsType<LoggingNoOpEmailSender>(services.GetRequiredService<IEmailSender>());
+        Assert.IsType<TokenLinkRepository>(services.GetRequiredService<ITokenLinkRepository>());
+        Assert.IsType<TokenLinkService>(services.GetRequiredService<ITokenLinkService>());
     }
 
     [Fact]
