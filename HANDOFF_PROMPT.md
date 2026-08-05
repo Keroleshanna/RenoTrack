@@ -13,13 +13,14 @@ on the files, not on any chat history. Do not treat anything below as optional r
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- Branch: main. Phase 4's feature branch is merged; its local copy was deleted and the remote copy
-  kept, matching how the Phase 2 and Phase 3 branches were left.
-- HEAD / origin/main: e1a4d9ef8d8653ab44f1ff7822c855a4be6ea40c
-  ("Merge pull request #8 from Keroleshanna/feature/phase-4-api-auth-leads-inspections").
-- PR #8 is MERGED. Phase 4 needs no further delivery work.
+- Branch: feature/phase-5-angebot-builder-review. Phase 5 is IN PROGRESS and unmerged.
+- origin/main: 7ce977420f4ec2b419a5351d930bc79c9593e42b
+  ("Merge pull request #10 from Keroleshanna/feature/phase-5-development-bootstrap").
+- PRs #8 (Phase 4) and #10 (Development bootstrap, D64) are MERGED.
+- Phase 5 slices 1-4 (builder core, review loop, catalog, duplicate) are committed on the branch
+  and awaiting review/push - nothing from them is on main yet.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 553 passing, 0 failing — 153 Domain, 165 Application, 101 Infrastructure, 134 Api.
+- Tests: 724 passing, 0 failing — 165 Domain, 219 Application, 140 Infrastructure, 200 Api.
 - Migrations: 5 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens);
   has-pending-model-changes reports none.
 - Working tree: clean.

@@ -6,6 +6,7 @@ using RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
+using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
@@ -57,7 +58,8 @@ public sealed class AngeboteController(
     ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto> submitForReviewHandler,
     ICommandHandler<ApproveAngebotCommand, AngebotDto> approveHandler,
     ICommandHandler<RequestAngebotChangesCommand, AngebotDto> requestChangesHandler,
-    IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>> getReviewCommentsHandler) : ControllerBase
+    IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>> getReviewCommentsHandler,
+    ICommandHandler<DuplicateAngebotCommand, AngebotDto> duplicateHandler) : ControllerBase
 {
     /// <summary>
     /// Creates a Draft Angebot for a Lead (SRS FR-4.1). Owning Inspector only.
@@ -225,6 +227,41 @@ public sealed class AngeboteController(
             cancellationToken);
 
         return Ok(summary);
+    }
+
+    /// <summary>
+    /// Starts a new Draft on another Lead from an existing Angebot (SRS FR-4.11).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two ownership rules apply and both are enforced in the handler: the Inspector must own the
+    /// Angebot being copied (PermissionMatrix.md §3's "only from Angebote the Inspector has access
+    /// to", with "their own" as the documented v1 default) <em>and</em> the target Lead. The
+    /// one-active-Angebot rule applies to the target exactly as it does to a fresh creation, so
+    /// duplicating cannot become a second route around StateMachine.md §2.4.
+    /// </para>
+    /// <para>
+    /// Duplicating a single section is not offered. FR-4.11 permits it, but no wireframe shows it
+    /// and it needs its own endpoint shape — it should arrive with a real caller.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/duplicate")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Duplicate(
+        int id,
+        DuplicateAngebotRequest request,
+        CancellationToken cancellationToken)
+    {
+        var duplicate = await duplicateHandler.HandleAsync(
+            new DuplicateAngebotCommand(id, request.TargetLeadId, InspectorId: CurrentUserId()),
+            cancellationToken);
+
+        return CreatedAtAction(nameof(GetById), new { id = duplicate.Id }, duplicate);
     }
 
     // ---- Internal review loop (SRS FR-5.1–5.4, StateMachine.md §2.3) --------

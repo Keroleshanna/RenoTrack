@@ -36,3 +36,13 @@ public sealed record AddItemRequest(
     decimal Quantity,
     decimal UnitPrice,
     VatRate VatRate);
+
+/// <summary>
+/// Duplicates an entire Angebot onto another Lead (SRS FR-4.11). The source is the route id; the
+/// acting Inspector comes from the token.
+/// </summary>
+/// <param name="TargetLeadId">
+/// Which Lead the new Draft belongs to — who is being acted <em>upon</em>, so a genuine input
+/// rather than a server-derived value (D61's own correction).
+/// </param>
+public sealed record DuplicateAngebotRequest(int TargetLeadId);

@@ -124,6 +124,7 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Catalog | `GET /api/v1/catalog-items`, `POST /api/v1/catalog-items` | Admin manages; Inspector reads for selection while building an Angebot. `GET` takes `?searchTerm=` (Wireframe D2's "Search Catalog" box) plus `?page=`/`?pageSize=` per §5.1; retired items never appear and there is no flag to include them (BR-12, D37) |
 | Catalog | `PUT /api/v1/catalog-items/{id}`, `POST /api/v1/catalog-items/{id}/retire` | Admin only (`PermissionMatrix.md` §6). **Retire, not `DELETE`** — BR-12 keeps the row so trace links stay valid (BR-8) and it remains a usable direct reference (BR-14); retirement affects discovery only |
 | Catalog | `POST /api/v1/angebot-items/{id}/save-as-catalog-item` | Inspector, one-click (SRS FR-4.10) |
+| Angebote | `POST /api/v1/angebote/{id}/duplicate` | Inspector duplicates a whole Angebot onto another Lead (SRS FR-4.11). Source restricted to their own; target Lead ownership and the one-active-Angebot rule both apply. Section-level duplication is deferred until a real caller needs it |
 | Angebote | `POST /api/v1/angebote/{id}/submit-for-review` | Inspector → Admin |
 | Angebote | `POST /api/v1/angebote/{id}/approve`, `/request-changes`, `/send` | Admin |
 | Angebot decision (public) | `GET /api/v1/public/angebote/{token}` | Token-link view, no auth |
