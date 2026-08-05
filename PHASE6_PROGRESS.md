@@ -11,7 +11,7 @@ This is the first API surface deliberately outside JWT — Architecture.md §7.2
 
 Presented as a design review and explicitly approved, with adjustments:
 
-1. **No documentation-reconciliation slice.** Documentation reconciliation is a **phase completion criterion**, not an implementation slice: the repository is kept current as each slice lands, and the final current-state reconciliation happens in the last slice before publication.
+1. **No documentation-reconciliation slice.** Documentation reconciliation is a **phase completion criterion**, not an implementation slice: the repository is kept current as each slice lands, and the final current-state reconciliation happens in the last slice before publication. The criteria are enumerated as a checklist below so this cannot degrade into "we'll remember later" — **including Phase 5's own unreconciled documentation, which Phase 6 inherits and must close.**
 2. **`AddTokenLinks` migration approved without a new ADR** — it implements schema `SRS.md` §4.1, `ERD.md` and `Architecture.md` §7.2 already specify. Implementing documented schema is not an architecture decision.
 3. **BR-4 governs the public view.** Viewing stays available after a decision; `UsedAt` blocks decision actions only, never the read endpoint. Two documents conflict with this and are reconciled within this phase (see below).
 4. **The rejection reason is deferred to its own ADR.** It is **not** stored in `AuditLog` (audit is best-effort instrumentation by D50 — business data must never depend on it) and it is **not** accepted-then-discarded (if the API accepts a value, users may reasonably expect it preserved). Consequence, recorded plainly rather than glossed: **Slice 4's decision endpoint will not accept a `reason` field at all**, which is a known, deliberate gap against SRS FR-6.3 and Wireframe A3 pending that ADR.
@@ -26,6 +26,39 @@ Each is reconciled inside this phase, per `CLAUDE.md` §15.
 | C2 | `Sequence Diagram.md` §6 sets `Angebot.DecisionResult` | Stale — that property was removed from the Domain by D16 and from `ERD.md` by D41. Outcome is carried by `Status` |
 | C3 | `Sequence Diagram.md` §6 says the Lead becomes "Won-pending / Lost" | No such `LeadStatus` value exists. `StateMachine.md` §2.3/§5 both say plain `Won` |
 | C4 | `Sequence Diagram.md` §7 *also* sets `Lead.Status = Won` at project conversion | A second path to `Won`, contradicting `StateMachine.md` §5's "only inside the Angebot decision handler". Phase 6 owns the transition; §7's line is stale |
+
+## Phase completion criteria — Phase 6 is NOT complete until every one of these is done
+
+Documentation reconciliation is a completion criterion of this phase, not an implementation slice
+and not a note to remember later. **Phase 6 must not be proposed for publication with any box below
+unticked**, regardless of how complete the four code slices are.
+
+- [ ] **C1–C4 corrected in the source documents themselves** (see the conflict table below), not merely recorded here.
+- [ ] **`PermissionMatrix.md` §7** — "until decision made" corrected to match BR-4.
+- [ ] **`Architecture.md` §7.2** — the "or can be cut off too, per OQ resolution" hedge resolved to BR-4's answer.
+- [ ] **`Sequence Diagram.md` §6** — stale `DecisionResult` removed; "Won-pending" corrected to `Won`.
+- [ ] **`Sequence Diagram.md` §7** — the duplicate `Lead.Status = Won` removed (StateMachine §5 puts it in the decision handler only).
+- [ ] **`Architecture.md` §5.2 / `ERD.md`** — updated for whatever Phase 6 actually built.
+- [ ] **`PHASE6_PROGRESS.md`** — complete through Slice 4.
+- [ ] **`PROJECT_STATE.md`** — current-state reconciliation.
+- [ ] **`NEXT_STEPS.md`** — open items carried out of Phase 6.
+- [ ] **`ARCHITECTURE_DECISIONS.md`** — Phase 6's own decisions recorded.
+- [ ] **The rejection-reason ADR** — either decided and recorded, or explicitly carried forward as a named open item with its reason. It must not simply be absent.
+
+### Inherited debt: Phase 5's documentation was never reconciled, and Phase 6 closes it
+
+Found during Phase 6's opening verification, confirmed against the repository rather than inferred.
+Phase 5 (PR #11, merge `18243ec`) touched only 22 documentation lines across 5 files. **This is
+Phase 6's responsibility to close, and it is a completion criterion, not a courtesy:**
+
+- [ ] **`PROJECT_STATE.md` §1** says "Phase 5 — … **Not started**". It is merged.
+- [ ] **`PROJECT_STATE.md` §2** says "`main` is the current branch, at `e1a4d9e`". `origin/main` is `18243ec`.
+- [ ] **`PROJECT_STATE.md` §9** says slices 1–4 are "done on the branch, not yet merged". They are merged.
+- [ ] **`NEXT_STEPS.md` §6 step 4** names the Development-bootstrap slice as "the next deliverable". It merged as PR #10.
+- [ ] **`NEXT_STEPS.md`** has no Phase 5 section at all (§1c, Phase 4, is the last).
+- [ ] **`PHASE5_PROGRESS.md` does not exist**, though every phase from 2 onward has one.
+- [ ] **`ARCHITECTURE_DECISIONS.md` stops at D64** — Phase 5's four business slices recorded no decisions.
+- [ ] **`HANDOFF_PROMPT.md`** — its `origin/main` SHA predates PR #11 and its task section directs an already-merged slice.
 
 ## Slice plan
 
