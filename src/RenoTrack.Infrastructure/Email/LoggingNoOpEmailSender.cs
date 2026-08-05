@@ -38,6 +38,17 @@ public sealed class LoggingNoOpEmailSender(ILogger<LoggingNoOpEmailSender> logge
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// The token is deliberately absent from the log line. It is the credential that grants access
+    /// to the Angebot, so writing it to every log sink would defeat the point of hashing refresh
+    /// tokens (D60) and of generating it from a CSPRNG at all. The AngebotId is enough to correlate.
+    /// </summary>
+    public Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken)
+    {
+        LogNotSent(nameof(SendAngebotReadyNotificationAsync), $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}");
+        return Task.CompletedTask;
+    }
+
     private void LogNotSent(string method, string details) =>
         logger.LogWarning(
             "{Method} called, but no real IEmailSender implementation exists yet (Phase 9 deliverable). No email was sent. {Details}",

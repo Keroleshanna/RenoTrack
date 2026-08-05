@@ -8,6 +8,7 @@ public sealed class FakeEmailSender : IEmailSender
     public List<NewWebsiteLeadNotification> NewWebsiteLeadNotifications { get; } = [];
     public List<AngebotSubmittedForReviewNotification> AngebotSubmittedForReviewNotifications { get; } = [];
     public List<AngebotChangesRequestedNotification> AngebotChangesRequestedNotifications { get; } = [];
+    public List<AngebotReadyNotification> AngebotReadyNotifications { get; } = [];
 
     public Task SendNewWebsiteLeadNotificationAsync(NewWebsiteLeadNotification notification, CancellationToken cancellationToken)
     {
@@ -24,6 +25,12 @@ public sealed class FakeEmailSender : IEmailSender
     public Task SendAngebotChangesRequestedNotificationAsync(AngebotChangesRequestedNotification notification, CancellationToken cancellationToken)
     {
         AngebotChangesRequestedNotifications.Add(notification);
+        return Task.CompletedTask;
+    }
+
+    public Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken)
+    {
+        AngebotReadyNotifications.Add(notification);
         return Task.CompletedTask;
     }
 }

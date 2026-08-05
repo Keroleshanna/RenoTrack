@@ -22,4 +22,10 @@ public interface IEmailSender
 
     /// <summary>Sequence Diagram §5: notify the owning Inspector when Admin requests changes.</summary>
     Task SendAngebotChangesRequestedNotificationAsync(AngebotChangesRequestedNotification notification, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SRS FR-9.1 / Sequence Diagram §6: email the Lead their token link when an Angebot is sent.
+    /// The first method here whose recipient is the customer rather than internal staff.
+    /// </summary>
+    Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken);
 }

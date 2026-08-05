@@ -19,6 +19,16 @@ public enum AuditAction
     AngebotSubmittedForReview,
     AngebotApproved,
     AngebotChangesRequested,
+
+    /// <summary>
+    /// The Angebot was sent to the customer via a token link (Phase 6 Slice 2). Logged against
+    /// <c>Lead</c>, not <c>Angebot</c>, because this is the command that drives
+    /// <c>Lead.MarkAngebotSent()</c> — a Lead-level pipeline milestone — exactly as
+    /// <c>AngebotCreated</c> is logged against Lead for driving <c>MarkAngebotInProgress()</c>
+    /// (CLAUDE.md §10). Contrast the purely internal review actions above, which never touch
+    /// Lead.Status and are therefore logged against Angebot.
+    /// </summary>
+    AngebotSent,
     CatalogItemCreated,
     CatalogItemUpdated,
     CatalogItemRetired,

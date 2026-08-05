@@ -10,6 +10,7 @@ using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
@@ -59,7 +60,8 @@ public sealed class AngeboteController(
     ICommandHandler<ApproveAngebotCommand, AngebotDto> approveHandler,
     ICommandHandler<RequestAngebotChangesCommand, AngebotDto> requestChangesHandler,
     IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>> getReviewCommentsHandler,
-    ICommandHandler<DuplicateAngebotCommand, AngebotDto> duplicateHandler) : ControllerBase
+    ICommandHandler<DuplicateAngebotCommand, AngebotDto> duplicateHandler,
+    ICommandHandler<SendAngebotCommand, AngebotDto> sendHandler) : ControllerBase
 {
     /// <summary>
     /// Creates a Draft Angebot for a Lead (SRS FR-4.1). Owning Inspector only.
@@ -311,6 +313,39 @@ public sealed class AngeboteController(
     {
         var angebot = await approveHandler.HandleAsync(
             new ApproveAngebotCommand(id, ReviewedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// Sends an internally approved Angebot to the customer (SRS FR-6.1). Admin only, "F".
+    /// </summary>
+    /// <remarks>
+    /// Issues the single-use token link and emails it to the Lead. The Angebot moves
+    /// <c>ApprovedInternally → Sent</c> and the Lead <c>AngebotInProgress → AngebotSent</c>, both
+    /// committed with the token row in one transaction.
+    ///
+    /// <b>No request body and no ownership check.</b> Every value is server-derived — the id from
+    /// the route, the Admin from the JWT (D61) — and PermissionMatrix.md §4 marks this "F", so any
+    /// authenticated Admin may send any Angebot (CLAUDE.md §16).
+    ///
+    /// <b>No Location header</b>, and deliberately: the resource this creates is a token link,
+    /// whose whole security model is that its URL is known only to the customer who receives it by
+    /// email. Returning it to the sender would put a live customer credential in a response header
+    /// and in every intermediary's logs.
+    /// </remarks>
+    [HttpPost("{id:int}/send")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Send(int id, CancellationToken cancellationToken)
+    {
+        var angebot = await sendHandler.HandleAsync(
+            new SendAngebotCommand(id, SentByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(angebot);

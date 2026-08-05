@@ -65,7 +65,7 @@ Phase 6's responsibility to close, and it is a completion criterion, not a court
 | # | Slice | Status |
 |---|---|---|
 | 1 | `TokenLink` Domain + Infrastructure (aggregate, repository, generator, migration) | ✅ done |
-| 2 | `POST /api/v1/angebote/{id}/send` (Admin `F`) | not started |
+| 2 | `POST /api/v1/angebote/{id}/send` (Admin `F`) | ✅ done |
 | 3 | `GET /api/v1/public/angebote/{token}` (anonymous read) | not started |
 | 4 | `POST /api/v1/public/angebote/{token}/decision` + public-route rate limiting + final reconciliation | not started |
 
@@ -117,3 +117,69 @@ Phase 6's responsibility to close, and it is a completion criterion, not a court
 **Documentation updated in this slice** (not deferred to the end): `README.md`'s configuration table gained `TokenLink:LifetimeDays`; `CLAUDE.md` §21 gained the `TokenLinks` no-FK exception.
 
 **Five hand-composed test configurations needed the new setting** (`Api.Tests`/`Infrastructure.Tests` `DependencyInjectionTests`, `IdentityTestServices`, `DevelopmentBootstrapTests`, `DatabaseInitializerTests`) — the predictable cost of eager validation, and the same thing `FileStorage:RootPath` required in Phase 4 Slice 8. `RenoTrackApiFactory` needed none: it boots the real application, which reads the tracked `appsettings.json` default.
+
+---
+
+## Slice 2 — `POST /api/v1/angebote/{id}/send`
+
+SRS FR-6.1 / Sequence Diagram §6 / StateMachine.md §2.3. The point where an internally approved
+Angebot becomes a customer-facing document.
+
+### The "Lead has a valid email address" guard — investigated, not assumed
+
+StateMachine.md §2.3 guards `ApprovedInternally → Sent` on "Lead has a valid email address". The
+conclusion is **split**, and the guard was neither re-implemented nor deleted:
+
+| Reading of "valid" | Already guaranteed elsewhere? | Evidence |
+|---|---|---|
+| **Present / non-empty** | **Yes, structurally** | `Lead.Create` throws `ArgumentException` on null-or-whitespace email (`Lead.cs:62`); `Email` has `private set` and **no mutator anywhere** — `grep` finds it assigned only in the private constructor, so it cannot change after creation; and `LeadConfiguration` maps it `IsRequired().HasMaxLength(320)`, so the column is `NOT NULL` |
+| **Syntactically valid address** | **No — not at the Domain level** | `Lead.Create` checks non-empty only. The **only** format check in the entire codebase is `CreateLeadCommandValidator`'s `.EmailAddress()` (confirmed by grepping `EmailAddress()` across `src/` — one hit) |
+| **Deliverable** | No, and unknowable before Phase 9 | Nothing can establish this without actually sending |
+
+**Conclusion: the guard still represents a real business invariant, but there is nothing for this
+handler to add.** A presence check would be unreachable code. A format check inside the handler
+would be shape validation in a handler, which `CLAUDE.md` §5 and §6 both forbid. So the handler
+implements no new check and says so explicitly in its own doc comment, rather than staying silent
+and letting a later reader assume the guard was overlooked.
+
+**Residual risk, recorded rather than hidden:** the format guarantee rests on one validator at one
+call site. `Lead.Create` currently has exactly one caller (`CreateLeadCommandHandler`), but its own
+doc comment anticipates a second creation path (Sequence Diagram §2, Admin manual entry). A future
+command that omits `.EmailAddress()` would produce a Lead whose email was never format-checked, and
+nothing downstream would catch it. **Candidate fix, deliberately not taken unilaterally:** move the
+format check into `Lead.Create` itself. That changes the Phase 1 Domain baseline and would need its
+own explicit decision, so it is raised here rather than done quietly.
+
+### The second flagged question: is `LeadStatus.AngebotInProgress` actually reachable at send time?
+
+**Yes, verified by call-site inspection rather than assumed.** `Lead.MarkAngebotSent()` self-guards
+`Status == AngebotInProgress`. That status is set by `MarkAngebotInProgress()`, whose only callers
+are `CreateAngebotCommandHandler` and `DuplicateAngebotCommandHandler` — both of which run before an
+Angebot can be submitted, reviewed or approved. Nothing between creation and send touches
+`Lead.Status`: StateMachine.md §1.3 states the internal review transitions cause no Lead-level
+change, and the handlers confirm it. **This slice is what finally makes `LeadStatus.AngebotSent`
+reachable at all** — it was the unreachable state that made `Won`/`Lost` impossible to reach in
+Phase 4, and Slice 4 now has a real path to them.
+
+### Design points
+
+- **No `IOwnershipValidator`** — PermissionMatrix.md §4 marks "Send Angebot to Lead (generate token link)" Admin `F`. Same reasoning as D31.
+- **No request record** — every value is server-derived (D61): the id from the route, the Admin from the JWT.
+- **All three writes share one `SaveChangesAsync`.** Angebot status, Lead status and the TokenLink row commit together. This matters more here than almost anywhere: a committed token link for an Angebot that never reached `Sent` is a live customer credential for a document nobody thinks was sent; a `Sent` Angebot with no token link is a customer who can never respond.
+- **The audit row targets `Lead`, not `Angebot`** (`CLAUDE.md` §10) — this command's business-meaningful transition is the Lead reaching `AngebotSent`, exactly as `AngebotCreated` is logged against Lead for driving `MarkAngebotInProgress`. New `AuditAction.AngebotSent`.
+- **`AngebotReadyNotification` carries the raw token, not a finished URL.** Composing `https://…/angebot/{token}` needs the public website's base address, which is deployment configuration — Application deliberately takes no `IConfiguration` at all (§22). Phase 9 owns the template and the base URL. This is the first customer-facing notification in the system; every earlier one (FR-9.2) goes to staff.
+- **`LoggingNoOpEmailSender` logs the AngebotId but never the token**, and a test pins it. The token is the credential; logging it would defeat both the CSPRNG and D60's hash-only refresh-token stance.
+- **The response carries no token and no `Location` header**, also pinned by a test asserting the raw JSON does not contain the persisted token. Returning it would put a live customer credential in response headers, proxy logs and browser history.
+
+### Adversarial verification
+
+| Broken implementation | Observed failure |
+|---|---|
+| `[Authorize(Roles = Roles.Admin)]` removed from the action | The Inspector **actually sent the Angebot** — the failure was on the status code (200 vs 403), not merely the body, i.e. a real fail-open, not a cosmetic one |
+| Token generation moved **before** `angebot.Send()`/`lead.MarkAngebotSent()` | 2 Application failures — a rejected send left a generated token behind, and a second send minted a second token for the same Angebot |
+
+Both restored and the full suite re-run green.
+
+**Test delta: 763 → 786 passing, 0 failing** (Domain 185 unchanged, Application 219 → 233, Infrastructure 159 → 160, Api 200 → 208). Build 0 Warnings / 0 Errors. No new migration — this slice adds no schema.
+
+**Documentation:** `Architecture.md` §5.2 already carried the `/send` row, so no correction was needed there; `PHASE6_PROGRESS.md` (this section) is the slice record.
