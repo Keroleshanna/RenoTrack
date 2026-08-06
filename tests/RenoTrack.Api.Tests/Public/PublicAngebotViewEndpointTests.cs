@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
 using RenoTrack.Infrastructure.Persistence;
@@ -123,30 +124,148 @@ public sealed class PublicAngebotViewEndpointTests(RenoTrackApiFactory factory)
     // ---- Sequence Diagram §12 ----------------------------------------------
 
     /// <summary>
-    /// The token must not appear in any field this codebase authors — <c>title</c> and
-    /// <c>detail</c> — because those are also what gets logged at Warning (D59).
+    /// <b>The token must not appear anywhere in an error response.</b> Not in <c>detail</c>, not in
+    /// <c>instance</c>, not anywhere in the raw body — error responses are retained by reverse
+    /// proxies, frontend telemetry, support tooling and browser diagnostics far more widely than
+    /// the requests that produced them, so "the caller already knows it" is not a sufficient
+    /// reason to echo a credential back.
     ///
-    /// <c>instance</c> is the deliberate exception: ASP.NET sets it to the request path, which is
-    /// the very line the caller just sent, so echoing it back to that same caller discloses nothing
-    /// they do not already hold. It is asserted here rather than ignored, so that if the field ever
-    /// stops mirroring the request it is a decision rather than a surprise.
+    /// The response must still be useful: <c>instance</c> keeps naming the endpoint via its route
+    /// template, and <c>detail</c> still tells the customer what went wrong.
     /// </summary>
     [Fact]
-    public async Task An_unknown_token_is_a_not_found_and_the_token_appears_in_no_authored_field()
+    public async Task An_unknown_token_is_a_not_found_that_leaks_the_token_nowhere()
     {
         const string token = "definitely-not-a-real-token";
         using var anonymous = factory.CreateClient();
 
         var response = await anonymous.GetAsync($"/api/v1/public/angebote/{token}");
+        var raw = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.DoesNotContain(token, raw, StringComparison.Ordinal);
+
+        var problem = JsonDocument.Parse(raw).RootElement;
+        Assert.DoesNotContain(token, problem.GetProperty("detail").GetString()!, StringComparison.Ordinal);
+        Assert.DoesNotContain(token, problem.GetProperty("instance").GetString()!, StringComparison.Ordinal);
+
+        // Still diagnostically useful, not merely redacted.
+        Assert.Equal("This link is not valid.", problem.GetProperty("detail").GetString());
+        Assert.Equal("/api/v1/public/angebote/{token}", problem.GetProperty("instance").GetString());
+    }
+
+    /// <summary>
+    /// The same property on the other public failure path. 410 and 404 must both be safe — a rule
+    /// that holds on only one of them is not a rule.
+    /// </summary>
+    [Fact]
+    public async Task An_expired_token_is_gone_and_leaks_the_token_nowhere()
+    {
+        var (token, _) = await SentAngebotAsync();
+        await ExpireTokenAsync(token);
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.GetAsync($"/api/v1/public/angebote/{token}");
+        var raw = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        Assert.DoesNotContain(token, raw, StringComparison.Ordinal);
+
+        var problem = JsonDocument.Parse(raw).RootElement;
+        Assert.DoesNotContain(token, problem.GetProperty("detail").GetString()!, StringComparison.Ordinal);
+        Assert.DoesNotContain(token, problem.GetProperty("instance").GetString()!, StringComparison.Ordinal);
+
+        Assert.Equal("This link has expired and can no longer be used.", problem.GetProperty("detail").GetString());
+        Assert.Equal("/api/v1/public/angebote/{token}", problem.GetProperty("instance").GetString());
+    }
+
+    /// <summary>
+    /// The other half of the same property, and the half that was previously claimed without being
+    /// tested: the token must not reach the application log either.
+    ///
+    /// This is asserted against a real captured log entry rather than argued from the code, because
+    /// the first attempt at this fix read the route template too late — ASP.NET's exception
+    /// middleware had already cleared the endpoint — and silently logged the raw path anyway. No
+    /// test noticed, because none looked at the log.
+    /// </summary>
+    [Fact]
+    public async Task The_token_never_reaches_the_application_log()
+    {
+        const string token = "log-leak-probe-token";
+        var logs = new CapturingLoggerProvider();
+
+        using var isolated = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs)));
+        using var anonymous = isolated.CreateClient();
+
+        var response = await anonymous.GetAsync($"/api/v1/public/angebote/{token}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.NotEmpty(logs.Messages);
+        Assert.DoesNotContain(logs.Messages, message => message.Contains(token, StringComparison.Ordinal));
+
+        // Still useful: the endpoint is named, just not the credential.
+        Assert.Contains(logs.Messages, message => message.Contains("api/v1/public/angebote/{token}", StringComparison.Ordinal));
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly List<string> _messages = [];
+
+        public List<string> Messages
+        {
+            get
+            {
+                lock (_messages)
+                {
+                    return [.. _messages];
+                }
+            }
+        }
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(_messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(List<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                lock (messages)
+                {
+                    messages.Add(formatter(state, exception));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The narrowness of the change: an authenticated route carries no token parameter, so its
+    /// <c>instance</c> is still the real path, ids and all. Without this, "redact the instance"
+    /// could quietly become "every error response forgets which resource it was about".
+    /// </summary>
+    [Fact]
+    public async Task A_non_token_route_still_reports_its_real_path_as_instance()
+    {
+        using var admin = await ClientAsync(RenoTrackApiFactory.AdminEmail, RenoTrackApiFactory.AdminPassword);
+
+        var response = await admin.GetAsync("/api/v1/angebote/999999");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.DoesNotContain(token, problem.GetProperty("title").GetString()!, StringComparison.Ordinal);
-        Assert.DoesNotContain(token, problem.GetProperty("detail").GetString()!, StringComparison.Ordinal);
-        Assert.Equal("This link is not valid.", problem.GetProperty("detail").GetString());
-
-        Assert.Contains(token, problem.GetProperty("instance").GetString()!, StringComparison.Ordinal);
+        Assert.Equal("/api/v1/angebote/999999", problem.GetProperty("instance").GetString());
     }
 
     /// <summary>410, not 404 — Sequence Diagram §6 names the status and §12 requires the reason to be specific.</summary>

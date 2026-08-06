@@ -224,22 +224,46 @@ distinction is load-bearing: `CatalogItem`'s constructor guards (non-empty title
 price) hold forever once true; a time-dependent one does not. Pinned by
 `AnExpiredTokenLinkCanStillBeLoaded`.
 
-**2. The exception handler wrote live customer tokens into every log sink.** It logged
-`httpContext.Request.Path`, and this is the first URL in the system whose path segment *is* a
-secret — so every 404/410 on a token link put a working credential into the application log, where
-it persists and is far more widely readable than the request that carried it. Fixed by logging the
-matched **route template** (`api/v1/public/angebote/{token}`) instead. Nothing is lost: id-bearing
-exceptions already carry their key in the message, which is logged alongside, and a template
-aggregates better than a path full of distinct ids.
+**2. Diagnostic surfaces carried live customer tokens — and the first fix for it silently did not
+work.** The exception handler logged `httpContext.Request.Path`, and this is the first URL in the
+system whose path segment *is* a secret, so every 404/410 on a token link put a working credential
+into the application log. ProblemDetails `instance` echoed the same path.
+
+The first attempt read the matched route template from `HttpContext.GetEndpoint()` inside the
+exception handler. **It redacted nothing**, because ASP.NET's exception middleware calls
+`ClearHttpContext` before invoking any `IExceptionHandler` — the endpoint and route values are
+already gone, so the code fell straight through to the raw path. This went unnoticed at first
+because the tests inspected only response bodies, never the log. It was found by probe, and the
+Slice 3 closeout report that claimed the logging was fixed was wrong.
+
+**Final behaviour.** `RouteDiagnostics.Capture` runs as middleware right after `UseRouting`, while
+routing metadata still exists, and stashes the route template plus whether the route has a
+parameter named `token` in `HttpContext.Items` (which `ClearHttpContext` does not touch). Both
+surfaces then read from there:
+
+- **Logs** use the route template for every route — uniform, aggregatable names are worth more than
+  exact paths in a log, and id-bearing exceptions still carry their key in the message.
+- **ProblemDetails `instance`** uses the template **only for credential-bearing routes**
+  (`/api/v1/public/angebote/{token}`); every other route still reports its real path, ids included.
+  That narrowness is itself pinned by a test.
+
+Keyed on a route *parameter named `token`* rather than a URL prefix or segment position, so it
+keeps holding for Slice 4's `{token}/decision` route — where the credential is not the last
+segment — and for Phase 8's invoice links.
 
 `NotFoundException` gained a **message-only constructor** for the same reason — the "id" here is the
 token, and the id-based constructor would have written it into both the ProblemDetails `detail`
 *and* the Warning log (D59).
 
-**Accepted, not fixed:** ProblemDetails `instance` still contains the request path, and therefore
-the token. That echoes back to the same caller the line they just sent, disclosing nothing they do
-not already hold, so it is asserted explicitly in a test rather than silently tolerated — if the
-field ever stops mirroring the request, that becomes a decision rather than a surprise.
+**The property now held, and tested on both failure paths (404 and 410):** the raw token appears
+nowhere in the response body, nowhere in `detail`, nowhere in `instance`, and nowhere in the
+application log — while `detail` still states what went wrong and `instance` still names the
+endpoint. The log assertion captures real `ILogger` output rather than arguing from the code,
+precisely because arguing from the code is what produced the silent failure above.
+
+This rule is recorded in `CLAUDE.md` §22 (public token credentials must not reach diagnostic
+surfaces; capture route metadata before the exception middleware clears it; assert log content when
+a route carries a secret), and the constructor-guard rule in §2.
 
 ### Design points
 
@@ -256,9 +280,10 @@ field ever stops mirroring the request, that becomes a decision rather than a su
 | `UsedAt` check added to the read path | 2 failures (Application + Api) — a used link stopped being viewable, contradicting BR-4 |
 | `CreatedByInspectorId` added to the public DTO | `The_public_response_exposes_no_internal_field` failed — the exclusion list is enforced against the raw JSON, so a typed read cannot ignore an extra field |
 | Expiry guard moved back into the constructor | 2 failures — the expired row became unloadable and the endpoint returned 400 instead of 410, reproducing defect 1 exactly |
+| `RouteDiagnostics.Capture` middleware disabled | 3 failures — the token reappeared in `instance` on both 404 and 410, and in the captured application log, reproducing defect 2 exactly |
 
 All restored and the full suite re-run green.
 
-**Test delta: 786 → 810 passing, 0 failing** (Domain 185 unchanged, Application 233 → 246, Infrastructure 160 → 161, Api 208 → 218). Build 0 Warnings / 0 Errors. No new migration.
+**Test delta: 786 → 813 passing, 0 failing** (Domain 185 unchanged, Application 233 → 246, Infrastructure 160 → 161, Api 208 → 221). Build 0 Warnings / 0 Errors. No new migration, no model drift.
 
 **Still not rate-limited.** `Architecture.md` §12 requires abuse protection on `/api/v1/public/*`; it lands in Slice 4 so the limiter is configured once for the whole route group rather than twice.

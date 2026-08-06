@@ -24,7 +24,11 @@ builder.Services.AddProblemDetails(options =>
 {
     options.CustomizeProblemDetails = context =>
     {
-        context.ProblemDetails.Instance ??= context.HttpContext.Request.Path;
+        // Not Request.Path directly: on a route whose path segment is a customer token, the raw
+        // path is a credential, and error responses are retained by proxies, telemetry and support
+        // tooling far more widely than the requests that produced them (RouteDiagnostics).
+        // Every other route is unaffected and still reports its real path.
+        context.ProblemDetails.Instance ??= RouteDiagnostics.SafeInstance(context.HttpContext);
         context.ProblemDetails.Extensions["traceId"] =
             Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
     };
@@ -89,6 +93,21 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Explicit, because the next middleware depends on an endpoint having been selected. Without this
+// call routing would still run, but only immediately before MapControllers — after the capture
+// below, which would then see nothing.
+app.UseRouting();
+
+// Records the matched route template while it still exists. ASP.NET's exception middleware clears
+// the endpoint and route values before any IExceptionHandler runs, so a token-bearing path cannot
+// be recognised as such later — and would be echoed verbatim into logs and ProblemDetails
+// `instance`. See RouteDiagnostics for the full reasoning and how it was found.
+app.Use(async (context, next) =>
+{
+    RouteDiagnostics.Capture(context);
+    await next(context);
+});
 
 // Authentication must precede authorization: the former establishes who the caller is, the latter
 // decides what they may do with that identity.

@@ -92,12 +92,15 @@ internal sealed class ProblemDetailsExceptionHandler(
     /// key in the message, which is logged alongside, and a template aggregates better across
     /// requests than a path full of distinct ids.
     ///
+    /// Unlike ProblemDetails <c>instance</c> (<see cref="RouteDiagnostics.SafeInstance"/>), this
+    /// generalises <em>every</em> route rather than only credential-bearing ones — logs are the one
+    /// surface where uniform, aggregatable route names are worth more than exact paths.
+    ///
     /// Falls back to the raw path only when no endpoint matched, which cannot be a token route —
     /// an unmatched request never reached a handler that could throw.
     /// </summary>
     private static string RouteOf(HttpContext httpContext) =>
-        (httpContext.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
-        ?? httpContext.Request.Path.ToString();
+        RouteDiagnostics.Template(httpContext) ?? httpContext.Request.Path.ToString();
 
     private static ProblemDetails Map(Exception exception) => exception switch
     {
