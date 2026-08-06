@@ -97,6 +97,34 @@ public sealed class TokenLinkPersistenceTests(RenoTrackDbContextFixture fixture)
     }
 
     /// <summary>
+    /// An expired row must still be *readable*. EF Core materialises entities through the same
+    /// private constructor <c>Create</c> uses, so a time-dependent guard placed there would throw
+    /// on load once the link lapsed — making expired links surface as 400 rather than the 410 the
+    /// public endpoint owes them, and making the row effectively unreadable forever.
+    ///
+    /// This was a real defect, found by an integration test and not by inspection: the guard lived
+    /// in the constructor until the first test read an expired row back. Expiry is set through SQL
+    /// because the aggregate deliberately refuses to construct an already-expired link.
+    /// </summary>
+    [Fact]
+    public async Task AnExpiredTokenLinkCanStillBeLoaded()
+    {
+        var link = NewLink();
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.TokenLinks.Add(link);
+            await writeContext.SaveChangesAsync();
+            await writeContext.Database.ExecuteSqlAsync(
+                $"UPDATE TokenLinks SET ExpiresAt = {DateTime.UtcNow.AddDays(-1)} WHERE Id = {link.Id}");
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var reloaded = await readContext.TokenLinks.SingleAsync(t => t.Id == link.Id);
+
+        Assert.True(reloaded.IsExpired(DateTime.UtcNow));
+    }
+
+    /// <summary>
     /// MarkUsed on an entity loaded from the database persists through SaveChangesAsync alone —
     /// there is no UpdateAsync anywhere in this project, so the decision endpoint (Slice 4)
     /// depends entirely on the change tracker seeing this mutation.

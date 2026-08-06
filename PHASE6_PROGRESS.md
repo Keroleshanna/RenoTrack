@@ -66,7 +66,7 @@ Phase 6's responsibility to close, and it is a completion criterion, not a court
 |---|---|---|
 | 1 | `TokenLink` Domain + Infrastructure (aggregate, repository, generator, migration) | ✅ done |
 | 2 | `POST /api/v1/angebote/{id}/send` (Admin `F`) | ✅ done |
-| 3 | `GET /api/v1/public/angebote/{token}` (anonymous read) | not started |
+| 3 | `GET /api/v1/public/angebote/{token}` (anonymous read) | ✅ done |
 | 4 | `POST /api/v1/public/angebote/{token}/decision` + public-route rate limiting + final reconciliation | not started |
 
 ---
@@ -183,3 +183,82 @@ Both restored and the full suite re-run green.
 **Test delta: 763 → 786 passing, 0 failing** (Domain 185 unchanged, Application 219 → 233, Infrastructure 159 → 160, Api 200 → 208). Build 0 Warnings / 0 Errors. No new migration — this slice adds no schema.
 
 **Documentation:** `Architecture.md` §5.2 already carried the `/send` row, so no correction was needed there; `PHASE6_PROGRESS.md` (this section) is the slice record.
+
+---
+
+## Slice 3 — `GET /api/v1/public/angebote/{token}`
+
+SRS FR-6.2 / Sequence Diagram §6 and §12. The first anonymous endpoint in the system.
+
+### The approved public DTO
+
+A **separate hierarchy** (`PublicAngebotDto`/`PublicSectionDto`/`PublicItemDto`/`PublicVatLineDto`),
+never a projection of `AngebotDetailDto`: if the two shared a type, a field added later for the
+Dashboard would silently appear on the one endpoint any holder of a forwarded email can reach. The
+duplication is the safety property.
+
+**Included:** `AngebotNumber`, `Decision`, `DecisionAt`, section `Title`/`Subtotal`, item
+`Description`/`Specification`/`Quantity`/`Unit`/`UnitPrice`/`LineTotal`, `NetTotal`, VAT
+`Rate`/`VatAmount`, `GrossTotal`.
+
+**Excluded:** every internal id (Angebot, section, item), `LeadId`, `InspectionId`,
+`CreatedByInspectorId`, `ReviewedByAdminId` (staff identities — a forwarded link must not disclose
+which employee priced the job or which manager approved it), `CatalogItemId` (BR-8 trace link;
+would disclose that pricing comes from a reusable catalogue and which template), `CreatedAt`,
+`SentAt`, `SortOrder`, per-item `VatRate`, per-rate net amounts, and every Lead field.
+
+`Decision` is a dedicated `PublicAngebotDecision { Pending, Approved, Rejected }`. `AngebotStatus`
+is **never** exposed publicly, so a future internal state cannot become part of the public contract
+by accident. `Rate` is the printable percentage, not an enum member name — "zzgl. Standard MwSt"
+would be nonsense on Wireframe A3's page.
+
+### Two real defects found during implementation, both by tests rather than by inspection
+
+**1. A time-dependent Domain guard made every expired row unreadable.** `TokenLink`'s constructor
+rejected an expiry that was not in the future. EF Core materialises persisted rows **through that
+same private constructor**, binding parameters to properties by name — so the guard ran on *reading*
+as well as creating, and any lapsed link threw `ArgumentException` on load. It surfaced as **400
+instead of the 410 the endpoint owes**, and the row was effectively unreadable forever. Fixed by
+moving every guard into `Create`, matching `Lead`'s shape rather than `CatalogItem`'s. The
+distinction is load-bearing: `CatalogItem`'s constructor guards (non-empty title, non-negative
+price) hold forever once true; a time-dependent one does not. Pinned by
+`AnExpiredTokenLinkCanStillBeLoaded`.
+
+**2. The exception handler wrote live customer tokens into every log sink.** It logged
+`httpContext.Request.Path`, and this is the first URL in the system whose path segment *is* a
+secret — so every 404/410 on a token link put a working credential into the application log, where
+it persists and is far more widely readable than the request that carried it. Fixed by logging the
+matched **route template** (`api/v1/public/angebote/{token}`) instead. Nothing is lost: id-bearing
+exceptions already carry their key in the message, which is logged alongside, and a template
+aggregates better than a path full of distinct ids.
+
+`NotFoundException` gained a **message-only constructor** for the same reason — the "id" here is the
+token, and the id-based constructor would have written it into both the ProblemDetails `detail`
+*and* the Warning log (D59).
+
+**Accepted, not fixed:** ProblemDetails `instance` still contains the request path, and therefore
+the token. That echoes back to the same caller the line they just sent, disclosing nothing they do
+not already hold, so it is asserted explicitly in a test rather than silently tolerated — if the
+field ever stops mirroring the request, that becomes a decision rather than a surprise.
+
+### Design points
+
+- **`GoneException` → 410 is a new Application exception type**, added because Sequence Diagram §6 names the status explicitly ("404 / 410 Gone") and §12 requires a specific reason. One new arm in the single `switch` (D59), nothing else. **Distinguishing "expired" from "unknown" leaks nothing here**, unlike D60's deliberately-identical login 401s: an email address is guessable, so distinguishing turns login into an enumeration oracle, whereas a 256-bit CSPRNG token cannot be produced to probe with. The only person who can see a 410 is someone genuinely holding a real link, and for them "this link expired" beats a 404 that sends them hunting for a typo.
+- **A wrong-entity-type token is a 404, identical to an unknown one** — one combined condition, so the two cannot drift into distinguishable responses. Confirming "that token is real, it just belongs to an Invoice" helps nobody legitimate.
+- **`UsedAt` is deliberately not checked here.** BR-4 restricts single use to state-changing actions and says viewing remains allowed; §12 scopes the check to "decision-type actions only". A customer who already approved must still be able to re-read what they agreed to.
+- **A separate `PublicController`**, not more actions on `AngeboteController`. That controller is `[Authorize]` at class level, so an anonymous action there would sit one careless copy-paste away from every authenticated action around it. `[AllowAnonymous]` is declared at class level — the one deliberate inversion of CLAUDE.md §22's default, because on this controller every action is anonymous by definition, so the fail-safe direction is reversed.
+- **The validator checks presence only.** A length or character-class rule would be a second, quieter definition of what a token looks like, competing with the generator's — changing the token length later would silently reject every link already in the field.
+
+### Adversarial verification
+
+| Broken implementation | Observed failure |
+|---|---|
+| `UsedAt` check added to the read path | 2 failures (Application + Api) — a used link stopped being viewable, contradicting BR-4 |
+| `CreatedByInspectorId` added to the public DTO | `The_public_response_exposes_no_internal_field` failed — the exclusion list is enforced against the raw JSON, so a typed read cannot ignore an extra field |
+| Expiry guard moved back into the constructor | 2 failures — the expired row became unloadable and the endpoint returned 400 instead of 410, reproducing defect 1 exactly |
+
+All restored and the full suite re-run green.
+
+**Test delta: 786 → 810 passing, 0 failing** (Domain 185 unchanged, Application 233 → 246, Infrastructure 160 → 161, Api 208 → 218). Build 0 Warnings / 0 Errors. No new migration.
+
+**Still not rate-limited.** `Architecture.md` §12 requires abuse protection on `/api/v1/public/*`; it lands in Slice 4 so the limiter is configured once for the whole route group rather than twice.

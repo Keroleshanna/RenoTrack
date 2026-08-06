@@ -12,6 +12,7 @@ using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
 using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
+using RenoTrack.Application.Angebote.Queries.GetPublicAngebotByToken;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.CatalogItems.Commands.CreateCatalogItem;
@@ -126,6 +127,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<RemoveAngebotItemCommand>, RemoveAngebotItemCommandValidator>();
         services.AddScoped<IValidator<DuplicateAngebotCommand>, DuplicateAngebotCommandValidator>();
         services.AddScoped<IValidator<SendAngebotCommand>, SendAngebotCommandValidator>();
+        services.AddScoped<IValidator<GetPublicAngebotByTokenQuery>, GetPublicAngebotByTokenQueryValidator>();
 
         services.AddScoped<IValidator<CreateCatalogItemCommand>, CreateCatalogItemCommandValidator>();
         services.AddScoped<IValidator<UpdateCatalogItemCommand>, UpdateCatalogItemCommandValidator>();
@@ -177,6 +179,10 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>, GetAngebotByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>>, GetLeadAngeboteQueryHandler>();
         services.AddScoped<IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>>, GetAngebotReviewCommentsQueryHandler>();
+
+        // Last in the Angebot group, matching the workflow rule above: the customer's read is the
+        // final step, after the document has been built, reviewed and sent.
+        services.AddScoped<IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto>, GetPublicAngebotByTokenQueryHandler>();
 
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, PagedResult<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
     }

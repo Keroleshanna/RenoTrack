@@ -54,9 +54,9 @@ internal sealed class ProblemDetailsExceptionHandler(
         {
             logger.LogError(
                 exception,
-                "Unhandled exception processing {Method} {Path}.",
+                "Unhandled exception processing {Method} {Route}.",
                 httpContext.Request.Method,
-                httpContext.Request.Path);
+                RouteOf(httpContext));
         }
         else
         {
@@ -64,9 +64,9 @@ internal sealed class ProblemDetailsExceptionHandler(
             // stack trace is what makes an incorrectly-mapped infrastructure fault findable.
             logger.LogWarning(
                 exception,
-                "Request {Method} {Path} failed with {StatusCode}.",
+                "Request {Method} {Route} failed with {StatusCode}.",
                 httpContext.Request.Method,
-                httpContext.Request.Path,
+                RouteOf(httpContext),
                 problemDetails.Status);
         }
 
@@ -80,6 +80,25 @@ internal sealed class ProblemDetailsExceptionHandler(
         });
     }
 
+    /// <summary>
+    /// The matched route <em>template</em> (<c>api/v1/public/angebote/{token}</c>), never the raw
+    /// path.
+    ///
+    /// <b>Changed in Phase 6 Slice 3 after the raw path was found to write a live credential into
+    /// every log sink.</b> Until then the public token link was the first URL in this system whose
+    /// path segment is itself a secret — logging <c>{Path}</c> put customer tokens into
+    /// application logs, where they persist and are far more widely readable than the request that
+    /// carried them. Nothing is lost by generalising: the id-bearing exceptions already put their
+    /// key in the message, which is logged alongside, and a template aggregates better across
+    /// requests than a path full of distinct ids.
+    ///
+    /// Falls back to the raw path only when no endpoint matched, which cannot be a token route —
+    /// an unmatched request never reached a handler that could throw.
+    /// </summary>
+    private static string RouteOf(HttpContext httpContext) =>
+        (httpContext.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+        ?? httpContext.Request.Path.ToString();
+
     private static ProblemDetails Map(Exception exception) => exception switch
     {
         NotFoundException => Problem(StatusCodes.Status404NotFound, "Not Found", exception.Message),
@@ -87,6 +106,10 @@ internal sealed class ProblemDetailsExceptionHandler(
         ForbiddenException => Problem(StatusCodes.Status403Forbidden, "Forbidden", exception.Message),
 
         ConflictException => Problem(StatusCodes.Status409Conflict, "Conflict", exception.Message),
+
+        // Phase 6: an expired customer token link. Sequence Diagram §6 names 410 explicitly, and
+        // §12 requires the specific reason — folding it into the 404 above would contradict both.
+        GoneException => Problem(StatusCodes.Status410Gone, "Gone", exception.Message),
 
         // Field-keyed errors rather than a flat string: the Dashboard (Phase 10) needs to highlight
         // individual inputs, and this is the same shape ASP.NET already emits for model-binding

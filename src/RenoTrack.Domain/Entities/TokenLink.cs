@@ -32,32 +32,46 @@ public sealed class TokenLink
     public DateTime? UsedAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>
+    /// Assignment only — every guard lives in <see cref="Create"/>, matching <c>Lead</c> rather
+    /// than <c>CatalogItem</c>, and the difference is load-bearing rather than stylistic.
+    ///
+    /// <b>EF Core materialises a persisted row through this same private constructor</b> (it binds
+    /// parameters to properties by name), so any guard here runs on *reading* as well as on
+    /// creating. A guard that is time-dependent — "expiry must be in the future" — is true when the
+    /// link is issued and false the moment it lapses, which made every expired row throw on load
+    /// and surface as 400 instead of 410. That was a real defect, caught by the first integration
+    /// test to read an expired row, not by inspection. `CatalogItem` gets away with constructor
+    /// guards because its conditions (non-empty title, non-negative price) hold forever once true;
+    /// this aggregate's do not.
+    /// </summary>
     private TokenLink(TokenLinkEntityType entityType, int entityId, string token, DateTime expiresAt)
     {
-        if (entityId <= 0)
-            throw new ArgumentException("Entity id must be positive.", nameof(entityId));
-        if (string.IsNullOrWhiteSpace(token))
-            throw new ArgumentException("Token is required.", nameof(token));
-
-        var createdAt = DateTime.UtcNow;
-
-        // A link that is already expired the moment it exists can never be used for anything, so
-        // constructing one is a caller bug rather than a state the system should be able to hold.
-        // This is a self-guard in the CLAUDE.md §2 sense — determinable from the arguments and the
-        // clock alone, with no other aggregate or repository involved.
-        if (expiresAt <= createdAt)
-            throw new ArgumentException("Expiry must be in the future.", nameof(expiresAt));
-
         EntityType = entityType;
         EntityId = entityId;
         Token = token;
         ExpiresAt = expiresAt;
         UsedAt = null;
-        CreatedAt = createdAt;
+        CreatedAt = DateTime.UtcNow;
     }
 
-    public static TokenLink Create(TokenLinkEntityType entityType, int entityId, string token, DateTime expiresAt) =>
-        new(entityType, entityId, token, expiresAt);
+    /// <summary>
+    /// The only way to bring a new link into existence, and where every invariant is enforced —
+    /// including that a link cannot be born already expired, which would make it useless for its
+    /// entire lifetime. These are self-guards in the CLAUDE.md §2 sense: determinable from the
+    /// arguments and the clock alone, with no other aggregate or repository involved.
+    /// </summary>
+    public static TokenLink Create(TokenLinkEntityType entityType, int entityId, string token, DateTime expiresAt)
+    {
+        if (entityId <= 0)
+            throw new ArgumentException("Entity id must be positive.", nameof(entityId));
+        if (string.IsNullOrWhiteSpace(token))
+            throw new ArgumentException("Token is required.", nameof(token));
+        if (expiresAt <= DateTime.UtcNow)
+            throw new ArgumentException("Expiry must be in the future.", nameof(expiresAt));
+
+        return new TokenLink(entityType, entityId, token, expiresAt);
+    }
 
     /// <summary>
     /// Whether this link's validity window has closed, evaluated against a caller-supplied clock
