@@ -29,6 +29,22 @@ public enum AuditAction
     /// Lead.Status and are therefore logged against Angebot.
     /// </summary>
     AngebotSent,
+
+    /// <summary>
+    /// The customer approved via their token link (Phase 6 Slice 4). Logged against <c>Lead</c>,
+    /// like <see cref="AngebotSent"/> and <see cref="AngebotCreated"/>, because the transition the
+    /// business cares about is the Lead reaching <c>Won</c> (StateMachine.md §5).
+    ///
+    /// <c>NEXT_STEPS.md</c> anticipated these as <c>LeadWon</c>/<c>LeadLost</c>. They are named for
+    /// the Angebot event instead, following the <see cref="AngebotSent"/> precedent set one slice
+    /// earlier: the value names *what happened*, the <c>entityType</c> argument names what it
+    /// happened to, and "the customer approved the Angebot" is the event — the Lead's move to
+    /// <c>Won</c> is its consequence.
+    /// </summary>
+    AngebotCustomerApproved,
+
+    /// <summary>The customer rejected via their token link — the mirror of <see cref="AngebotCustomerApproved"/>.</summary>
+    AngebotCustomerRejected,
     CatalogItemCreated,
     CatalogItemUpdated,
     CatalogItemRetired,

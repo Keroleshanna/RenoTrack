@@ -5,6 +5,7 @@ using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
 using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
+using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
@@ -128,6 +129,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<DuplicateAngebotCommand>, DuplicateAngebotCommandValidator>();
         services.AddScoped<IValidator<SendAngebotCommand>, SendAngebotCommandValidator>();
         services.AddScoped<IValidator<GetPublicAngebotByTokenQuery>, GetPublicAngebotByTokenQueryValidator>();
+        services.AddScoped<IValidator<RecordAngebotDecisionCommand>, RecordAngebotDecisionCommandValidator>();
 
         services.AddScoped<IValidator<CreateCatalogItemCommand>, CreateCatalogItemCommandValidator>();
         services.AddScoped<IValidator<UpdateCatalogItemCommand>, UpdateCatalogItemCommandValidator>();
@@ -160,6 +162,9 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto>, RemoveAngebotItemCommandHandler>();
         services.AddScoped<ICommandHandler<DuplicateAngebotCommand, AngebotDto>, DuplicateAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<SendAngebotCommand, AngebotDto>, SendAngebotCommandHandler>();
+
+        // The customer's own decision — last in the Angebot workflow, and the only path to Lead Won/Lost.
+        services.AddScoped<ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto>, RecordAngebotDecisionCommandHandler>();
 
         services.AddScoped<ICommandHandler<CreateCatalogItemCommand, CatalogItemDto>, CreateCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateCatalogItemCommand, CatalogItemDto>, UpdateCatalogItemCommandHandler>();

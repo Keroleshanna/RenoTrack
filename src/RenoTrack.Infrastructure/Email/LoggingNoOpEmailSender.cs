@@ -49,6 +49,14 @@ public sealed class LoggingNoOpEmailSender(ILogger<LoggingNoOpEmailSender> logge
         return Task.CompletedTask;
     }
 
+    public Task SendAngebotDecisionNotificationAsync(AngebotDecisionNotification notification, CancellationToken cancellationToken)
+    {
+        LogNotSent(
+            nameof(SendAngebotDecisionNotificationAsync),
+            $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}, Approved={notification.Approved}");
+        return Task.CompletedTask;
+    }
+
     private void LogNotSent(string method, string details) =>
         logger.LogWarning(
             "{Method} called, but no real IEmailSender implementation exists yet (Phase 9 deliverable). No email was sent. {Details}",

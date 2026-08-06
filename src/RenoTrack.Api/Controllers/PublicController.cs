@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RenoTrack.Api.Public.Dtos;
+using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetPublicAngebotByToken;
 using RenoTrack.Application.Common;
@@ -40,7 +42,8 @@ namespace RenoTrack.Api.Controllers;
 [Route("api/v1/public")]
 [AllowAnonymous]
 public sealed class PublicController(
-    IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto> getPublicAngebotHandler) : ControllerBase
+    IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto> getPublicAngebotHandler,
+    ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto> recordDecisionHandler) : ControllerBase
 {
     /// <summary>
     /// The read-only Angebot behind a token link (SRS FR-6.2, Wireframe A3).
@@ -67,6 +70,43 @@ public sealed class PublicController(
     {
         var angebot = await getPublicAngebotHandler.HandleAsync(
             new GetPublicAngebotByTokenQuery(token),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// The customer approves or rejects (SRS FR-6.3/FR-6.5, Wireframe A3's two buttons).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Consuming the link, recording the Angebot's decision and moving the Lead to <c>Won</c> or
+    /// <c>Lost</c> all commit together — StateMachine.md §5 requires the Lead transition to happen
+    /// inside this handler's transaction, and this is the <b>only</b> path to those two states.
+    /// </para>
+    /// <para>
+    /// <b>409 for a link that has already decided</b>, per BR-4's single-use rule — while the same
+    /// link stays readable through the GET above, which is exactly what BR-4 distinguishes. 410 is
+    /// reserved for genuine expiry, 404 for an unknown or non-Angebot token.
+    /// </para>
+    /// <para>
+    /// Returns the updated public view, so the page can render the recorded outcome without a
+    /// second round trip.
+    /// </para>
+    /// </remarks>
+    [HttpPost("angebote/{token}/decision")]
+    [ProducesResponseType<PublicAngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status410Gone)]
+    public async Task<IActionResult> RecordDecision(
+        string token,
+        RecordDecisionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var angebot = await recordDecisionHandler.HandleAsync(
+            new RecordAngebotDecisionCommand(token, request.Decision),
             cancellationToken);
 
         return Ok(angebot);

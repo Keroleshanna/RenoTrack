@@ -28,4 +28,10 @@ public interface IEmailSender
     /// The first method here whose recipient is the customer rather than internal staff.
     /// </summary>
     Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SRS FR-9.2's third Admin trigger / Sequence Diagram §6: the customer has approved or
+    /// rejected. Completes the three notifications FR-9.2 enumerates.
+    /// </summary>
+    Task SendAngebotDecisionNotificationAsync(AngebotDecisionNotification notification, CancellationToken cancellationToken);
 }
