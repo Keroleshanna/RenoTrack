@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using RenoTrack.Api.RateLimiting;
 using RenoTrack.Api.Public.Dtos;
 using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Dtos;
@@ -40,6 +42,7 @@ namespace RenoTrack.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/v1/public")]
+[EnableRateLimiting(PublicRateLimitOptions.PolicyName)]
 [AllowAnonymous]
 public sealed class PublicController(
     IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto> getPublicAngebotHandler,

@@ -127,8 +127,8 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Angebote | `POST /api/v1/angebote/{id}/duplicate` | Inspector duplicates a whole Angebot onto another Lead (SRS FR-4.11). Source restricted to their own; target Lead ownership and the one-active-Angebot rule both apply. Section-level duplication is deferred until a real caller needs it |
 | Angebote | `POST /api/v1/angebote/{id}/submit-for-review` | Inspector → Admin |
 | Angebote | `POST /api/v1/angebote/{id}/approve`, `/request-changes`, `/send` | Admin |
-| Angebot decision (public) | `GET /api/v1/public/angebote/{token}` | Token-link view, no auth |
-| Angebot decision (public) | `POST /api/v1/public/angebote/{token}/decision` | Lead approves/rejects |
+| Angebot decision (public) | `GET /api/v1/public/angebote/{token}` | Token-link view, no auth. **Built in Phase 6.** Returns a dedicated public DTO — never the internal `AngebotDetailDto` — carrying only what Wireframe A3 renders; internal ids, staff ids, `CatalogItemId` and timestamps are deliberately absent. Readable **after** a decision (BR-4). 404 for unknown *or* non-Angebot tokens, indistinguishably; 410 for expiry |
+| Angebot decision (public) | `POST /api/v1/public/angebote/{token}/decision` | Lead approves/rejects. **Built in Phase 6.** Body is `{ decision }` only — **no rejection reason**, a deliberate documented gap against FR-6.3 pending its own ADR. Consumes the link, records the Angebot decision and moves the Lead to `Won`/`Lost` in one transaction (StateMachine §5). 409 if the link has already decided |
 | Projects | `POST /api/v1/angebote/{id}/convert-to-project` | Admin |
 | Invoices | `POST /api/v1/projects/{id}/invoices` | Admin |
 | Invoices | `POST /api/v1/invoices/{id}/send`, `/mark-paid` | Admin |
@@ -193,7 +193,8 @@ This same calculation is reused for Invoices, since an Invoice is essentially a 
 ### 7.2 Customer Token Links (No Account)
 - A `TokenLink` record stores: `EntityType` (Angebot/Invoice), `EntityId`, a cryptographically random `Token` (e.g. 32-byte, URL-safe base64), `ExpiresAt`, and `UsedAt`.
 - The public endpoints (`/api/v1/public/...`) look up the record by token only — no user identity is ever established for the customer. This deliberately keeps the customer-facing surface area small and easy to secure, versus building a lighter-weight parallel authentication system.
-- On a state-changing action (Approve/Reject a decision), the endpoint sets `UsedAt` so the same link cannot be used twice for a decision; viewing remains possible (or can be cut off too, per OQ resolution).
+- On a state-changing action (Approve/Reject a decision), the endpoint sets `UsedAt` so the same link cannot be used twice for a decision. **Viewing remains possible afterwards — settled in Phase 6, no longer an open question.** BR-4 states it outright ("Viewing (read-only) remains allowed"), and a customer who has approved must still be able to re-read what they agreed to. The earlier "or can be cut off too, per OQ resolution" wording is removed, and `PermissionMatrix.md` §7 was corrected to match.
+- **Rate limiting on `/api/v1/public/*` is implemented as of Phase 6** — one shared fixed-window policy, 30 requests per minute per client IP, covering every route on the public controller (`ARCHITECTURE_DECISIONS.md` D65). See §12 for what that does **not** yet cover.
 - Tokens are single-purpose (tied to one entity) rather than session-based, which keeps the blast radius of a leaked link limited to that one Angebot or Invoice.
 
 ### 7.3 Role authorization vs. resource ownership — where each is enforced
@@ -242,7 +243,11 @@ Two different concerns are both loosely called "authorization" but belong in dif
 
 - HTTPS enforced everywhere (website, dashboard, API, token links).
 - Token-link tokens: cryptographically random, not derived from predictable data (e.g. not `entityId + timestamp`).
-- Rate limiting / basic abuse protection on public endpoints (`/api/v1/public/...` and the contact form) to prevent scraping or brute-forcing token guesses.
+- Rate limiting / basic abuse protection on public endpoints (`/api/v1/public/...` and the contact form) to prevent scraping or brute-forcing token guesses. **Partially implemented as of Phase 6, and the split is deliberate:**
+  - **Done — `/api/v1/public/*`.** One shared fixed-window policy, **30 requests per minute per client IP**, applied by an opt-in named policy on the public controller so no internal route can inherit it. GET and POST share one allowance; future public token routes (Phase 8 invoice links) inherit it. Rejections are 429 + RFC 7807 with `Retry-After` (`ARCHITECTURE_DECISIONS.md` D65).
+  - **Still outstanding — `POST /api/v1/leads` (the contact form).** Anonymous, state-creating and unthrottled. Deferred by explicit decision since Phase 4 Slice 5 and tracked in `NEXT_STEPS.md`; Phase 6's approved scope was the token-link surface only. **This bullet is therefore not fully closed.**
+  - **Deployment prerequisite, not a code gap.** The limiter partitions on the connection's `RemoteIpAddress` and deliberately never reads `X-Forwarded-For`, because trusting a forwarded header without a known proxy trust boundary would let any caller mint a fresh partition per request and defeat the limiter entirely. **Behind a reverse proxy, clients therefore collapse into the proxy's address and share one bucket** until trusted `ForwardedHeaders` configuration is added at deployment time with real `KnownProxies`/`KnownNetworks` values.
+- CORS is **not** configured yet — still outstanding, with the contact-form limiting, for the hardening work `PROJECT_ROADMAP.md` places in Phase 15.
 - Standard input validation (FluentValidation or similar) on every Command, both for internal (Dashboard) and public (token-link) endpoints.
 - CORS configured narrowly (Dashboard origin, Website origin) — public token-link endpoints are the only ones intentionally exposed beyond that.
 - GDPR: Lead/Customer personal data has a clear owner (the company); data export/delete procedures can be a manual Admin-assisted process for v1 (no need for a self-service data portal at this stage).

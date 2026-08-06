@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RenoTrack.Api.RateLimiting;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
@@ -56,6 +57,14 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         // Each run gets its own storage root, deleted on teardown, so uploaded files never leak
         // between runs and a test can assert on the real directory's contents.
         builder.UseSetting($"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}", StorageRoot);
+
+        // The public rate limiter partitions by client IP, and TestServer supplies none — so every
+        // test in this collection shares one bucket. At the production limit of 30/minute the public
+        // endpoint tests would throttle each other and fail for reasons unrelated to what they
+        // assert. Raised here rather than disabled, so the limiter is still genuinely in the
+        // pipeline for every test; PublicRateLimitEndpointTests overrides it back down to exercise
+        // rejection deliberately.
+        builder.UseSetting($"{PublicRateLimitOptions.SectionName}:{nameof(PublicRateLimitOptions.PermitLimit)}", "10000");
 
         // Migrate, because this fixture needs the Identity roles seeded and, as of D63, normal
         // startup no longer seeds them — Verify would fail on a database that has never been

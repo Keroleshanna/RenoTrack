@@ -1,7 +1,7 @@
 # PHASE6_PROGRESS.md — API: Token-Link Mechanism + Public Angebot Decision Endpoints
 
 **Branch:** `feature/phase-6-token-links-public-angebot`, off `main` at `18243ec` (PR #11, the Phase 5 merge).
-**Roadmap entry:** `PROJECT_ROADMAP.md` Phase 6. **Status: in progress.**
+**Roadmap entry:** `PROJECT_ROADMAP.md` Phase 6. **Status: complete on the branch, not pushed, no PR.**
 
 This is the first API surface deliberately outside JWT — Architecture.md §7.2 calls it a small, single-purpose parallel mechanism rather than a second authentication system, and `PROJECT_ROADMAP.md` isolates it in its own phase precisely so the security review can be focused.
 
@@ -33,17 +33,17 @@ Documentation reconciliation is a completion criterion of this phase, not an imp
 and not a note to remember later. **Phase 6 must not be proposed for publication with any box below
 unticked**, regardless of how complete the four code slices are.
 
-- [ ] **C1–C4 corrected in the source documents themselves** (see the conflict table below), not merely recorded here.
-- [ ] **`PermissionMatrix.md` §7** — "until decision made" corrected to match BR-4.
-- [ ] **`Architecture.md` §7.2** — the "or can be cut off too, per OQ resolution" hedge resolved to BR-4's answer.
-- [ ] **`Sequence Diagram.md` §6** — stale `DecisionResult` removed; "Won-pending" corrected to `Won`.
-- [ ] **`Sequence Diagram.md` §7** — the duplicate `Lead.Status = Won` removed (StateMachine §5 puts it in the decision handler only).
-- [ ] **`Architecture.md` §5.2 / `ERD.md`** — updated for whatever Phase 6 actually built.
-- [ ] **`PHASE6_PROGRESS.md`** — complete through Slice 4.
-- [ ] **`PROJECT_STATE.md`** — current-state reconciliation.
-- [ ] **`NEXT_STEPS.md`** — open items carried out of Phase 6.
-- [ ] **`ARCHITECTURE_DECISIONS.md`** — Phase 6's own decisions recorded.
-- [ ] **The rejection-reason ADR** — either decided and recorded, or explicitly carried forward as a named open item with its reason. It must not simply be absent.
+- [x] **C1–C4 corrected in the source documents themselves** (see the conflict table below), not merely recorded here.
+- [x] **`PermissionMatrix.md` §7** — "until decision made" corrected to match BR-4.
+- [x] **`Architecture.md` §7.2** — the "or can be cut off too, per OQ resolution" hedge resolved to BR-4's answer.
+- [x] **`Sequence Diagram.md` §6** — stale `DecisionResult` removed; "Won-pending" corrected to `Won`.
+- [x] **`Sequence Diagram.md` §7** — the duplicate `Lead.Status = Won` removed (StateMachine §5 puts it in the decision handler only).
+- [x] **`Architecture.md` §5.2 / `ERD.md`** — updated for whatever Phase 6 actually built.
+- [x] **`PHASE6_PROGRESS.md`** — complete through Slice 4.
+- [x] **`PROJECT_STATE.md`** — current-state reconciliation.
+- [x] **`NEXT_STEPS.md`** — open items carried out of Phase 6.
+- [x] **`ARCHITECTURE_DECISIONS.md`** — Phase 6's own decisions recorded.
+- [x] **The rejection-reason ADR** — either decided and recorded, or explicitly carried forward as a named open item with its reason. It must not simply be absent.
 
 ### Inherited debt: Phase 5's documentation was never reconciled, and Phase 6 closes it
 
@@ -51,14 +51,14 @@ Found during Phase 6's opening verification, confirmed against the repository ra
 Phase 5 (PR #11, merge `18243ec`) touched only 22 documentation lines across 5 files. **This is
 Phase 6's responsibility to close, and it is a completion criterion, not a courtesy:**
 
-- [ ] **`PROJECT_STATE.md` §1** says "Phase 5 — … **Not started**". It is merged.
-- [ ] **`PROJECT_STATE.md` §2** says "`main` is the current branch, at `e1a4d9e`". `origin/main` is `18243ec`.
-- [ ] **`PROJECT_STATE.md` §9** says slices 1–4 are "done on the branch, not yet merged". They are merged.
-- [ ] **`NEXT_STEPS.md` §6 step 4** names the Development-bootstrap slice as "the next deliverable". It merged as PR #10.
-- [ ] **`NEXT_STEPS.md`** has no Phase 5 section at all (§1c, Phase 4, is the last).
-- [ ] **`PHASE5_PROGRESS.md` does not exist**, though every phase from 2 onward has one.
-- [ ] **`ARCHITECTURE_DECISIONS.md` stops at D64** — Phase 5's four business slices recorded no decisions.
-- [ ] **`HANDOFF_PROMPT.md`** — its `origin/main` SHA predates PR #11 and its task section directs an already-merged slice.
+- [x] **`PROJECT_STATE.md` §1** said "Phase 5 — … **Not started**" — rewritten for Phases 0–5 merged and Phase 6 complete on its branch.
+- [x] **`PROJECT_STATE.md` §2** said "`main` is the current branch, at `e1a4d9e`" — corrected to the Phase 6 branch off `18243ec`.
+- [x] **`PROJECT_STATE.md` §9** said Phase 5's slices were "done on the branch, not yet merged" — corrected.
+- [x] **`NEXT_STEPS.md` §6 step 4** named the already-merged Development-bootstrap slice as the next deliverable — rewritten.
+- [x] **`NEXT_STEPS.md`** had no Phase 5 section — §1d (Phase 5) and §1e (Phase 6) added.
+- [x] **`PHASE5_PROGRESS.md` did not exist** — written from the four slice commits, explicitly labelled a post-hoc reconstruction rather than a contemporaneous log.
+- [x] **`ARCHITECTURE_DECISIONS.md` stopped at D64** — D65 added for Phase 6. **Phase 5's slice decisions were deliberately NOT back-invented as numbered ADRs**: its commits reference "D2/D3/D4", which are slice-local design-review numbers colliding with unrelated real entries in that file. Their contemporaneous record is the commit messages plus the `CLAUDE.md` §2 correction they produced, and `PHASE5_PROGRESS.md` now indexes them. Assigning numbers and rationale after the fact would manufacture history.
+- [x] **`HANDOFF_PROMPT.md`** — rewritten for the current state and Phase 7.
 
 ## Slice plan
 
@@ -67,7 +67,7 @@ Phase 6's responsibility to close, and it is a completion criterion, not a court
 | 1 | `TokenLink` Domain + Infrastructure (aggregate, repository, generator, migration) | ✅ done |
 | 2 | `POST /api/v1/angebote/{id}/send` (Admin `F`) | ✅ done |
 | 3 | `GET /api/v1/public/angebote/{token}` (anonymous read) | ✅ done |
-| 4 | `POST /api/v1/public/angebote/{token}/decision` + public-route rate limiting + final reconciliation | not started |
+| 4 | `POST /api/v1/public/angebote/{token}/decision` + public-route rate limiting + final reconciliation | ✅ done |
 
 ---
 
@@ -287,3 +287,63 @@ All restored and the full suite re-run green.
 **Test delta: 786 → 813 passing, 0 failing** (Domain 185 unchanged, Application 233 → 246, Infrastructure 160 → 161, Api 208 → 221). Build 0 Warnings / 0 Errors. No new migration, no model drift.
 
 **Still not rate-limited.** `Architecture.md` §12 requires abuse protection on `/api/v1/public/*`; it lands in Slice 4 so the limiter is configured once for the whole route group rather than twice.
+
+---
+
+## Slice 4 — `POST /api/v1/public/angebote/{token}/decision`, public rate limiting, and phase closeout
+
+SRS FR-6.3/FR-6.5 / Sequence Diagram §6 and §12 / StateMachine.md §2.3 and §5.
+
+### The decision endpoint
+
+- **Three aggregates, one commit.** `TokenLink.MarkUsed()`, the Angebot's decision and the Lead's `Won`/`Lost` transition share a single `SaveChangesAsync`. StateMachine.md §5 states this as an invariant, not a preference: a split would allow an approved Angebot whose Lead never moved, or — worse — a consumed token whose decision was never recorded, costing the customer their one chance to answer.
+- **This is the only path to `Won`/`Lost`, and it stays that way.** `Lead.MarkAngebotSent()` (Slice 2) is what finally makes `LeadStatus.AngebotSent` reachable, so `MarkWon()`/`MarkLost()`'s guard is real rather than vacuous. The standing prohibition on an Admin-driven `MarkWon`/`MarkLost` endpoint is unchanged.
+- **No handler-level state checks.** `MarkUsed()`, `RecordCustomerApproval()`/`RecordCustomerRejection()` and `MarkWon()`/`MarkLost()` each guard their own precondition and throw. **Reusing a decided link is 409, not 410** — the link still exists and still serves the GET (BR-4); what conflicts is the decision already recorded. **Expiry stays an explicit pre-check** because Sequence §6 names 410 for it specifically: producing a documented status, not duplicating an invariant.
+- **`CustomerDecision {Approve, Reject}` is a distinct type from `PublicAngebotDecision {Pending, Approved, Rejected}`** — a request states an action, a response states a state, and collapsing them would let a caller "decide" `Pending`.
+- **Audit and notification both follow the commit.** The audit entry's `PerformedByUserId` is **null** — ERD.md's own meaning for that column, and the only honest value when the actor is a customer with no account. New `AuditAction.AngebotCustomerApproved`/`AngebotCustomerRejected`, logged against `Lead` and named for the Angebot event, following the `AngebotSent` precedent rather than `NEXT_STEPS.md`'s anticipated `LeadWon`/`LeadLost`.
+- **No rejection reason** — the approved FR-6.3 gap. A test pins that a client-sent `reason` is neither stored nor echoed, so the gap cannot drift into accept-and-discard.
+
+### Public-route rate limiting (D65)
+
+**Stopped before implementing and brought the alternatives, because nothing in the repository specified any of it.** All nine source documents state a threat ("scraping or brute-forcing token guesses") and no limit, window, algorithm, partition key, queue behaviour or rejection shape. Every value below is therefore an explicit Phase 6 policy decision, recorded in D65 and named in `PublicRateLimitOptions` rather than left as literals:
+
+| Aspect | Decision |
+|---|---|
+| Partition | Client IP, from the connection's `RemoteIpAddress` |
+| Algorithm | Fixed window |
+| Limit | 30 requests / 60 seconds |
+| Scope | One shared policy across all of `/api/v1/public/*`; GET and POST share the allowance |
+| Queue | None — reject immediately |
+| Rejection | 429 + RFC 7807 ProblemDetails with `Retry-After` |
+| Application | Opt-in named policy via `[EnableRateLimiting]`, never a global limiter |
+
+- **Per-token partitioning was rejected outright** — every guess would open a fresh partition, so it does not address the documented threat at all. **Global was rejected** — one abuser could deny service to every customer.
+- **`ForwardedHeaders` deliberately not configured, `X-Forwarded-For` never read.** Trusting a forwarded header without a known proxy trust boundary lets any caller mint a fresh partition per request and defeats the limiter entirely — strictly worse than the known limitation. **Accepted consequence: behind a reverse proxy, clients collapse into the proxy's address and share one bucket.** Recorded as a deployment prerequisite in `NEXT_STEPS.md` and `Architecture.md` §12, not as a code gap.
+- **Placement:** after `UseRouting()` (the policy comes from endpoint metadata), after `RouteDiagnostics.Capture` (so a 429 on a token route is redacted like every other response), before `UseAuthentication()` (the surface is anonymous, and an abusive caller should not be able to make the server do authentication work either).
+- **Architecture §12 is NOT closed.** `POST /api/v1/leads` — the contact form named in the same sentence — remains unthrottled, and CORS remains unconfigured. Both stay tracked in `NEXT_STEPS.md`. The documentation states the split precisely rather than implying the requirement is satisfied.
+
+### What the rate-limit tests can and cannot prove
+
+**Can, at API level:** the limiter is genuinely in the pipeline; it binds at the configured permit limit; GET and POST share one allowance; a rejection is a well-formed 429 with `Retry-After` and `traceId`; the throttled token leaks into neither the body nor the log; internal routes are untouched by the policy.
+
+**Cannot, at API level:** that two different clients receive separate allowances. `TestServer` supplies no `RemoteIpAddress`, so every request there shares the `unknown` partition. Making requests appear to come from different clients would mean inserting middleware that sets `Connection.RemoteIpAddress` — simulating the very framework behaviour under test. **Partitioning is therefore proven at unit level** against real `HttpContext` instances with real addresses, including that `X-Forwarded-For` does not influence the key. This split is stated in both test classes rather than left for a reader to infer.
+
+### Adversarial verification
+
+| Broken implementation | Observed failure |
+|---|---|
+| `[EnableRateLimiting]` removed from `PublicController` | 4 failures — no 429 at any request count, and the throttled-token security assertions collapsed with it |
+
+Restored byte-identically; full suite re-run green. Slices 1–3's own adversarial results are recorded in their sections above.
+
+---
+
+## Phase 6 closeout — final verified state
+
+- **Build:** 0 Warnings, 0 Errors.
+- **Tests: 858 passing, 0 failing** — 185 Domain, 263 Application, 161 Infrastructure, 249 Api.
+- **Migrations: 6** — `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`. Only the last is Phase 6's; none of the others was regenerated, renamed or edited.
+- **`has-pending-model-changes`:** no changes.
+- **Working tree:** clean. Nothing pushed; no PR opened.
+
+**Carried out of Phase 6, all deliberate and all recorded in `NEXT_STEPS.md` §5a:** contact-form rate limiting and CORS (Architecture §12 half-satisfied); `ForwardedHeaders` as a deployment prerequisite; the FR-6.3 rejection-reason storage ADR; production user provisioning (SRS OQ-1); `GET /api/v1/inspections/{id}`; authenticated photo serving; token-link and refresh-token rows never cleaned up.
