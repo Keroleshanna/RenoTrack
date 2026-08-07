@@ -45,6 +45,27 @@ public sealed class InitialCreateMigrationTests : IAsyncLifetime
         Assert.Contains(appliedMigrations, m => m.EndsWith("_InitialCreate"));
     }
 
+    /// <summary>
+    /// <c>MigrateAsync</c> applies every migration in the assembly, so this class has always
+    /// exercised more than its name suggests — but nothing asserted it. Pinning "every defined
+    /// migration is applied" means a migration that fails to apply is caught here by name rather
+    /// than surfacing indirectly as a drift failure, and it keeps covering later migrations with
+    /// no per-migration test to remember to add. (Added in Phase 7 Slice 2, alongside migration #7
+    /// <c>AddCustomersAndProjects</c>.)
+    /// </summary>
+    [Fact]
+    public async Task EveryDefinedMigration_IsAppliedToAFreshDatabase()
+    {
+        await using var context = CreateContext();
+        await context.Database.MigrateAsync();
+
+        var defined = context.Database.GetMigrations().ToArray();
+        var applied = await context.Database.GetAppliedMigrationsAsync();
+
+        Assert.NotEmpty(defined);
+        Assert.Empty(defined.Except(applied));
+    }
+
     [Fact]
     public async Task InitialCreateMigration_ProducesASchemaThatMatchesTheCurrentModel()
     {

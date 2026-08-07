@@ -16,27 +16,26 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 
 - origin/main: 5a26c42 ("Merge pull request #12 from Keroleshanna/feature/phase-6-token-links-public-angebot").
 - PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5) and #12 (Phase 6) are MERGED.
-- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 Slice 1 of 4 is
-  COMPLETE; Slices 2–4 are not started.** Nothing has been pushed; no PR exists.
+- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 Slices 1–2 of 4 are
+  COMPLETE; Slices 3–4 are not started.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 909 passing, 0 failing — 236 Domain, 263 Application, 161 Infrastructure, 249 Api.
-  (The Phase 6 merge baseline was 858; Slice 1 added 51 Domain tests and touched no other suite.)
-- Migrations: 6 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
-  AddTokenLinks); has-pending-model-changes reports none. Migration #7 AddCustomersAndProjects is
-  Slice 2's deliverable and does not exist yet.
+- Tests: 922 passing, 0 failing — 236 Domain, 263 Application, 174 Infrastructure, 249 Api.
+  (The Phase 6 merge baseline was 858; Slice 1 added 51 Domain, Slice 2 added 13 Infrastructure.)
+- Migrations: 7 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
+  AddTokenLinks, AddCustomersAndProjects); has-pending-model-changes reports none.
 - Working tree: clean.
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 6 as unmerged, or origin/main as 18243ec, that is a regression — say so.
 
-YOUR TASK: CONTINUE PHASE 7 AT SLICE 2.
+YOUR TASK: CONTINUE PHASE 7 AT SLICE 3.
 
 Phase 7 per PROJECT_ROADMAP.md is "API: Convert Angebot → Project". Its design review is approved
 and its four slices are fixed; PHASE7_PROGRESS.md is the authoritative record of both, including
 the eight approved design decisions. Read it before touching anything.
 
   Slice 1 — Domain: Customer + Project ...................... DONE
-  Slice 2 — Infrastructure: schema + migration #7 ........... NEXT
-  Slice 3 — Application: ConvertAngebotToProjectCommand ..... not started
+  Slice 2 — Infrastructure: schema + migration #7 ........... DONE
+  Slice 3 — Application: ConvertAngebotToProjectCommand ..... NEXT
   Slice 4 — API: conversion + Project detail read + gate .... not started
 
 TWO PHASE 7 DECISIONS THAT MUST NOT BE SILENTLY REOPENED
@@ -74,6 +73,17 @@ BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
    the fix worked again: terminate that one orphaned LocalDB PID (identify it by its
    `...\170\LocalDB\Binn\sqlservr.exe` path), then `sqllocaldb start MSSQLLocalDB`. Ask first, and
    never touch any other sqlservr.exe — a second one on this machine is a different instance.
+
+   SMART APP CONTROL IS ON AND ENFORCING on this machine
+   (HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1). It
+   intermittently blocks a freshly-built unsigned test DLL with FileLoadException 0x800711C7
+   ("An Application Control policy has blocked this file"), which xUnit reports as a catastrophic
+   failure and zero tests — NOT a test failure, and NOT a code problem. It hit
+   RenoTrack.Api.Tests' Debug binary in Phase 7 Slice 2. Deleting bin/obj and rebuilding did not
+   help; building and running the same project in Release did, because it is a different output
+   path. Use that workaround. DO NOT disable or weaken Smart App Control — it is a machine
+   security setting and not yours to change; if the workaround ever stops working, tell the user
+   and let them decide.
 
 PHASE 6 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
 

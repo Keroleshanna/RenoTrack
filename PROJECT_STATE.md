@@ -7,7 +7,7 @@
 
 ## 1. Current Phase
 
-**Phase 7 — API: Convert Angebot → Project**, per `PROJECT_ROADMAP.md` (branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`). **Slice 1 of 4 complete** — the `Customer` and `Project` Domain aggregates. See `PHASE7_PROGRESS.md`, which also records the eight design decisions approved before any code was written. Phases 0–6 are complete and merged to `main`.
+**Phase 7 — API: Convert Angebot → Project**, per `PROJECT_ROADMAP.md` (branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`). **Slices 1–2 of 4 complete** — the `Customer` and `Project` Domain aggregates, and their schema via migration #7 `AddCustomersAndProjects`. See `PHASE7_PROGRESS.md`, which also records the eight design decisions approved before any code was written. Phases 0–6 are complete and merged to `main`.
 
 - **Phase 6 (token links + public Angebot decision) — ✅ complete and merged** (PR #12, merge commit `5a26c42`, branch `feature/phase-6-token-links-public-angebot`). Four slices: the `TokenLink` aggregate and its schema (migration #6 `AddTokenLinks`), `POST /angebote/{id}/send`, the anonymous `GET /public/angebote/{token}`, and `POST /public/angebote/{token}/decision` with public-route rate limiting (D65). It also added a fourth Application exception type, `GoneException` → 410 — which shipped undocumented and was recorded in `CLAUDE.md` §17/§22 during Phase 7 Slice 1.
 
@@ -30,13 +30,13 @@
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run, on `feature/phase-7-angebot-to-project` at the end of Phase 7 Slice 1:
+As of the last verified run, on `feature/phase-7-angebot-to-project` at the end of Phase 7 Slice 2:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **909 tests passing, 0 failing.** (The Phase 6 merge baseline, re-verified independently at the start of Phase 7, was **858**; Slice 1 added **51** Domain tests and touched no other suite.)
-- `dotnet ef migrations has-pending-model-changes` → no pending changes (**six** migrations: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`). Slice 1 is Domain-only and adds no schema; migration #7 `AddCustomersAndProjects` arrives in Slice 2.
+- `dotnet test RenoTrack.slnx` → **922 tests passing, 0 failing.** (The Phase 6 merge baseline, re-verified independently at the start of Phase 7, was **858**; Slice 1 added **51** Domain tests, Slice 2 added **13** Infrastructure tests.)
+- `dotnet ef migrations has-pending-model-changes` → no pending changes (**seven** migrations: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`, `AddCustomersAndProjects`).
   - `RenoTrack.Domain.Tests`: **236 tests.**
   - `RenoTrack.Application.Tests`: **263 tests.**
-  - `RenoTrack.Infrastructure.Tests`: **161 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
+  - `RenoTrack.Infrastructure.Tests`: **174 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
   - `RenoTrack.Api.Tests`: **249 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
@@ -197,6 +197,8 @@ One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `Cat
 | `AngebotItemConfiguration` | `LineTotal` ignored (D41). `Unit` via `ItemUnitConverter`; `UnitPrice` via `MoneyConverter`; `VatRate` uses EF's default enum-to-int mapping. `CatalogItemId` **has** a real FK to `CatalogItems` (`DeleteBehavior.Restrict`) — both tables exist today, unlike the Users-referencing columns. |
 | `CatalogItemConfiguration` | `DefaultUnit`/`SuggestedUnitPrice` via the same converters. `CreatedFromAngebotItemId` **has** a real FK to `AngebotItems` (`DeleteBehavior.Restrict`). |
 | `AngebotReviewCommentConfiguration` | `AngebotId` **has** a real FK to `Angebote` (`DeleteBehavior.Restrict`). `AdminUserId` has no FK yet. |
+| `CustomerConfiguration` (Phase 7 Slice 2) | `LeadId` FK → `Leads` (`Restrict`) plus a **unique** index — ERD.md's "One Customer per Lead". `Address` **nullable**. String lengths match `LeadConfiguration`'s exactly, since every value is copied verbatim from a Lead. |
+| `ProjectConfiguration` (Phase 7 Slice 2) | `CustomerId` FK → `Customers` and `AngebotId` FK → `Angebote`, both `Restrict`; **unique** index on `AngebotId` only ("one Angebot converts to exactly one Project"), deliberately **not** on `CustomerId` (ERD.md §4: one Customer, many Projects). `Status` stored as string; `AgreedTotal` via `MoneyConverter`, `decimal(18,2)`. No navigation property on either relationship. |
 
 ### 6.3 Value Converters (`src/RenoTrack.Infrastructure/Persistence/ValueConverters/`)
 
@@ -265,9 +267,9 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 7 Slice 2 — Infrastructure schema + migration #7 `AddCustomersAndProjects`.**
+**Phase 7 Slice 3 — Application: `ConvertAngebotToProjectCommand` + its two repositories.**
 
-**Phase 7 (API: Convert Angebot → Project) is in progress** on `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Four implementation slices, of which **Slice 1 (Domain: `Customer` + `Project`) is done**. `PHASE7_PROGRESS.md` is the per-slice record and also carries the eight design decisions approved before any code was written — including the two that a later slice must not silently reopen: **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`** (`BusinessRules.md` must not be edited to move it), and **Customer resolution is find-by-`LeadId`-then-create**, with no matching by email/phone/name.
+**Phase 7 (API: Convert Angebot → Project) is in progress** on `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Four implementation slices, of which **Slices 1 (Domain) and 2 (schema + migration #7) are done**. `PHASE7_PROGRESS.md` is the per-slice record and also carries the eight design decisions approved before any code was written — including the two that a later slice must not silently reopen: **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`** (`BusinessRules.md` must not be edited to move it), and **Customer resolution is find-by-`LeadId`-then-create**, with no matching by email/phone/name.
 
 **Phase 6 is complete and merged** (PR #12, `5a26c42`). Four slices: the `TokenLink` aggregate with migration #6 `AddTokenLinks`; `POST /angebote/{id}/send`; the anonymous `GET /public/angebote/{token}`; and `POST /public/angebote/{token}/decision` with public-route rate limiting (D65). One documentation gap survived its completion gate and was closed in Phase 7 Slice 1: `GoneException` (→410) shipped in code and in the exception-handler switch while `CLAUDE.md` §17 still asserted that three Application exception types existed.
 
