@@ -76,6 +76,50 @@ public class MoneyTests
         Assert.Equal(Money.FromExact(2.50m), result);
     }
 
+    // ---- - (Phase 8, BR-3's remaining balance) --------------------------
+
+    [Fact]
+    public void Subtraction_SubtractsAmountsWithoutReRounding()
+    {
+        var result = Money.FromExact(25_673.36m) - Money.FromExact(8_000.00m);
+
+        Assert.Equal(Money.FromExact(17_673.36m), result);
+    }
+
+    /// <summary>
+    /// BR-3 warns rather than blocks when invoices exceed the agreed total, so an over-invoiced
+    /// Project's remaining balance is negative — and that negative value *is* the warning. Clamping
+    /// it would hide the data-entry mistake BR-3 exists to catch.
+    /// </summary>
+    [Fact]
+    public void Subtraction_ProducesNegativeWhenTheSubtrahendIsLarger()
+    {
+        var result = Money.FromExact(8_000.00m) - Money.FromExact(8_250.00m);
+
+        Assert.Equal(Money.FromExact(-250.00m), result);
+    }
+
+    [Fact]
+    public void Subtraction_OfEqualAmounts_IsZero()
+    {
+        var result = Money.FromExact(1_234.56m) - Money.FromExact(1_234.56m);
+
+        Assert.Equal(Money.Zero, result);
+    }
+
+    /// <summary>
+    /// Subtraction is the exact inverse of addition here precisely because neither re-rounds — the
+    /// property that makes a remaining-balance figure reconcile against the invoices behind it.
+    /// </summary>
+    [Fact]
+    public void Subtraction_InvertsAdditionExactly()
+    {
+        var original = Money.FromExact(999.99m);
+        var delta = Money.FromExact(0.07m);
+
+        Assert.Equal(original, original + delta - delta);
+    }
+
     [Fact]
     public void Sum_OfEmptyCollection_IsZero()
     {

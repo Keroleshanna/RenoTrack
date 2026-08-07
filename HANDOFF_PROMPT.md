@@ -7,45 +7,61 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system — public
 website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
-project and not a fresh start. **Phases 0–6 are complete and merged to `main`; Phase 7 is in
+project and not a fresh start. **Phases 0–7 are complete and merged to `main`; Phase 8 is in
 progress on its branch.** A prior conversation ended for context reasons and persisted everything
 into the repository, so you depend on the files, not on any chat history. Do not treat anything
 below as optional reading.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: 5a26c42 ("Merge pull request #12 from Keroleshanna/feature/phase-6-token-links-public-angebot").
-- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5) and #12 (Phase 6) are MERGED.
-- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 all four slices are
-  COMPLETE, and the phase-completion gate is closed.** Nothing has been pushed; no PR exists.
+- origin/main: 697292b ("Merge pull request #13 from Keroleshanna/feature/phase-7-angebot-to-project").
+- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6) and #13 (Phase 7) are MERGED.
+- Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b.
+  **Phase 8 Slice 1 of 7 is COMPLETE.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 979 passing, 0 failing — 236 Domain, 295 Application, 183 Infrastructure, 265 Api.
-  (Phase 6 merge baseline 858; Phase 7 added 121 — Slice 1 +51, Slice 2 +13, Slice 3 +35, Slice 4 +22.)
+- Tests: 1,053 passing, 0 failing — 310 Domain, 295 Application, 183 Infrastructure, 265 Api.
+  (Phase 7 merge baseline 979; Slice 1 added 74, all Domain.)
 - Migrations: 7 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
-  AddTokenLinks, AddCustomersAndProjects); has-pending-model-changes reports none.
+  AddTokenLinks, AddCustomersAndProjects); has-pending-model-changes reports none. Still seven
+  after Slice 1, correctly — Invoice/Payment have no DbSet or configuration yet (that is Slice 2).
 - Working tree: clean.
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
-  describes Phase 6 as unmerged, or origin/main as 18243ec, that is a regression — say so.
+  describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
 
-YOUR TASK: OPEN THE PHASE 7 PR, THEN BEGIN PHASE 8.
+YOUR TASK: CONTINUE PHASE 8 AT SLICE 2.
 
-Phase 7 needs the user's explicit permission before anything is pushed or a PR is opened — never
-push, merge or open a PR without it (CLAUDE.md §19).
+Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion".
+PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions.
 
-Phase 7 per PROJECT_ROADMAP.md was "API: Convert Angebot → Project". PHASE7_PROGRESS.md is the
-authoritative record, including the eight approved design decisions and the completion gate.
+  Slice 1 — Domain: Invoice + Payment child ................. DONE
+  Slice 2 — Infrastructure: schema + migration #8 ........... next
+  Slice 3 — Create Invoice + balance + numbering + VAT split
+  Slice 4 — Send Invoice + public token read
+  Slice 5 — Mark Paid + Void
+  Slice 6 — Complete Project + FR-7.4 invoice information
+  Slice 7 — Overdue capability + Phase 8 completion gate
 
-  Slice 1 — Domain: Customer + Project ...................... DONE
-  Slice 2 — Infrastructure: schema + migration #7 ........... DONE
-  Slice 3 — Application: ConvertAngebotToProjectCommand ..... DONE
-  Slice 4 — API: conversion + Project detail read + gate .... DONE
+PHASE 8 DECISIONS THAT MUST NOT BE SILENTLY REOPENED (full list in PHASE8_PROGRESS.md)
 
-Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion",
-on branch feature/phase-8-invoices-payments-project-completion. It introduces Invoice, InvoiceLine
-and Payment, so expect Domain slices, a migration, and a documents-first design review before any
-code. It also finally supplies what Phase 7 left deferred: FR-7.4's Invoice portion of the Project
-detail read, and CompleteProjectCommand, whose "all Invoices Paid or Void" guard plus FR-8.6's
-override is the cross-aggregate rule Project.Complete() deliberately does not enforce itself.
+- INVOICELINE IS DEFERRED ENTIRELY — no Domain type, table, configuration, repository, DTO or
+  migration content. Migration #8 excludes it by decision, not by omission.
+- PHASE 8 IS FULL-PAYMENT-ONLY. Invoice.MarkPaid takes no amount and always records GrossAmount;
+  a reflection test asserts no Money appears in its signature. ERD's one-to-many Payments shape is
+  forward-compatibility, NOT evidence that partial payments work.
+- NO OVERDUE SCHEDULER OF ANY KIND. The Sent → Overdue transition is real capability and exists in
+  the Domain; automatic execution is a recorded gap awaiting a job-hosting decision. An Admin
+  endpoint, a BackgroundService and read-time derivation were each considered and each rejected.
+- THE VAT SPLIT IS PER-RATE AND PROPORTIONAL to the originating Angebot's gross rate mix, never a
+  blended rate, and must satisfy sum(Net) + sum(VAT) == GrossAmount exactly with deterministic,
+  tested residual-cent handling. Invoice.Create enforces that equality structurally.
+- INVOICE NUMBERS are unique and never reused; GAPLESSNESS IS NOT GUARANTEED. Make no claim about
+  what German law requires.
+- NO PDF, no IPdfGenerator, no bank-detail configuration/schema/DTO field. Wireframe A4's "Download
+  PDF" and bank details are recorded gaps.
+- A VOID REASON IS REQUIRED from every source state including Draft; StateMachine §3.3's blank
+  guard cell was a documentation omission and is reconciled.
+- THERE IS NO Invoice.SentAt — ERD defines no such column, and a test asserts its absence.
+- PutOnHold/Resume remain assigned to NO phase. Phase 8 does not claim them.
 
 PHASE 7 DECISIONS THAT MUST NOT BE UNDONE
 
@@ -83,11 +99,11 @@ BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
      dotnet test RenoTrack.slnx
      dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure --startup-project src/RenoTrack.Infrastructure
 
-2. Read, in full: PHASE7_PROGRESS.md (the active phase — its approved decisions and slice plan),
+2. Read, in full: PHASE8_PROGRESS.md (the active phase — its approved decisions and slice plan),
    CLAUDE.md (§2's constructor/materialisation rule and §22's API ruleset are the newest),
-   PROJECT_STATE.md, NEXT_STEPS.md (especially §1f and §5a), PHASE6_PROGRESS.md, and
+   PROJECT_STATE.md, NEXT_STEPS.md (especially §1g and §5a), PHASE7_PROGRESS.md, and
    ARCHITECTURE_DECISIONS.md D57–D65 plus the "Decisions Explicitly Rejected" table.
-   PHASE2/3/4/5_PROGRESS.md are historical background.
+   PHASE2/3/4/5/6_PROGRESS.md are historical background.
 
    RenoTrack.Infrastructure.Tests and RenoTrack.Api.Tests need real SQL Server LocalDB
    (`sqllocaldb info` should show MSSQLLocalDB Running; `sqllocaldb start MSSQLLocalDB` if not).
@@ -154,8 +170,8 @@ PHASE 6 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
   if the documents do not state one, say so rather than creating it. If a required value is
   genuinely unspecified and choosing one would create policy, stop and ask.
 
-UNRESOLVED / DEFERRED ITEMS CARRIED INTO PHASE 7 (all deliberate — NEXT_STEPS.md §5a is the full
-record with reasons)
+UNRESOLVED / DEFERRED ITEMS CARRIED INTO PHASE 8 (all deliberate — NEXT_STEPS.md §1g and §5a are
+the full record with reasons)
 
 - Contact-form rate limiting and CORS — still outstanding; Architecture §12 is only half satisfied.
 - ForwardedHeaders / real client IP behind a proxy — deployment prerequisite (D65).
@@ -189,5 +205,6 @@ WORKING RULES — NOT OPTIONAL
 - Report unexpected findings rather than designing around them silently.
 - Report only final verified figures in a closeout; do not state a count and then correct it.
 
-CONFIRM STEP 1, THEN ASK WHETHER TO OPEN THE PHASE 6 PR BEFORE STARTING PHASE 7.
+CONFIRM STEP 1, THEN CONTINUE PHASE 8 AT SLICE 2 — DESIGN REVIEW AND EXPLICIT APPROVAL FIRST,
+NEVER IMPLEMENTATION FIRST.
 ```

@@ -113,7 +113,7 @@ stateDiagram-v2
 | `Sent` | Emailed/delivered to the customer with payment instructions |
 | `Paid` | Payment manually confirmed by Admin |
 | `Overdue` | Past its due date and still not paid (derived/scheduled state, not user-triggered) |
-| `Void` | Cancelled — never deleted, to preserve sequential numbering (BR-5) |
+| `Void` | Cancelled — never deleted, to preserve the numbering sequence (BR-9) |
 
 ### 3.2 Diagram
 
@@ -136,14 +136,15 @@ stateDiagram-v2
 | From | Event | Guard | To | Side Effects |
 |---|---|---|---|---|
 | `Draft` | `Send` | Invoice has a valid GrossAmount > 0 | `Sent` | PDF generated; TokenLink created; email sent |
-| `Draft` | `Void` | — | `Void` | Invoice number is retained (not reused) |
+| `Draft` | `Void` | Admin provides a reason | `Void` | Invoice number is retained (not reused) |
 | `Sent` | `MarkPaid` | — | `Paid` | Payment record created; Project balance recalculated |
 | `Sent` | *(scheduled check)* | `DueDate < today` and not yet Paid | `Overdue` | No customer-facing email required for v1 (dashboard flag only) |
 | `Overdue` | `MarkPaid` | — | `Paid` | Same as above |
 | `Sent` / `Overdue` | `Void` | Admin provides a reason | `Void` | AuditLog entry with reason; invoice excluded from "remaining balance" math going forward |
 
 ### 3.4 Invariants
-- Invoice numbers are never reused, even for `Void` invoices (legal requirement, BR-5).
+- Invoice numbers are never reused, even for `Void` invoices (**BR-9**). *(Corrected in Phase 8 Slice 1: §3.1 and this line both cited **BR-5**, which is the mandatory §14 UStG field list. Non-reuse of invoice numbers is BR-9. `BusinessRules.md` itself was correct throughout; only these two citations were wrong.)*
+- **A reason is required for every void, from every source state**, including `Draft`. `PermissionMatrix.md` §5 states this without qualification ("Admin-only, requires a reason"); §3.3's `Draft → Void` row previously left its guard cell blank while the `Sent`/`Overdue` row said "Admin provides a reason". *(Reconciled in Phase 8 Slice 1: treated as an omission in this table rather than an exemption, and enforced by `Invoice.Void(reason)` in the Domain.)*
 - A Project cannot move to `Completed` while any of its Invoices are in `Sent` or `Overdue` (see Project state machine §4), unless the Admin explicitly overrides with a reason (FR-8.6).
 
 ---
