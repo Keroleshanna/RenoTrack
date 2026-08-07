@@ -1,0 +1,22 @@
+using RenoTrack.Application.Common.Interfaces;
+using RenoTrack.Domain.Entities;
+
+namespace RenoTrack.Application.Tests.Fakes;
+
+/// <summary>
+/// In-memory fake, no database. <see cref="FindByTokenAsync"/> reads only what was actually added,
+/// so a handler that forgets to persist a link cannot appear to succeed here.
+/// </summary>
+public sealed class FakeTokenLinkRepository : ITokenLinkRepository
+{
+    public List<TokenLink> AddedTokenLinks { get; } = [];
+
+    public Task AddAsync(TokenLink tokenLink, CancellationToken cancellationToken)
+    {
+        AddedTokenLinks.Add(tokenLink);
+        return Task.CompletedTask;
+    }
+
+    public Task<TokenLink?> FindByTokenAsync(string token, CancellationToken cancellationToken) =>
+        Task.FromResult(AddedTokenLinks.SingleOrDefault(t => t.Token == token));
+}

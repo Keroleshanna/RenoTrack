@@ -306,6 +306,7 @@ sequenceDiagram
     participant TOK as ITokenLinkService
     participant REPO as IAngebotRepository / ITokenLinkRepository
     participant DB as SQL Server
+    participant AUD as IAuditService
     participant MAIL as IEmailSender
     actor L as Lead (Customer)
     participant WS as Website (Token-Link Pages)
@@ -342,15 +343,14 @@ sequenceDiagram
         API-->>WS: 200 OK
         WS-->>L: Renders read-only Angebot (sections, VAT breakdown, grand total)
 
-        L->>WS: Click "Approve" or "Reject" (+ optional reason)
-        WS->>API: POST /api/v1/public/angebote/{token}/decision { result, reason? }
+        L->>WS: Click "Approve" or "Reject"
+        WS->>API: POST /api/v1/public/angebote/{token}/decision { decision }
         API->>APP: Send(RecordAngebotDecisionCommand)
-        APP->>REPO: Guard: TokenLink.UsedAt == null
-        APP->>REPO: TokenLink.UsedAt = now
-        APP->>REPO: Angebot.Status = CustomerApproved | CustomerRejected
-        APP->>REPO: Angebot.DecisionAt = now, DecisionResult = result
-        REPO->>DB: UPDATE TokenLinks, UPDATE Angebote
-        APP->>APP: LeadStatus update (Won-pending / Lost)
+        APP->>REPO: TokenLink.MarkUsed() (BR-4 guard lives in the aggregate)
+        APP->>REPO: Angebot.RecordCustomerApproval() | RecordCustomerRejection()
+        APP->>REPO: Lead.MarkWon() | MarkLost()
+        REPO->>DB: ONE SaveChanges — TokenLinks, Angebote and Leads together (StateMachine §5)
+        APP->>AUD: LogAsync(AngebotCustomerApproved/Rejected, entity=Lead, by=null)
         APP->>MAIL: Notify Admin of decision
         APP-->>API: OK
         API-->>WS: 200 OK
@@ -363,6 +363,14 @@ sequenceDiagram
 
 ## 7. Converting an Approved Angebot into a Project
 **Covers:** FR-7.1
+
+> **Corrected in Phase 6.** This diagram previously also set `Lead.Status = Won` here, creating a
+> second path to that state and contradicting `StateMachine.md` §5 ("Lead.Status is only set to
+> `Won` inside the same transaction as the Angebot decision handler"). The Lead reaches `Won` in §6,
+> when the customer approves; by the time a Project is created it is already there. §6's own step
+> list was corrected at the same time — it referenced `DecisionResult`, a property removed from the
+> Domain entirely by D16 and from `ERD.md` by D41, and a `Won-pending` Lead status that has never
+> existed in `LeadStatus`.
 
 ```mermaid
 sequenceDiagram
@@ -383,8 +391,7 @@ sequenceDiagram
     REPO->>DB: INSERT INTO Customers (if new)
     APP->>REPO: AddAsync(Project { CustomerId, AngebotId, AgreedTotal = Angebot.GrossTotal, Status = Active })
     REPO->>DB: INSERT INTO Projects
-    APP->>REPO: Lead.Status = Won
-    REPO->>DB: UPDATE Leads
+    Note over APP,DB: Lead.Status is NOT touched here — it already became Won in §6's decision handler
     APP->>AUD: LogAsync(ProjectCreated, by=Admin)
     APP-->>API: ProjectDto
     API-->>DASH: 201 Created

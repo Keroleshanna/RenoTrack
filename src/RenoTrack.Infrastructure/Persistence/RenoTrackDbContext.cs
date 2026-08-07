@@ -25,6 +25,7 @@ public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> opti
     public DbSet<Angebot> Angebote => Set<Angebot>();
     public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
     public DbSet<AngebotReviewComment> AngebotReviewComments => Set<AngebotReviewComment>();
+    public DbSet<TokenLink> TokenLinks => Set<TokenLink>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();

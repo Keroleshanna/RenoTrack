@@ -5,12 +5,15 @@ using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
 using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
+using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
 using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
+using RenoTrack.Application.Angebote.Queries.GetPublicAngebotByToken;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.CatalogItems.Commands.CreateCatalogItem;
@@ -124,6 +127,9 @@ public static class DependencyInjection
         services.AddScoped<IValidator<RemoveAngebotSectionCommand>, RemoveAngebotSectionCommandValidator>();
         services.AddScoped<IValidator<RemoveAngebotItemCommand>, RemoveAngebotItemCommandValidator>();
         services.AddScoped<IValidator<DuplicateAngebotCommand>, DuplicateAngebotCommandValidator>();
+        services.AddScoped<IValidator<SendAngebotCommand>, SendAngebotCommandValidator>();
+        services.AddScoped<IValidator<GetPublicAngebotByTokenQuery>, GetPublicAngebotByTokenQueryValidator>();
+        services.AddScoped<IValidator<RecordAngebotDecisionCommand>, RecordAngebotDecisionCommandValidator>();
 
         services.AddScoped<IValidator<CreateCatalogItemCommand>, CreateCatalogItemCommandValidator>();
         services.AddScoped<IValidator<UpdateCatalogItemCommand>, UpdateCatalogItemCommandValidator>();
@@ -155,6 +161,10 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto>, RemoveAngebotSectionCommandHandler>();
         services.AddScoped<ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto>, RemoveAngebotItemCommandHandler>();
         services.AddScoped<ICommandHandler<DuplicateAngebotCommand, AngebotDto>, DuplicateAngebotCommandHandler>();
+        services.AddScoped<ICommandHandler<SendAngebotCommand, AngebotDto>, SendAngebotCommandHandler>();
+
+        // The customer's own decision — last in the Angebot workflow, and the only path to Lead Won/Lost.
+        services.AddScoped<ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto>, RecordAngebotDecisionCommandHandler>();
 
         services.AddScoped<ICommandHandler<CreateCatalogItemCommand, CatalogItemDto>, CreateCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateCatalogItemCommand, CatalogItemDto>, UpdateCatalogItemCommandHandler>();
@@ -174,6 +184,10 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>, GetAngebotByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>>, GetLeadAngeboteQueryHandler>();
         services.AddScoped<IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>>, GetAngebotReviewCommentsQueryHandler>();
+
+        // Last in the Angebot group, matching the workflow rule above: the customer's read is the
+        // final step, after the document has been built, reviewed and sent.
+        services.AddScoped<IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto>, GetPublicAngebotByTokenQueryHandler>();
 
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, PagedResult<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
     }

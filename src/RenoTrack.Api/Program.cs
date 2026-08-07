@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json.Serialization;
 using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
+using RenoTrack.Api.RateLimiting;
 using RenoTrack.Application;
 using RenoTrack.Infrastructure;
 using RenoTrack.Infrastructure.Identity;
@@ -24,12 +25,20 @@ builder.Services.AddProblemDetails(options =>
 {
     options.CustomizeProblemDetails = context =>
     {
-        context.ProblemDetails.Instance ??= context.HttpContext.Request.Path;
+        // Not Request.Path directly: on a route whose path segment is a customer token, the raw
+        // path is a credential, and error responses are retained by proxies, telemetry and support
+        // tooling far more widely than the requests that produced them (RouteDiagnostics).
+        // Every other route is unaffected and still reports its real path.
+        context.ProblemDetails.Instance ??= RouteDiagnostics.SafeInstance(context.HttpContext);
         context.ProblemDetails.Extensions["traceId"] =
             Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
     };
 });
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
+
+// Abuse protection for the anonymous token-link surface (Architecture.md §12, D65). Scoped to the
+// public controller by an opt-in named policy, so no internal route can inherit it by accident.
+builder.Services.AddPublicRateLimiting(builder.Configuration);
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -89,6 +98,27 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Explicit, because the next middleware depends on an endpoint having been selected. Without this
+// call routing would still run, but only immediately before MapControllers — after the capture
+// below, which would then see nothing.
+app.UseRouting();
+
+// Records the matched route template while it still exists. ASP.NET's exception middleware clears
+// the endpoint and route values before any IExceptionHandler runs, so a token-bearing path cannot
+// be recognised as such later — and would be echoed verbatim into logs and ProblemDetails
+// `instance`. See RouteDiagnostics for the full reasoning and how it was found.
+app.Use(async (context, next) =>
+{
+    RouteDiagnostics.Capture(context);
+    await next(context);
+});
+
+// After routing (the policy is selected from endpoint metadata) and after the capture above (so a
+// 429 on a token route is redacted like every other response), and before authentication — the
+// surface it protects is anonymous, so there is no identity to establish first, and throttling
+// before authentication means an abusive caller cannot make the server do that work either.
+app.UseRateLimiter();
 
 // Authentication must precede authorization: the former establishes who the caller is, the latter
 // decides what they may do with that identity.

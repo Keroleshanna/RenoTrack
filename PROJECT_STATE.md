@@ -1,13 +1,16 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-08-02, immediately after Phase 4 merged — **Phase 4 is complete and merged to `main`** (PR #8, merge commit `e1a4d9e`). All 11 Phase 4 slices, the closeout review's six Should-Fix fixes (`5371fe9`), and the PR review's four findings including the refresh-token rotation race fix (`e908c7d`) are all on `main`; see §12 and `PHASE4_PROGRESS.md`. Phase 3 merged earlier (PR #6, merge commit `85df430`; handoff docs followed in PR #7, `babfff9`), and Phase 2 before that (PR #5, merge commit `dc85de1`).
+**Last updated:** 2026-08-06, at the end of Phase 6 — **Phases 0–5 are complete and merged to `main`; Phase 6 is complete on its branch and awaiting a PR.** `origin/main` is at `18243ec` (PR #11, the Phase 5 merge). Phase 4 merged as PR #8 (`e1a4d9e`), Phase 3 as PR #6 (`85df430`, handoff docs in PR #7 `babfff9`), Phase 2 as PR #5 (`dc85de1`), and the Development bootstrap as PR #10 (`7ce9774`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 5 — API: Angebot Builder + Internal Review Workflow**, per `PROJECT_ROADMAP.md` (branch `feature/phase-5-angebot-builder-review`). **Not started.** Phases 0–4 are all complete and merged to `main`.
+**Phase 6 — API: Token-Link Mechanism + Public Angebot Decision Endpoints**, per `PROJECT_ROADMAP.md` (branch `feature/phase-6-token-links-public-angebot`). **All four slices complete; the phase-completion gate is closed; awaiting a PR.** Phases 0–5 are complete and merged to `main`.
+
+- **Phase 5 (Angebot builder + internal review) — ✅ complete and merged** (PR #11, merge commit `18243ec`, branch `feature/phase-5-angebot-builder-review`). Four slices: builder core endpoints and reads, the internal review loop plus comment history, the Catalog surface plus FR-4.10 save-as, and FR-4.11 duplication. See `PHASE5_PROGRESS.md` — written during Phase 6 to close a gap Phase 5 left, and labelled as such.
+- **Phase 6 — ✅ complete on the branch, not merged.** Four slices: the `TokenLink` aggregate and its schema (migration #6 `AddTokenLinks`), `POST /angebote/{id}/send`, the anonymous `GET /public/angebote/{token}`, and `POST /public/angebote/{token}/decision` with public-route rate limiting. Decisions D65. See `PHASE6_PROGRESS.md`.
 
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
@@ -21,20 +24,20 @@
 
 ## 2. Current Branch State
 
-- **`main` is the current branch**, at `e1a4d9e` (PR #8, the Phase 4 merge). Local `main` and `origin/main` match exactly.
-- `feature/phase-4-api-auth-leads-inspections` is merged; its local copy was deleted and the remote copy kept, matching how the Phase 2 and Phase 3 branches were left. `feature/phase-3-infrastructure-efcore` (final commit `f5d3108`) and `feature/phase-2-application-layer` are likewise merged and no longer active.
-- **Next git action when resuming:** branch off verified `main` for Phase 5 (`feature/phase-5-angebot-builder-review`), one slice per commit, PR opened when the phase reaches a natural milestone — per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever.
+- **`feature/phase-6-token-links-public-angebot` is the current branch**, branched off `origin/main` at `18243ec`. `origin/main` is at `18243ec` (PR #11, the Phase 5 merge).
+- Every earlier feature branch is merged and no longer active: Phase 5 (`feature/phase-5-angebot-builder-review`), the Development bootstrap (`feature/phase-5-development-bootstrap`), Phase 4 (`feature/phase-4-api-auth-leads-inspections`), Phase 3 (`feature/phase-3-infrastructure-efcore`, final commit `f5d3108`) and Phase 2 (`feature/phase-2-application-layer`).
+- **Next git action when resuming:** open the Phase 6 PR. Nothing has been pushed — per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run, on `main` at `e1a4d9e`:
+As of the last verified run, on `feature/phase-6-token-links-public-angebot` at the end of Phase 6:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **724 tests passing, 0 failing.**
-- `dotnet ef migrations has-pending-model-changes` → no pending changes (**five** migrations now: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`).
-  - `RenoTrack.Domain.Tests`: **153 tests.**
-  - `RenoTrack.Application.Tests`: **165 tests.**
-  - `RenoTrack.Infrastructure.Tests`: **101 tests** (real SQL Server LocalDB integration tests, including Slice 11's 12 `DatabaseInitializerTests`; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests` open no database connection — the last uses real disk I/O in a temporary root; the Identity tests do use real LocalDB).
-  - `RenoTrack.Api.Tests`: **134 tests** (Phase 4 — real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58; Slice 1 foundation + Slice 2 ProblemDetails mapping (D59) + Slice 3 DI composition, the last of which discovers handlers/validators by reflection so an unregistered one fails CI, through to Slice 10's Inspection notes endpoint, plus the four tests added by the two closeout review passes — §12).
+- `dotnet test RenoTrack.slnx` → **858 tests passing, 0 failing.**
+- `dotnet ef migrations has-pending-model-changes` → no pending changes (**six** migrations now: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`).
+  - `RenoTrack.Domain.Tests`: **185 tests.**
+  - `RenoTrack.Application.Tests`: **263 tests.**
+  - `RenoTrack.Infrastructure.Tests`: **161 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
+  - `RenoTrack.Api.Tests`: **249 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory
@@ -258,12 +261,13 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 4 is complete and merged** (PR #8, `e1a4d9e`). Its full closeout record — both review passes and what they changed — is §12 below.
+**Open the Phase 6 pull request — with explicit permission — then begin Phase 7 (API: Convert Angebot → Project).**
 
-**Phase 5 is in progress** on `feature/phase-5-angebot-builder-review`, per `PROJECT_ROADMAP.md`.
+**Phase 5 is complete and merged** (PR #11, `18243ec`). Its four slices — builder core, the internal review loop, the Catalog surface plus FR-4.10 save-as, and FR-4.11 duplication — are recorded in `PHASE5_PROGRESS.md`, written during Phase 6 to close a gap Phase 5 left and labelled as a post-hoc reconstruction from the commit record. The Development bootstrap merged separately as PR #10 (`7ce9774`, D64); it provisions accounts in **Development only** and **does not resolve SRS OQ-1**.
 
-- **Development bootstrap — done and merged** (PR #10, merge commit `7ce9774`; D64). A separate `DevelopmentBootstrap` startup step provisions one Admin and one Inspector in the **Development environment only**, behind three stacked guards, with passwords from configuration and `dotnet user-secrets` recommended. D63's separation of schema initialization, role reference data, and user provisioning is preserved — provisioning went into its own component, not into `DatabaseInitializer`. It **does not resolve SRS OQ-1**: no code path reachable in Production creates a user, and production first-Admin provisioning stays an explicit open question.
-- **Slices 1–4 of the Angebot builder + internal review workflow — done on the branch, not yet merged.** Builder core (create/read/sections/items/removal), the review loop (submit/approve/request-changes plus comment history), the Catalog surface (search/create/edit/retire plus FR-4.10 save-as), and FR-4.11 duplication.
+**Phase 6 is complete on `feature/phase-6-token-links-public-angebot`, nothing pushed, no PR.** Four slices: the `TokenLink` aggregate with migration #6 `AddTokenLinks`; `POST /angebote/{id}/send`; the anonymous `GET /public/angebote/{token}`; and `POST /public/angebote/{token}/decision` with public-route rate limiting (D65). The phase-completion documentation gate is closed — see `PHASE6_PROGRESS.md`'s checklist, which also lists the Phase 5 documentation debt Phase 6 inherited and cleared.
+
+Highlights worth knowing without opening that file: **two real defects were found by tests rather than inspection** — a time-dependent constructor guard made every expired `TokenLink` unreadable, because EF Core materialises rows through the same private constructor (now a rule in `CLAUDE.md` §2); and diagnostic surfaces were writing live customer tokens into logs and ProblemDetails, where the *first* fix silently did nothing because ASP.NET's exception middleware clears the endpoint before any handler runs. **Architecture §12 is only half closed**: `/api/v1/public/*` is rate-limited, `POST /api/v1/leads` is not.
 
 **Slice 11 closed the long-standing bootstrap gap (D63).** Until it landed, **nothing in `src/` had ever applied a migration** while `Program.cs` seeded Identity roles at startup, so a fresh production database failed with `Invalid object name 'AspNetRoles'` — reproduced directly, not inferred. Production now applies migrations as an explicit deployment step and startup only *verifies* (migration history in both directions, plus required roles), refusing to serve if the database is not ready. `Migrate` is a Development opt-in and is hard-refused in Production. **No user was provisioned in any environment** at that point, so a fresh database had schema and roles and nobody able to log in — the SRS OQ-1 gap. Phase 5's `DevelopmentBootstrap` (D64) later closed that for **Development only**; Production is unchanged and OQ-1 remains open.
 

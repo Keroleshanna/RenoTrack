@@ -44,6 +44,7 @@ Building and testing need no configuration — both test projects that touch a d
 | `Jwt:SigningKey` | — | **Yes — secret** | Min. 32 chars. **Never commit it** |
 | `Jwt:AccessTokenMinutes` / `Jwt:RefreshTokenDays` | 15 / 7 | No | |
 | `FileStorage:RootPath` | — | **Yes** | Where inspection photos are written |
+| `TokenLink:LifetimeDays` | `30` (tracked in `appsettings.json`) | **Yes** | How long a customer's token link stays valid (SRS FR-6.4). Not a secret — the token is the credential, this is only its lifetime. Zero or absent fails startup |
 | `Database:Mode` | `Verify` | No | `Verify` or `Migrate` — see below |
 | `DevelopmentBootstrap:Enabled` | `false` | No | Development only — see below |
 | `DevelopmentBootstrap:Admin:Password` / `…:Inspector:Password` | — | Only if the above is `true` — **secret** | No default. **Never commit them** |

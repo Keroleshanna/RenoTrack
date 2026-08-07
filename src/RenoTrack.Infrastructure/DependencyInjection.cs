@@ -15,6 +15,7 @@ using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Queries;
 using RenoTrack.Infrastructure.Persistence.Repositories;
+using RenoTrack.Infrastructure.TokenLinks;
 
 namespace RenoTrack.Infrastructure;
 
@@ -86,6 +87,7 @@ public static class DependencyInjection
         services.AddScoped<IInspectionRepository, InspectionRepository>();
         services.AddScoped<IAngebotRepository, AngebotRepository>();
         services.AddScoped<IAngebotReviewCommentRepository, AngebotReviewCommentRepository>();
+        services.AddScoped<ITokenLinkRepository, TokenLinkRepository>();
         services.AddScoped<ICatalogItemRepository, CatalogItemRepository>();
         services.AddScoped<ICatalogItemQueries, CatalogItemQueries>();
         services.AddScoped<IAngebotQueries, AngebotQueries>();
@@ -105,6 +107,15 @@ public static class DependencyInjection
         services.AddSingleton(fileStorageOptions);
         services.AddScoped<IFileStorage, LocalDiskFileStorage>();
         services.AddScoped<IEmailSender, LoggingNoOpEmailSender>();
+
+        // Same eager-validation shape as file storage above (SRS FR-6.4's configurable lifetime):
+        // a missing or zero lifetime must fail startup naming the key, not silently produce links
+        // that expire immediately — or never.
+        var tokenLinkOptions = configuration.GetSection(TokenLinkOptions.SectionName).Get<TokenLinkOptions>()
+            ?? new TokenLinkOptions();
+        tokenLinkOptions.Validate();
+        services.AddSingleton(tokenLinkOptions);
+        services.AddScoped<ITokenLinkService, TokenLinkService>();
 
         return services;
     }

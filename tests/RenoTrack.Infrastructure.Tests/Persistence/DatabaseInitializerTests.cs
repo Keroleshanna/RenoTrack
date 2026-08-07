@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
+using RenoTrack.Infrastructure.TokenLinks;
 
 namespace RenoTrack.Infrastructure.Tests.Persistence;
 
@@ -63,6 +64,7 @@ public sealed class DatabaseInitializerTests : IAsyncLifetime
             ["ConnectionStrings:RenoTrackDb"] = ConnectionString,
             [$"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}"] =
                 Path.Combine(Path.GetTempPath(), "RenoTrackInitializerTests"),
+            [$"{TokenLinkOptions.SectionName}:{nameof(TokenLinkOptions.LifetimeDays)}"] = "30",
         };
 
         // Left absent entirely when null — that is how the "omitted means Verify" default is tested.

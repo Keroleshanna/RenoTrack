@@ -1098,6 +1098,38 @@ The first draft *did* fold it in, ordering user seeding after `Verify()` so that
 
 ---
 
+## D65 — Public-Surface Rate Limiting: Fixed Window, 30/Minute per Client IP, `ForwardedHeaders` Deliberately Not Configured
+
+**Context.** `Architecture.md` §12 requires "rate limiting / basic abuse protection on public endpoints (`/api/v1/public/...` and the contact form) to prevent scraping or brute-forcing token guesses", and `PROJECT_ROADMAP.md` assigns basic limiting of `/api/v1/public/*` to Phase 6. **A threat is documented; no limit, window, algorithm, partition key, queue behaviour or rejection shape is documented anywhere** — searched across all nine source documents. Every one of those is therefore a policy decision made here, not a requirement implemented.
+
+**Decision.**
+
+| Aspect | Choice |
+|---|---|
+| Partition key | **Client IP**, from the connection's `RemoteIpAddress` |
+| Algorithm | **Fixed window** |
+| Limit | **30 requests per 60 seconds** |
+| Scope | **One shared policy** across all of `/api/v1/public/*`; GET and POST share the allowance |
+| Queue | **None** — reject immediately |
+| Rejection | **429 + RFC 7807 ProblemDetails**, with `Retry-After` |
+| Application | Opt-in **named policy** via `[EnableRateLimiting]`, never a global limiter |
+
+**Why per-IP and not the alternatives.** Partitioning **per token** was rejected outright: it does not address the documented threat at all, because every guessed token would open a fresh partition with a full allowance, so enumeration would be unlimited. A **global** limiter was rejected because one abusive client could then consume the entire allowance and deny service to every genuine customer. Per-IP is the only partition that makes token guessing expensive while leaving an unrelated customer unaffected.
+
+**Why 30/minute.** A real customer opens one link and clicks one button; 30 requests in a minute is far beyond that and far below anything that makes enumerating a 256-bit secret worth attempting. The number is arbitrary within a wide band — that is precisely why it is recorded here and named in `PublicRateLimitOptions` rather than left as a literal in `Program.cs`.
+
+**Why fixed window.** The requirement says "basic". A sliding window or token bucket would smooth the boundary burst a fixed window allows (up to 2× across a window edge), but nothing documents a need for that, and this project does not build for hypothetical load (`CLAUDE.md` §4 applied to middleware).
+
+**`ForwardedHeaders` is deliberately NOT configured, and `X-Forwarded-For` is never read.** Correct configuration requires knowing which proxies are trusted, how many hops, and which networks — deployment facts not knowable in Phase 6. Guessing is worse than absence: a wrongly-trusted forwarded header lets any caller spoof a fresh partition per request and defeat the limiter completely, converting a security control into decoration. **Known and accepted consequence:** behind a reverse proxy, clients collapse into the proxy's address and share one bucket until trusted `ForwardedHeaders` is configured at deployment with real `KnownProxies`/`KnownNetworks`. Recorded as an operational prerequisite in `NEXT_STEPS.md`, not as a code gap.
+
+**Compiled-in defaults, unlike `TokenLinkOptions`.** A token lifetime has no safe default — silently guessing "longer than intended" on a credential is dangerous, so absence must fail startup. A throttle's default *is* the policy, and a deployment expressing no opinion should get the policy rather than a startup failure. Configuration overrides it, which is also what lets tests exercise rejection without waiting out a real minute.
+
+**Scope, stated precisely so §12 is not read as closed.** This covers `/api/v1/public/*` only. **`POST /api/v1/leads` — the contact form §12 names in the same sentence — remains unthrottled**, deferred by explicit decision since Phase 4 Slice 5 and still tracked in `NEXT_STEPS.md`. CORS likewise remains unconfigured. §12 is partially, not fully, satisfied.
+
+**Consequences.** `PublicRateLimitOptions`/`PublicRateLimitPartition`/`RateLimitingRegistration` live in `RenoTrack.Api/RateLimiting/`. `UseRateLimiter()` sits after `UseRouting()` and after `RouteDiagnostics.Capture` — so a 429 on a token route is redacted exactly like every other response — and before `UseAuthentication()`, since the protected surface is anonymous and an abusive caller should not be able to make the server do authentication work either. Rejections go through `IProblemDetailsService`, so `CustomizeProblemDetails` adds `traceId` and the token-safe `instance`. Partitioning is proven by unit tests against real `HttpContext` instances, because `TestServer` supplies no `RemoteIpAddress`; the API tests state explicitly what they can and cannot prove rather than simulating the framework behaviour under test.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1182,3 +1214,14 @@ The first draft *did* fold it in, ordering user seeding after `Verify()` so that
 | Duplicating the environment guard at the `Program.cs` call site | D64 | Two guards that can drift, and it makes the component *look* unguarded — the authoritative check belongs where it cannot be bypassed by a second caller |
 | An `IDevelopmentBootstrap` interface | D64 | One implementor, one caller, no test double — an abstraction for symmetry, which §9 and D28 reject by name |
 | Registering `DevelopmentBootstrap` only when `IsDevelopment()` | D64 | Moves a runtime guard into composition, makes the guard untestable against a Production host, and turns a misconfiguration into "service not registered" instead of the message explaining the policy |
+| Per-token rate-limit partitioning | D65 | Every guessed token opens a fresh partition with a full allowance, so it does not address the token-guessing threat §12 names at all |
+| A single global rate-limit partition | D65 | One abusive client could consume the whole allowance and deny service to every genuine customer |
+| Configuring `ForwardedHeaders` in Phase 6 to get the real client IP | D65 | Requires trust-boundary facts (which proxies, how many hops, which networks) not knowable yet; a wrongly-trusted forwarded header lets any caller spoof a fresh partition per request and defeats the limiter entirely — worse than the known proxy-collapse limitation |
+| Reading `X-Forwarded-For` manually without a configured trust boundary | D65 | Same defeat, with none of the framework's validation |
+| Sliding-window or token-bucket limiting | D65 | The requirement says "basic"; no documented evidence that boundary bursts matter |
+| A global rate limiter instead of an opt-in named policy | D65 | Internal and authenticated routes would inherit the public allowance silently; tightening it would look like a Dashboard outage |
+| Extending Phase 6's limiter to `POST /api/v1/leads` | Slice 4 review | Phase 6's approved scope is the token-link surface; the contact form stays tracked separately in `NEXT_STEPS.md` rather than being folded in without review |
+| Faking `RemoteIpAddress` in `WebApplicationFactory` to test per-IP partitioning | Slice 4 review | Would simulate the framework behaviour under test and prove nothing; partitioning is tested at unit level against real `HttpContext` instances instead |
+| Accepting an FR-6.3 rejection reason and discarding it | Slice 4 (approved earlier) | If the API accepts a value, users may reasonably expect it preserved; storing it is an open ADR, so the honest contract is not to accept one |
+| Storing the FR-6.3 rejection reason in `AuditLog.Details` | Slice 4 (approved earlier) | Audit is best-effort by D50 and swallows its own failures — business data must never depend on it |
+| Reusing `AngebotReviewComment` for the customer's rejection reason | Slice 4 (approved earlier) | `AdminUserId` is a required FK to `AspNetUsers` and the type is documented as the *internal* review loop; a customer's words would be misattributed as staff review and surface in the Inspector's comment history |

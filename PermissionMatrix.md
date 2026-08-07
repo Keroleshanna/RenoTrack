@@ -96,7 +96,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 |---|---|---|
 | Browse public website | ✅ | ✅ |
 | Submit contact form | ✅ | ✅ |
-| View Angebot via token link | — | ✅ (read-only, until decision made) |
+| View Angebot via token link | — | ✅ (read-only, **including after a decision**) — BR-4 restricts single use to *state-changing* actions and states outright that "viewing (read-only) remains allowed", and Sequence Diagram §12 scopes the `UsedAt` check to "decision-type actions only". **Corrected in Phase 6**: this row previously read "until decision made", which contradicted both. `GET /api/v1/public/angebote/{token}` therefore deliberately does not check `UsedAt` |
 | Approve/Reject Angebot via token link | — | ✅ (single-use, BR-4) |
 | View Invoice via token link | — | ✅ (read-only) |
 | Log in to the Dashboard | — | — (no account exists for this role, by design — SRS §"Out of scope") |

@@ -7,66 +7,51 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system — public
 website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
-project and not a fresh start. **Phases 0–4 are all complete and merged to `main`.** A prior
-conversation ended for context reasons and persisted everything into the repository, so you depend
-on the files, not on any chat history. Do not treat anything below as optional reading.
+project and not a fresh start. **Phases 0–5 are complete and merged to `main`; Phase 6 is complete
+on its branch.** A prior conversation ended for context reasons and persisted everything into the
+repository, so you depend on the files, not on any chat history. Do not treat anything below as
+optional reading.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- Branch: feature/phase-5-angebot-builder-review. Phase 5 is IN PROGRESS and unmerged.
-- origin/main: 7ce977420f4ec2b419a5351d930bc79c9593e42b
-  ("Merge pull request #10 from Keroleshanna/feature/phase-5-development-bootstrap").
-- PRs #8 (Phase 4) and #10 (Development bootstrap, D64) are MERGED.
-- Phase 5 slices 1-4 (builder core, review loop, catalog, duplicate) are committed on the branch
-  and awaiting review/push - nothing from them is on main yet.
+- origin/main: 18243ec ("Merge pull request #11 from Keroleshanna/feature/phase-5-angebot-builder-review").
+- PRs #8 (Phase 4), #10 (Development bootstrap) and #11 (Phase 5) are MERGED.
+- Branch: feature/phase-6-token-links-public-angebot, off main at 18243ec. **Phase 6 is COMPLETE
+  on this branch — all four slices and the full documentation gate — and has NOT been pushed.**
+  Nothing has been merged; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 724 passing, 0 failing — 165 Domain, 219 Application, 140 Infrastructure, 200 Api.
-- Migrations: 5 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens);
-  has-pending-model-changes reports none.
+- Tests: 858 passing, 0 failing — 185 Domain, 263 Application, 161 Infrastructure, 249 Api.
+- Migrations: 6 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
+  AddTokenLinks); has-pending-model-changes reports none.
 - Working tree: clean.
-- Documentation is reconciled with merged reality as of this handoff. If you find a document that
-  still describes Phase 4 as in progress or unpushed, that is a regression — say so.
+- Documentation is reconciled with reality as of this handoff, including the Phase 5 documentation
+  debt Phase 6 inherited and closed. If you find a document that still describes Phase 5 as
+  unstarted or Phase 6 as in progress, that is a regression — say so.
 
-YOUR TASK: PHASE 5, STARTING WITH A DEVELOPMENT BOOTSTRAP / SEED DATA SLICE.
+YOUR TASK: OPEN THE PHASE 6 PR, THEN BEGIN PHASE 7.
 
-Phase 5 per PROJECT_ROADMAP.md is "API: Angebot Builder + Internal Review Workflow", on branch
-feature/phase-5-angebot-builder-review. **It opens with a Development bootstrap / seed-data slice,
-before any business feature**, so the backend is manually testable as a real running application
-rather than only through the automated suites.
+Phase 6 needs the user's explicit permission before anything is pushed or a PR is opened — never
+push, merge or open a PR without it (CLAUDE.md §19).
 
-Present a DESIGN REVIEW for that slice and wait for approval before writing any code.
-Intended direction (a direction, not a specification — challenge it):
-  - a Development-only Admin account and a Development-only Inspector account;
-  - opt-in, never silently running everywhere;
-  - idempotent;
-  - no passwords or secrets committed to the repository;
-  - MUST NEVER provision users in Production;
-  - this does NOT resolve SRS OQ-1 — production first-Admin provisioning stays an explicit open
-    question;
-  - do not seed large amounts of fake business data unless a later design review establishes a
-    real need.
-This interacts with D63, which deliberately separates schema initialization, role reference data,
-and user provisioning, and states that no code path creates a user in any environment. The seeding
-slice must respect that separation rather than quietly overturn it.
-
-After that slice is implemented and verified, run a MANUAL Phase 4 smoke test against the real API:
-Admin login → create/read Lead → schedule Inspection → Inspector login → access assigned Lead →
-upload photo → update notes → complete Inspection. Only then move to the first actual Phase 5
-business slice (Angebot/Catalog endpoints per PROJECT_ROADMAP.md).
+Phase 7 per PROJECT_ROADMAP.md is "API: Convert Angebot → Project", on branch
+feature/phase-7-angebot-to-project. It introduces the first genuinely new aggregates since Phase 1b
+(Customer, Project), so expect a real Domain slice, a migration, and a documents-first design
+review before any code. BR-2 is the guard: only a CustomerApproved Angebot may become a Project.
+Note that Sequence Diagram §7 was corrected during Phase 6 — it no longer sets Lead.Status = Won,
+because the Lead already reached Won in the customer's decision handler (StateMachine §5).
 
 BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
 
-1. Recover and verify context from `main`:
-     git fetch origin && git status && git log --oneline -5
+1. Recover and verify context:
+     git fetch origin && git status && git log --oneline -8
      dotnet build RenoTrack.slnx
      dotnet test RenoTrack.slnx
      dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure --startup-project src/RenoTrack.Infrastructure
 
-2. Read, in full: CLAUDE.md (§22 is the API-layer ruleset and the newest), PROJECT_STATE.md
-   (especially §12, Phase 4's closeout record), NEXT_STEPS.md (especially §5a), PHASE4_PROGRESS.md
-   (including its closing "What Happened After Slice 11" section), and ARCHITECTURE_DECISIONS.md
-   D57–D63 plus the "Decisions Explicitly Rejected" table. PHASE2/3_PROGRESS.md are historical
-   background.
+2. Read, in full: CLAUDE.md (§2's constructor/materialisation rule and §22's API ruleset are the
+   newest), PROJECT_STATE.md, NEXT_STEPS.md (especially §5a), PHASE6_PROGRESS.md, and
+   ARCHITECTURE_DECISIONS.md D57–D65 plus the "Decisions Explicitly Rejected" table.
+   PHASE2/3/4/5_PROGRESS.md are historical background.
 
    RenoTrack.Infrastructure.Tests and RenoTrack.Api.Tests need real SQL Server LocalDB
    (`sqllocaldb info` should show MSSQLLocalDB Running; `sqllocaldb start MSSQLLocalDB` if not).
@@ -74,85 +59,86 @@ BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
    info` reports it Stopped, with `start` then failing with Windows error 575. The fix is to
    terminate that one orphaned PID — ask first, and never touch any other sqlservr.exe.
 
-PHASE 4 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
+PHASE 6 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
 
-- FAIL-SECURE ROLE SCOPING. "Not an Inspector" must never mean "Admin". Unrestricted access is only
-  ever reached by positively establishing the Admin role; the narrower role is checked first so a
-  dual-role account is scoped; anything else is refused. A fail-open version of this was found and
-  reproduced in Slice 6. Keep both the [Authorize(Roles=...)] attribute and the in-method guard.
-- REFRESH-TOKEN ROTATION IS DATABASE-ARBITRATED. RefreshToken.RevokedAt is an EF concurrency token.
-  Without it, 8 of 8 concurrent rotations of one token succeeded (reproduced 3/3) — this was not a
-  narrow or theoretical race. Revocation and its replacement must stay in ONE SaveChanges. Chain
-  revocation uses a set-based ExecuteUpdateAsync, because load-mutate-save threw
-  DbUpdateConcurrencyException and surfaced as a 500.
-- AUTHENTICATION SITS OUTSIDE CQRS (D60), and every login failure returns an identical 401. Do not
-  make those messages more helpful. Lockout depends on AuthController's explicit
-  IsLockedOutAsync/AccessFailedAsync/ResetAccessFailedCountAsync calls.
-- SERVER-DERIVED CALLER IDENTITY (D61, as corrected in Slice 7): only values describing *who is
-  acting* come from the JWT. A third party the caller legitimately chooses (an Admin picking which
-  Inspector to send) is genuine request input.
-- BUSINESS RULES ABOUT STAFF ACCOUNTS GO THROUGH IUserQueries (D62). A database FK is not a business
-  rule.
-- ONE EXCEPTION HANDLER, ONE SWITCH (D59). Mapped exceptions surface their message; unmapped ones
-  never do. Every mapped exception is logged at Warning WITH ITS STACK TRACE — do not remove that.
-- PRODUCTION NEVER MUTATES SCHEMA AT STARTUP (D63). Database:Mode is Verify (default) or Migrate
-  (Development opt-in, hard-refused in Production). Verification checks migration history in BOTH
-  directions plus required roles. Do not add a mode that skips verification.
-- FILE UPLOAD IS COMPENSATION, NOT ATOMICITY. Every rejection precedes the write; a failed commit
-  triggers a best-effort delete that rethrows the original exception. Orphans remain possible. Never
-  document it as a consistency guarantee.
-- AUDITSERVICE IS NOT WRITE-ISOLATED. It calls SaveChangesAsync on the same request-scoped
-  DbContext, so if called with unrelated pending changes it will flush them too. Always commit the
-  business operation first, then audit.
-- A STATUS-CODE-ONLY AUTHORIZATION TEST CAN BE A FALSE POSITIVE when a role gate and an ownership
-  guard both yield 403. Assert an empty body (role gate) versus a ProblemDetails body (ownership).
-- LEAD Won/Lost IS PHASE 6 WORK, driven by the customer's token-link decision. StateMachine §5
-  requires Lead to reach Won only inside the Angebot decision handler's transaction. Do NOT create
-  Admin MarkWon/MarkLost commands or endpoints.
-- TEST DISCIPLINE: Api.Tests migrates its database, Infrastructure.Tests uses EnsureCreated — do not
-  unify them (D58). Real LocalDB always, never InMemory (D40). Adversarial verification is expected:
-  prove a safeguard by breaking it, watch the test fail, restore byte-identically. Rerun concurrency
-  tests several times; one green run proves nothing.
+- A PUBLIC TOKEN CREDENTIAL MUST NOT REACH ANY DIAGNOSTIC SURFACE — not logs, not ProblemDetails
+  detail, not instance, not any error body. RouteDiagnostics captures the route template as
+  middleware right after UseRouting, because ASP.NET's exception middleware calls ClearHttpContext
+  before any IExceptionHandler runs: reading GetEndpoint() later returns null and silently falls
+  back to the raw path. That failure is not hypothetical — the first fix did exactly that and no
+  test noticed, because none inspected the log. ASSERT LOG CONTENT when a route carries a secret.
+- A CONSTRUCTOR GUARD MUST STATE A LIFETIME INVARIANT. EF Core materialises rows through the same
+  private constructor, so a time-dependent guard runs on every read. TokenLink's "expiry must be in
+  the future" in the constructor made every expired row throw on load and surface as 400 instead of
+  410. Guards belong in the factory method (Lead's shape), not the constructor (CLAUDE.md §2).
+- BR-4 IS AN ASYMMETRY, NOT A SWITCH. A used token is refused for a decision (409) and still serves
+  the read endpoint. Do not add a UsedAt check to the GET path.
+- THE PUBLIC DTO IS A SEPARATE HIERARCHY, never a projection of AngebotDetailDto. Internal ids,
+  staff ids, CatalogItemId and timestamps are deliberately absent, pinned against raw JSON so a
+  typed read cannot ignore an added field.
+- THE DECISION IS ONE TRANSACTION. TokenLink.MarkUsed(), the Angebot decision and the Lead
+  Won/Lost transition share one SaveChangesAsync (StateMachine §5). Do not split it, and do not
+  reproduce the aggregates' guards as handler-level state checks.
+- RATE LIMITING IS PARTIAL AND THE SPLIT IS DELIBERATE (D65). /api/v1/public/* is covered:
+  fixed window, 30/minute per client IP, opt-in named policy so internal routes never inherit it.
+  POST /api/v1/leads (the contact form) is STILL UNTHROTTLED. Do not read Architecture §12 as done.
+- FORWARDEDHEADERS IS DELIBERATELY UNCONFIGURED and X-Forwarded-For is never read. Trusting it
+  without a known proxy trust boundary lets any caller mint a fresh partition per request and
+  defeats the limiter. Behind a proxy, clients collapse into the proxy's address — a deployment
+  prerequisite, not a code gap. Fix it with real KnownProxies/KnownNetworks values or not at all.
+- THE FR-6.3 REJECTION REASON IS NOT ACCEPTED, deliberately, pending its own ADR. Not in AuditLog
+  (best-effort, D50), not in AngebotReviewComment (required AspNetUsers FK, internal review log),
+  and not accepted-then-discarded. A test pins that a client-sent reason is neither stored nor
+  echoed.
+- LEAD Won/Lost HAS NO ADMIN PATH, and must not acquire one. Both transitions happen only inside
+  RecordAngebotDecisionCommandHandler.
+- Everything Phase 4 established still holds: fail-secure role scoping, database-arbitrated refresh
+  rotation, authentication outside CQRS, one exception handler with one switch, Production never
+  mutating schema at startup, file upload as compensation rather than atomicity, AuditService
+  sharing the request DbContext (always commit business work first), and status-code-only
+  authorization tests being false positives.
+- TEST DISCIPLINE: real LocalDB always (D40/D58), Api.Tests migrates while Infrastructure.Tests
+  uses EnsureCreated — do not unify them. Adversarial verification is expected: prove a safeguard
+  by breaking it, watch the test fail, restore byte-identically. Rerun concurrency tests several
+  times; one green run proves nothing.
 - Grow interfaces, DTOs, repositories and schema strictly on demand. Do not invent business rules —
-  if the documents do not state one, say so rather than creating it.
+  if the documents do not state one, say so rather than creating it. If a required value is
+  genuinely unspecified and choosing one would create policy, stop and ask.
 
-UNRESOLVED / DEFERRED ITEMS CARRIED INTO PHASE 5 (all deliberate — NEXT_STEPS.md §5a is the full
+UNRESOLVED / DEFERRED ITEMS CARRIED INTO PHASE 7 (all deliberate — NEXT_STEPS.md §5a is the full
 record with reasons)
 
-- Rate limiting on the anonymous POST /api/v1/leads, and CORS — deferred to a hardening slice.
-  The endpoint is public, state-creating and currently unthrottled.
-- Production user provisioning / SRS OQ-1 — unresolved. A freshly initialized production database
-  has schema and roles and nobody able to log in. The Development bootstrap slice must NOT be
-  treated as resolving this.
-- GET /api/v1/inspections/{id} — PermissionMatrix grants the permission; no endpoint exists and it
-  is absent from Architecture §5.2. Needs a documents-first decision. This is why scheduling returns
-  201 with no Location header.
+- Contact-form rate limiting and CORS — still outstanding; Architecture §12 is only half satisfied.
+- ForwardedHeaders / real client IP behind a proxy — deployment prerequisite (D65).
+- The FR-6.3 rejection-reason storage ADR — open by decision.
+- Production user provisioning / SRS OQ-1 — unresolved. A fresh production database has schema and
+  roles and nobody able to log in.
+- GET /api/v1/inspections/{id} — PermissionMatrix grants it; no endpoint exists.
 - Authenticated photo serving + IFileStorage.GetAsync — photos can be stored but not served.
 - Orphaned files remain possible despite compensation; no sweeper exists.
 - Refresh-token rows are never cleaned up (retention to ExpiresAt, by decision).
-- AuditService shared-DbContext caveat (above) — benign today because every handler audits after
-  committing.
-- IUserQueries.IsActiveInspectorAsync stays a single boolean; revisit when Phase 10's Inspector
-  picker makes "exists but ineligible" worth distinguishing.
-- Lead Won/Lost → Phase 6.
+- Token-link rows are likewise never cleaned up, for the same reason.
+- AuditService shared-DbContext caveat — benign today because every handler audits after committing.
+- IUserQueries.IsActiveInspectorAsync stays a single boolean; revisit at Phase 10's Inspector picker.
 - The deployment pipeline itself is specified (EF bundle primary, idempotent SQL script supported)
   but not built.
-- OperationCanceledException is unmapped and yields 500 — a conscious Slice 2 scope decision.
+- OperationCanceledException is unmapped and yields 500 — a conscious Slice 2 (Phase 4) decision.
 - ArgumentException→400 / InvalidOperationException→409 is a knowingly-accepted risk (D59),
   mitigated by stack-trace logging.
-- Roles.cs sits in Auth/ but declares namespace RenoTrack.Api.Controllers — cosmetic, left twice.
-- TestProtectedController's "delete once redundant" note is now unmet; keeping it is defensible.
+- Roles.cs sits in Auth/ but declares namespace RenoTrack.Api.Controllers — cosmetic, left thrice.
 
 WORKING RULES — NOT OPTIONAL
 
 - Process, every slice: design review → challenge assumptions → explicit approval → implementation
   → adversarial verification → documentation in the same commit → commit. Never implement first.
+- Documentation reconciliation is a phase COMPLETION CRITERION, not a publication step. If
+  implementation or documentation work is discovered during publication, the phase was not done.
 - Never push, merge, or open a PR without explicit permission. Never commit to main. Never
   force-push (D5 records the incident behind this).
 - Verify claims against the repository rather than trusting prose, including this file's.
 - If something in the documents turns out to be false, say so plainly before working around it.
 - Report unexpected findings rather than designing around them silently.
+- Report only final verified figures in a closeout; do not state a count and then correct it.
 
-CONFIRM STEP 1, THEN PRESENT THE DESIGN REVIEW FOR THE DEVELOPMENT BOOTSTRAP / SEED DATA SLICE.
-Do not implement it until it is explicitly approved.
+CONFIRM STEP 1, THEN ASK WHETHER TO OPEN THE PHASE 6 PR BEFORE STARTING PHASE 7.
 ```
