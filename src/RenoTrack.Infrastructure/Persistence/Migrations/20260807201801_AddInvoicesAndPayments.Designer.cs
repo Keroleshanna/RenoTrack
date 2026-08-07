@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RenoTrack.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using RenoTrack.Infrastructure.Persistence;
 namespace RenoTrack.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(RenoTrackDbContext))]
-    partial class RenoTrackDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260807201801_AddInvoicesAndPayments")]
+    partial class AddInvoicesAndPayments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

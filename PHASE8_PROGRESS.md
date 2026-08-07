@@ -10,7 +10,7 @@ a slice of its own.
 | # | Slice | Status |
 |---|---|---|
 | 1 | Domain: `Invoice` + `Payment` child | ✅ done |
-| 2 | Infrastructure: schema + migration #8 `AddInvoicesAndPayments` | ⬜ not started |
+| 2 | Infrastructure: schema + migration #8 `AddInvoicesAndPayments` | ✅ done |
 | 3 | Create Invoice + remaining balance + numbering + VAT allocation | ⬜ not started |
 | 4 | Send Invoice + public token read | ⬜ not started |
 | 5 | Mark Paid + Void | ⬜ not started |
@@ -170,3 +170,137 @@ silently delete the only signal BR-3 asks the system to produce.
   61 `InvoiceTests`, 9 `PaymentTests`, 4 `MoneyTests`.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Seven** migrations —
   correct, since these types have no `DbSet` or configuration yet. That is Slice 2.
+
+---
+
+## Slice 2 — Infrastructure: schema + migration #8 `AddInvoicesAndPayments`
+
+**Scope:** two `IEntityTypeConfiguration<T>` classes, one `DbSet`, one migration, LocalDB constraint
+tests. No Application layer, no API. **`InvoiceLines` is excluded**, per the approved deferral.
+
+### Three-way review, performed before generating anything
+
+CLAUDE.md §21 requires Domain ↔ EF configuration ↔ `ERD.md` to be compared explicitly, not inferred
+from a clean compile. **All three agreed on every point; no mismatch was found and nothing was
+reconciled.**
+
+| Aspect | Domain | `ERD.md` | Configuration |
+|---|---|---|---|
+| `Invoice.Id` | `int`, private set | `int Id PK` | identity PK |
+| `Invoice.ProjectId` | `int`, guarded `> 0` | `int ProjectId FK` | required; FK → `Projects`, `Restrict`; **not unique** (§4: one Project, many Invoices) |
+| `Invoice.InvoiceNumber` | required, trimmed | `string InvoiceNumber UK "RE-YYYY-NNNNN"` | required, `nvarchar(30)`, **unique index** (§3, BR-9) |
+| `Invoice.IssueDate` | `DateTime`, set at creation | `datetime IssueDate` | required, `datetime2` |
+| `Invoice.DueDate` | `DateTime`, unconstrained | `datetime DueDate` | required, `datetime2` |
+| `Invoice.Status` | `InvoiceStatus` | `string "Draft/Sent/Paid/Overdue/Void"` | **string**, `nvarchar(20)` |
+| `Invoice.NetAmount`/`VatAmount`/`GrossAmount` | `Money`, non-null, `Net + VAT == Gross` | three `decimal` columns | `MoneyConverter`, **`decimal(18,2)`**, required |
+| `Invoice.VoidReason` | `string?` | `string VoidReason "nullable"` | **nullable**, `nvarchar(4000)` |
+| `Invoice.Payments` | `IReadOnlyList<Payment>` over a private field | `INVOICE to many PAYMENT` | `HasMany`/`WithOne`, shadow FK `InvoiceId`, `IsRequired()`, `Cascade`, field access mode |
+| `Payment.Amount` | `Money`, non-null | `decimal Amount` | `MoneyConverter`, `decimal(18,2)`, required |
+| `Payment.Method` | `PaymentMethod` | `string "BankTransfer/Cash/Other"` | **string**, `nvarchar(50)` |
+| `Payment.PaidAt` | `DateTime` | `datetime PaidAt` | required, `datetime2` |
+| `Payment.RecordedByAdminId` | `int`, guarded `> 0` | `int RecordedByAdminId FK` | required; FK → `AspNetUsers`, `Restrict` |
+| `Payment` FK to Invoice | **no property** | `int InvoiceId FK` | shadow property — same as `InspectionPhotos.InspectionId`, `AngebotItems.SectionId` |
+| Navigation properties to other aggregates | none | — | none — `HasOne<T>().WithMany()` generic overload throughout |
+
+Five points settled during the review rather than left implicit:
+
+- **`Payments` uses `Cascade`, not `Restrict`, and that is not a departure.** CLAUDE.md §21's
+  "`Restrict` in every case" governs references *between independent aggregates*. Aggregate
+  *composition* already uses `Cascade` three times over — `Angebot → Sections`,
+  `AngebotSection → Items`, `Inspection → Photos` — and a Payment has no meaning apart from the
+  Invoice that owns it. Verified against those three configurations rather than assumed.
+  **Not exercised by any test**, deliberately: nothing in this schema is ever hard-deleted, so the
+  behaviour never triggers. That is the same position `AngebotItemConfiguration`'s own comment
+  records for its `Restrict`, and it is stated here rather than covered by a test that would have to
+  delete a row no code path deletes.
+- **String widths, where `ERD.md` specifies none.** `InvoiceNumber` `nvarchar(30)` matches
+  `Angebote.AngebotNumber` exactly — same generator, same shape. `Status` `20` matches every other
+  status column (Lead/Angebot/Project). `Method` `50` matches the schema's non-status string-valued
+  enums (`TokenLinks.EntityType`, `AngebotItems.Unit`). `VoidReason` `4000` matches
+  `AngebotReviewComments.Comment`, the existing staff-authored free-text column.
+- **`Invoices` has no `CreatedAt`**, unlike every other aggregate-root table here. `ERD.md` defines
+  none and the Domain has none — `IssueDate` is the business-meaningful timestamp. Adding one for
+  symmetry would be inventing schema.
+- **The `(Status, DueDate)` index is created now** because `ERD.md` §3 defines it, not because
+  anything runs the overdue check on a schedule. Nothing does.
+- **`Payments.RecordedByAdminId`'s FK proves the id names a real user and nothing more.** Whether
+  that user is an active Admin is a business rule, and D62 places those in the Application layer via
+  `IUserQueries`. Whether Phase 8 needs such a check is left to the slice that builds the command.
+
+### The one question inspection could not answer
+
+`Payment` is materialised through an `internal` constructor whose first parameter is a `Money` — a
+type that only reaches the database through `MoneyConverter`. EF Core has to apply a value converter
+while *binding a constructor parameter*, not merely while writing a settable property.
+
+**It works.** `AngebotItem` has done exactly this since Phase 3 (an `internal` constructor taking
+both a converted `Money` and a converted `ItemUnit`), which is strong precedent — but precedent is
+an argument, not a verification, so a dedicated round-trip test proves it directly against LocalDB.
+No restructuring of the aggregate was needed and none was considered.
+
+### Migration review (manual, after generation)
+
+`20260807201801_AddInvoicesAndPayments`. Every operation checked against the approved schema:
+
+- **Creates exactly two tables**, `Invoices` and `Payments`. **No `AlterColumn`, `AddColumn`,
+  `DropColumn`, `RenameTable` or any other operation touching an existing table** — the pre-existing
+  tables are untouched, and no pre-existing migration file was modified (only the model snapshot
+  changed, by addition only).
+- Every column, type and nullability matches the review table above, including `VoidReason` as
+  `nullable: true`, all four monetary columns as `decimal(18,2)`, and the shadow `InvoiceId` as
+  `nullable: false` — D46's bug avoided because `IsRequired()` was explicit.
+- Three FKs: `FK_Invoices_Projects_ProjectId` **Restrict**,
+  `FK_Payments_AspNetUsers_RecordedByAdminId` **Restrict**, `FK_Payments_Invoices_InvoiceId`
+  **Cascade** — the only cascade, and the composition relationship described above.
+- Five indexes: `IX_Invoices_InvoiceNumber` (**unique**), `IX_Invoices_Status_DueDate` (ERD §3), and
+  three EF-generated FK-backing indexes (`IX_Invoices_ProjectId`, `IX_Payments_InvoiceId`,
+  `IX_Payments_RecordedByAdminId`), all non-unique. The FK-backing indexes are the established
+  convention throughout this schema — `InitialCreate` contains the same for `IX_Angebote_LeadId` and
+  six others — and `IX_Invoices_ProjectId` being non-unique is exactly right, since one Project must
+  hold many Invoices. **No undocumented column, table or additional index was introduced.**
+- `Down()` drops `Payments` before `Invoices` — the correct order given the FK between them.
+
+### Tests added (15)
+
+`InvoicePersistenceTests`, real LocalDB per D40: full-field round trip; all three monetary columns
+round-tripping through raw SQL at full precision; `Status` and `Method` read back through raw SQL to
+prove they are stored as names rather than ordinals; the unique invoice number (BR-9); one Project
+holding many Invoices; both FK rejections; `VoidReason` persisting as a value and as null; a voided
+Invoice keeping its row and number (BR-9); the `Payment` constructor-materialisation proof; the
+shadow FK's `NOT NULL`-ness read from `INFORMATION_SCHEMA`; `MarkPaid` on a loaded aggregate
+persisting through `SaveChangesAsync` alone; and a reflection test that `Payment` has no `DbSet`.
+
+`InitialCreateMigrationTests.EveryDefinedMigration_IsAppliedToAFreshDatabase` — added in Phase 7
+Slice 2 precisely so later migrations are covered without a new per-migration test — picks up
+migration #8 automatically. No test was added there.
+
+### Adversarial verification
+
+Each defect introduced, tests run, configuration restored byte-identically.
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | `.IsUnique()` dropped from the `InvoiceNumber` index | `TwoInvoicesCannotShareANumber` failed — the duplicate insert succeeded, breaking BR-9. **Additionally 33 migration-based tests failed** with `PendingModelChangesWarning` |
+| 2 | `.IsUnique()` added to a `ProjectId` index | `OneProjectCanHaveManyInvoices` and `AVoidedInvoicePersistsItsReason...` both failed — FR-8.1's entire splitting feature becomes impossible |
+| 3 | `NetAmount` column type changed to `decimal(18,0)` | `AllThreeAmountsRoundTripAtFullPrecision` failed (**10,378.15 stored as 10,378**) and `AnInvoiceRoundTripsWithEveryField` failed (**6,722.69 read back as 6,723**) |
+| 4 | `.IsRequired()` removed from the `Payments` relationship | `ThePaymentInvoiceForeignKeyIsNotNullable` failed — `IS_NULLABLE` came back **"YES"**, D46's exact bug reproduced |
+
+Experiment 3 is the one worth keeping: the corruption is silent in both directions — the stored
+figure is wrong *and* the value read back would break the Domain's `Net + VAT == Gross` invariant on
+an already-persisted row, which no amount of Domain-side guarding could catch. Experiment 1's
+secondary effect repeats Phase 7's finding: a configuration change without a matching migration does
+not merely fail a drift assertion, it makes EF refuse to migrate at all.
+
+### Documentation updated in this slice
+
+`PROJECT_STATE.md` (§3 migration count and figures, §6.2 configuration inventory), `NEXT_STEPS.md`,
+`HANDOFF_PROMPT.md`, and this file. **`ERD.md` needed no change** — Slice 1 already updated the
+three affected rows, and this slice's three-way review confirmed the rest already described what was
+built.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- `dotnet test RenoTrack.slnx` → **1,068 passing, 0 failing** (310 Domain, 295 Application,
+  198 Infrastructure, 265 Api). Slice 2 added **15**, all in Infrastructure.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations.
