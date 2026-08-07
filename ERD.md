@@ -122,7 +122,7 @@ erDiagram
         int Id PK
         int LeadId FK UK
         string Name
-        string Address
+        string Address "nullable"
         string Email
         string Phone
     }
@@ -238,7 +238,7 @@ erDiagram
 | AngebotSections | Id | AngebotId → Angebote | — | **No `Subtotal` column** — it's a pure computed property in the Domain (`AngebotSection.Subtotal`, a `=>` expression with no backing field), never persisted. Recomputed from live child data on every access instead. |
 | AngebotItems | Id | SectionId → AngebotSections, CatalogItemId → CatalogItems (nullable) | — | CatalogItemId is a **trace link only** — never joined live for display (BR-8), but still a real FK constraint for data integrity. **No `LineTotal` column** — same reasoning as `AngebotSection.Subtotal`, a pure computed property. |
 | CatalogItems | Id | CreatedFromAngebotItemId → AngebotItems (nullable) | — | Grows either via Admin curation or Inspector "save as catalog item" (SRS FR-4.10). Never hard-deleted — PermissionMatrix.md §6's "Delete/retire" action sets `IsRetired = true` instead, preserving the `CatalogItemId` traceability link on any AngebotItem created from it (BR-8, BR-12) |
-| Customers | Id | LeadId → Leads | LeadId | One Customer per Lead — created at Project-conversion time |
+| Customers | Id | LeadId → Leads | LeadId | One Customer per Lead — created at Project-conversion time. **`Address` is nullable (corrected in Phase 7, Slice 1).** It was originally typed non-null, which no document justified and which `Lead.Address` — legitimately null for every website-sourced Lead, since the public contact form does not collect one — makes unsatisfiable: a required address here would block conversion of an otherwise valid `CustomerApproved` Angebot, inventing a business rule against BR-2. **Known limitation, recorded rather than designed around:** `LeadId UK` means a repeat customer arriving as a new Lead gets a second `Customer` row, so §4's "one Customer can have many Projects (e.g. a repeat customer)" is unreachable under this schema. Resolving it needs a customer-identity design (matching by email/phone/name) that no document specifies; Phase 7 deliberately does not invent one |
 | Projects | Id | CustomerId → Customers, AngebotId → Angebote | AngebotId | AgreedTotal is a snapshot of Angebot.GrossTotal at conversion time (doesn't move if the Angebot were ever re-opened, which the workflow doesn't currently allow) |
 | Invoices | Id | ProjectId → Projects | InvoiceNumber | Never deleted — Void is a status, not a row removal (BR-9) |
 | InvoiceLines | Id | InvoiceId → Invoices | — | Optional finer breakdown; an Invoice can exist with just header-level Net/VAT/Gross amounts if lines aren't needed |

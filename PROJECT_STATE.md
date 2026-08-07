@@ -1,17 +1,17 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-**Last updated:** 2026-08-06, at the end of Phase 6 — **Phases 0–5 are complete and merged to `main`; Phase 6 is complete on its branch and awaiting a PR.** `origin/main` is at `18243ec` (PR #11, the Phase 5 merge). Phase 4 merged as PR #8 (`e1a4d9e`), Phase 3 as PR #6 (`85df430`, handoff docs in PR #7 `babfff9`), Phase 2 as PR #5 (`dc85de1`), and the Development bootstrap as PR #10 (`7ce9774`).
+**Last updated:** 2026-08-07, during Phase 7 Slice 1 — **Phases 0–6 are complete and merged to `main`; Phase 7 is in progress on its branch.** `origin/main` is at `5a26c42` (PR #12, the Phase 6 merge). Phase 5 merged as PR #11 (`18243ec`), Phase 4 as PR #8 (`e1a4d9e`), Phase 3 as PR #6 (`85df430`, handoff docs in PR #7 `babfff9`), Phase 2 as PR #5 (`dc85de1`), and the Development bootstrap as PR #10 (`7ce9774`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
 
 ---
 
 ## 1. Current Phase
 
-**Phase 6 — API: Token-Link Mechanism + Public Angebot Decision Endpoints**, per `PROJECT_ROADMAP.md` (branch `feature/phase-6-token-links-public-angebot`). **All four slices complete; the phase-completion gate is closed; awaiting a PR.** Phases 0–5 are complete and merged to `main`.
+**Phase 7 — API: Convert Angebot → Project**, per `PROJECT_ROADMAP.md` (branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`). **complete on its branch, all four slices done** — the `Customer` and `Project` Domain aggregates, their schema via migration #7 `AddCustomersAndProjects`, `ConvertAngebotToProjectCommand` with the explicit transaction boundary D48's amendment introduced, and the `ProjectsController` conversion + detail-read endpoints. The phase-completion documentation gate is closed. See `PHASE7_PROGRESS.md`, which also records the eight design decisions approved before any code was written. Phases 0–6 are complete and merged to `main`.
+
+- **Phase 6 (token links + public Angebot decision) — ✅ complete and merged** (PR #12, merge commit `5a26c42`, branch `feature/phase-6-token-links-public-angebot`). Four slices: the `TokenLink` aggregate and its schema (migration #6 `AddTokenLinks`), `POST /angebote/{id}/send`, the anonymous `GET /public/angebote/{token}`, and `POST /public/angebote/{token}/decision` with public-route rate limiting (D65). It also added a fourth Application exception type, `GoneException` → 410 — which shipped undocumented and was recorded in `CLAUDE.md` §17/§22 during Phase 7 Slice 1.
 
 - **Phase 5 (Angebot builder + internal review) — ✅ complete and merged** (PR #11, merge commit `18243ec`, branch `feature/phase-5-angebot-builder-review`). Four slices: builder core endpoints and reads, the internal review loop plus comment history, the Catalog surface plus FR-4.10 save-as, and FR-4.11 duplication. See `PHASE5_PROGRESS.md` — written during Phase 6 to close a gap Phase 5 left, and labelled as such.
-- **Phase 6 — ✅ complete on the branch, not merged.** Four slices: the `TokenLink` aggregate and its schema (migration #6 `AddTokenLinks`), `POST /angebote/{id}/send`, the anonymous `GET /public/angebote/{token}`, and `POST /public/angebote/{token}/decision` with public-route rate limiting. Decisions D65. See `PHASE6_PROGRESS.md`.
-
 - Phase 0 (Solution bootstrap) — ✅ merged to `main`.
 - Phase 1 (Domain core: Lead, Inspection, Angebot) — ✅ merged to `main`.
 - Phase 1b (Domain: CatalogItem) — ✅ merged to `main`.
@@ -24,20 +24,20 @@
 
 ## 2. Current Branch State
 
-- **`feature/phase-6-token-links-public-angebot` is the current branch**, branched off `origin/main` at `18243ec`. `origin/main` is at `18243ec` (PR #11, the Phase 5 merge).
-- Every earlier feature branch is merged and no longer active: Phase 5 (`feature/phase-5-angebot-builder-review`), the Development bootstrap (`feature/phase-5-development-bootstrap`), Phase 4 (`feature/phase-4-api-auth-leads-inspections`), Phase 3 (`feature/phase-3-infrastructure-efcore`, final commit `f5d3108`) and Phase 2 (`feature/phase-2-application-layer`).
-- **Next git action when resuming:** open the Phase 6 PR. Nothing has been pushed — per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
+- **`feature/phase-7-angebot-to-project` is the current branch**, branched off `origin/main` at `5a26c42`. `origin/main` is at `5a26c42` (PR #12, the Phase 6 merge). Nothing on this branch has been pushed.
+- Every earlier feature branch is merged and no longer active: Phase 6 (`feature/phase-6-token-links-public-angebot`), Phase 5 (`feature/phase-5-angebot-builder-review`), the Development bootstrap (`feature/phase-5-development-bootstrap`), Phase 4 (`feature/phase-4-api-auth-leads-inspections`), Phase 3 (`feature/phase-3-infrastructure-efcore`, final commit `f5d3108`) and Phase 2 (`feature/phase-2-application-layer`).
+- **Next step:** Phase 7 Slice 2 (Infrastructure schema + migration #7 `AddCustomersAndProjects`). Per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-As of the last verified run, on `feature/phase-6-token-links-public-angebot` at the end of Phase 6:
+As of the last verified run, on `feature/phase-7-angebot-to-project` at the end of Phase 7 (all four slices complete):
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **858 tests passing, 0 failing.**
-- `dotnet ef migrations has-pending-model-changes` → no pending changes (**six** migrations now: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`).
-  - `RenoTrack.Domain.Tests`: **185 tests.**
-  - `RenoTrack.Application.Tests`: **263 tests.**
-  - `RenoTrack.Infrastructure.Tests`: **161 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
-  - `RenoTrack.Api.Tests`: **249 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
+- `dotnet test RenoTrack.slnx` → **979 tests passing, 0 failing.** (The Phase 6 merge baseline, re-verified independently at the start of Phase 7, was **858**; Phase 7 added **121** — Slice 1 **51**, Slice 2 **13**, Slice 3 **35**, Slice 4 **22**.)
+- `dotnet ef migrations has-pending-model-changes` → no pending changes (**seven** migrations: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`, `AddCustomersAndProjects`).
+  - `RenoTrack.Domain.Tests`: **236 tests.**
+  - `RenoTrack.Application.Tests`: **295 tests.**
+  - `RenoTrack.Infrastructure.Tests`: **183 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
+  - `RenoTrack.Api.Tests`: **265 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory
@@ -51,6 +51,9 @@ As of the last verified run, on `feature/phase-6-token-links-public-angebot` at 
 | `Angebot` | `src/RenoTrack.Domain/Entities/Angebot.cs` | `AngebotSection` → `AngebotItem` | `Create`, `AddSection`, `AddItemToSection(AngebotSection section, ...)` (takes the section object, not an id — see `CLAUDE.md` §2), `SubmitForReview`, `Approve`, `RequestChanges`, `Send`, `RecordCustomerApproval`, `RecordCustomerRejection` |
 | `CatalogItem` | `src/RenoTrack.Domain/Entities/CatalogItem.cs` | none (independent) | `Create`, `Update`, `Retire` (BR-12 — sets `IsRetired`, no delete method exists) |
 | `AngebotReviewComment` | `src/RenoTrack.Domain/Entities/AngebotReviewComment.cs` | none (independent) | `Create` only — append-only, no update/delete (ERD.md: "append-only log") |
+| `TokenLink` | `src/RenoTrack.Domain/Entities/TokenLink.cs` | none (independent) | `Create`, `IsExpired(asOf)`, `MarkUsed` (BR-4). Polymorphic `EntityType`/`EntityId`, no DB-level FK. Guards live in `Create`, never the constructor — see `CLAUDE.md` §2 (Phase 6) |
+| `Customer` | `src/RenoTrack.Domain/Entities/Customer.cs` | none (independent) | `Create` only — no mutator at all. `Address` is nullable, because `Lead.Address` is (Phase 7 Slice 1) |
+| `Project` | `src/RenoTrack.Domain/Entities/Project.cs` | none (references Customer/Angebot by id) | `Create`, `PutOnHold`, `Resume`, `Complete` (StateMachine §4.3). `Complete` only from `Active`; its invoice precondition is Phase 8's, not this aggregate's. `AgreedTotal` has no mutator — the ERD snapshot guarantee is structural |
 
 ### 4.2 Child Entities
 
@@ -77,6 +80,7 @@ As of the last verified run, on `feature/phase-6-token-links-public-angebot` at 
 | `AngebotStatus` | `Enums/AngebotStatus.cs` | `Draft, InReview, ChangesRequested, ApprovedInternally, Sent, CustomerApproved, CustomerRejected` |
 | `LeadSource` | `Enums/LeadSource.cs` | `Website, Phone, Email` |
 | `VatRate` | `Enums/VatRate.cs` | `Zero=0, Reduced=7, Sixteen=16, Standard=19` (+ `VatRateExtensions.ToPercentage()`) |
+| `ProjectStatus` | `Enums/ProjectStatus.cs` | `Active, OnHold, Completed` — exactly StateMachine §4.1's three states (Phase 7 Slice 1) |
 
 ### 4.5 Domain Test Coverage (153 tests, `RenoTrack.Domain.Tests`)
 
@@ -106,7 +110,10 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 | `IInspectionRepository` | `AddAsync`, `GetByIdAsync` |
 | `IAngebotRepository` | `AddAsync`, `GetByIdAsync`, `HasActiveAngebotForLeadAsync` |
 | `IAngebotReviewCommentRepository` | `AddAsync` only |
-| `IUnitOfWork` | `SaveChangesAsync` |
+| `IUnitOfWork` | `SaveChangesAsync`, `BeginTransactionAsync` (Phase 7 Slice 3 — D48 amendment) |
+| `IUnitOfWorkTransaction` | `CommitAsync` + `IAsyncDisposable`; no `RollbackAsync` — disposal rolls back |
+| `ICustomerRepository` | `AddAsync`, `FindByLeadIdAsync` |
+| `IProjectRepository` | `AddAsync`, `ExistsForAngebotAsync` |
 | `IAuditService` | `LogAsync` |
 | `IEmailSender` | `SendNewWebsiteLeadNotificationAsync`, `SendAngebotSubmittedForReviewNotificationAsync`, `SendAngebotChangesRequestedNotificationAsync` |
 | `IFileStorage` | `SaveAsync`, `DeleteAsync` (**`GetAsync` still not built** — nothing reads a stored file back; see §8) |
@@ -193,6 +200,8 @@ One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `Cat
 | `AngebotItemConfiguration` | `LineTotal` ignored (D41). `Unit` via `ItemUnitConverter`; `UnitPrice` via `MoneyConverter`; `VatRate` uses EF's default enum-to-int mapping. `CatalogItemId` **has** a real FK to `CatalogItems` (`DeleteBehavior.Restrict`) — both tables exist today, unlike the Users-referencing columns. |
 | `CatalogItemConfiguration` | `DefaultUnit`/`SuggestedUnitPrice` via the same converters. `CreatedFromAngebotItemId` **has** a real FK to `AngebotItems` (`DeleteBehavior.Restrict`). |
 | `AngebotReviewCommentConfiguration` | `AngebotId` **has** a real FK to `Angebote` (`DeleteBehavior.Restrict`). `AdminUserId` has no FK yet. |
+| `CustomerConfiguration` (Phase 7 Slice 2) | `LeadId` FK → `Leads` (`Restrict`) plus a **unique** index — ERD.md's "One Customer per Lead". `Address` **nullable**. String lengths match `LeadConfiguration`'s exactly, since every value is copied verbatim from a Lead. |
+| `ProjectConfiguration` (Phase 7 Slice 2) | `CustomerId` FK → `Customers` and `AngebotId` FK → `Angebote`, both `Restrict`; **unique** index on `AngebotId` only ("one Angebot converts to exactly one Project"), deliberately **not** on `CustomerId` (ERD.md §4: one Customer, many Projects). `Status` stored as string; `AgreedTotal` via `MoneyConverter`, `decimal(18,2)`. No navigation property on either relationship. |
 
 ### 6.3 Value Converters (`src/RenoTrack.Infrastructure/Persistence/ValueConverters/`)
 
@@ -261,13 +270,15 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Open the Phase 6 pull request — with explicit permission — then begin Phase 7 (API: Convert Angebot → Project).**
+**Open the Phase 7 pull request — with explicit permission — then begin Phase 8 (API: Invoices, splitting, payment tracking, project completion).**
+
+**Phase 7 (API: Convert Angebot → Project) is in progress** on `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. All four implementation slices are done and the completion gate is closed: Domain aggregates, schema + migration #7, the Application command with D48's explicit transaction boundary, and the API endpoints. Nothing has been pushed and no PR exists. `PHASE7_PROGRESS.md` is the per-slice record and also carries the eight design decisions approved before any code was written — including the two that a later slice must not silently reopen: **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`** (`BusinessRules.md` must not be edited to move it), and **Customer resolution is find-by-`LeadId`-then-create**, with no matching by email/phone/name.
+
+**Phase 6 is complete and merged** (PR #12, `5a26c42`). Four slices: the `TokenLink` aggregate with migration #6 `AddTokenLinks`; `POST /angebote/{id}/send`; the anonymous `GET /public/angebote/{token}`; and `POST /public/angebote/{token}/decision` with public-route rate limiting (D65). One documentation gap survived its completion gate and was closed in Phase 7 Slice 1: `GoneException` (→410) shipped in code and in the exception-handler switch while `CLAUDE.md` §17 still asserted that three Application exception types existed.
 
 **Phase 5 is complete and merged** (PR #11, `18243ec`). Its four slices — builder core, the internal review loop, the Catalog surface plus FR-4.10 save-as, and FR-4.11 duplication — are recorded in `PHASE5_PROGRESS.md`, written during Phase 6 to close a gap Phase 5 left and labelled as a post-hoc reconstruction from the commit record. The Development bootstrap merged separately as PR #10 (`7ce9774`, D64); it provisions accounts in **Development only** and **does not resolve SRS OQ-1**.
 
-**Phase 6 is complete on `feature/phase-6-token-links-public-angebot`, nothing pushed, no PR.** Four slices: the `TokenLink` aggregate with migration #6 `AddTokenLinks`; `POST /angebote/{id}/send`; the anonymous `GET /public/angebote/{token}`; and `POST /public/angebote/{token}/decision` with public-route rate limiting (D65). The phase-completion documentation gate is closed — see `PHASE6_PROGRESS.md`'s checklist, which also lists the Phase 5 documentation debt Phase 6 inherited and cleared.
-
-Highlights worth knowing without opening that file: **two real defects were found by tests rather than inspection** — a time-dependent constructor guard made every expired `TokenLink` unreadable, because EF Core materialises rows through the same private constructor (now a rule in `CLAUDE.md` §2); and diagnostic surfaces were writing live customer tokens into logs and ProblemDetails, where the *first* fix silently did nothing because ASP.NET's exception middleware clears the endpoint before any handler runs. **Architecture §12 is only half closed**: `/api/v1/public/*` is rate-limited, `POST /api/v1/leads` is not.
+Highlights of Phase 6 worth knowing without opening `PHASE6_PROGRESS.md`: **two real defects were found by tests rather than inspection** — a time-dependent constructor guard made every expired `TokenLink` unreadable, because EF Core materialises rows through the same private constructor (now a rule in `CLAUDE.md` §2); and diagnostic surfaces were writing live customer tokens into logs and ProblemDetails, where the *first* fix silently did nothing because ASP.NET's exception middleware clears the endpoint before any handler runs. **Architecture §12 is only half closed**: `/api/v1/public/*` is rate-limited, `POST /api/v1/leads` is not.
 
 **Slice 11 closed the long-standing bootstrap gap (D63).** Until it landed, **nothing in `src/` had ever applied a migration** while `Program.cs` seeded Identity roles at startup, so a fresh production database failed with `Invalid object name 'AspNetRoles'` — reproduced directly, not inferred. Production now applies migrations as an explicit deployment step and startup only *verifies* (migration history in both directions, plus required roles), refusing to serve if the database is not ready. `Migrate` is a Development opt-in and is hard-refused in Production. **No user was provisioned in any environment** at that point, so a fresh database had schema and roles and nobody able to log in — the SRS OQ-1 gap. Phase 5's `DevelopmentBootstrap` (D64) later closed that for **Development only**; Production is unchanged and OQ-1 remains open.
 

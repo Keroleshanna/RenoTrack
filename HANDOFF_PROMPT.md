@@ -7,38 +7,73 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system — public
 website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
-project and not a fresh start. **Phases 0–5 are complete and merged to `main`; Phase 6 is complete
-on its branch.** A prior conversation ended for context reasons and persisted everything into the
-repository, so you depend on the files, not on any chat history. Do not treat anything below as
-optional reading.
+project and not a fresh start. **Phases 0–6 are complete and merged to `main`; Phase 7 is in
+progress on its branch.** A prior conversation ended for context reasons and persisted everything
+into the repository, so you depend on the files, not on any chat history. Do not treat anything
+below as optional reading.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: 18243ec ("Merge pull request #11 from Keroleshanna/feature/phase-5-angebot-builder-review").
-- PRs #8 (Phase 4), #10 (Development bootstrap) and #11 (Phase 5) are MERGED.
-- Branch: feature/phase-6-token-links-public-angebot, off main at 18243ec. **Phase 6 is COMPLETE
-  on this branch — all four slices and the full documentation gate — and has NOT been pushed.**
-  Nothing has been merged; no PR exists.
+- origin/main: 5a26c42 ("Merge pull request #12 from Keroleshanna/feature/phase-6-token-links-public-angebot").
+- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5) and #12 (Phase 6) are MERGED.
+- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 all four slices are
+  COMPLETE, and the phase-completion gate is closed.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 858 passing, 0 failing — 185 Domain, 263 Application, 161 Infrastructure, 249 Api.
-- Migrations: 6 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
-  AddTokenLinks); has-pending-model-changes reports none.
+- Tests: 979 passing, 0 failing — 236 Domain, 295 Application, 183 Infrastructure, 265 Api.
+  (Phase 6 merge baseline 858; Phase 7 added 121 — Slice 1 +51, Slice 2 +13, Slice 3 +35, Slice 4 +22.)
+- Migrations: 7 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
+  AddTokenLinks, AddCustomersAndProjects); has-pending-model-changes reports none.
 - Working tree: clean.
-- Documentation is reconciled with reality as of this handoff, including the Phase 5 documentation
-  debt Phase 6 inherited and closed. If you find a document that still describes Phase 5 as
-  unstarted or Phase 6 as in progress, that is a regression — say so.
+- Documentation is reconciled with reality as of this handoff. If you find a document that still
+  describes Phase 6 as unmerged, or origin/main as 18243ec, that is a regression — say so.
 
-YOUR TASK: OPEN THE PHASE 6 PR, THEN BEGIN PHASE 7.
+YOUR TASK: OPEN THE PHASE 7 PR, THEN BEGIN PHASE 8.
 
-Phase 6 needs the user's explicit permission before anything is pushed or a PR is opened — never
+Phase 7 needs the user's explicit permission before anything is pushed or a PR is opened — never
 push, merge or open a PR without it (CLAUDE.md §19).
 
-Phase 7 per PROJECT_ROADMAP.md is "API: Convert Angebot → Project", on branch
-feature/phase-7-angebot-to-project. It introduces the first genuinely new aggregates since Phase 1b
-(Customer, Project), so expect a real Domain slice, a migration, and a documents-first design
-review before any code. BR-2 is the guard: only a CustomerApproved Angebot may become a Project.
-Note that Sequence Diagram §7 was corrected during Phase 6 — it no longer sets Lead.Status = Won,
-because the Lead already reached Won in the customer's decision handler (StateMachine §5).
+Phase 7 per PROJECT_ROADMAP.md was "API: Convert Angebot → Project". PHASE7_PROGRESS.md is the
+authoritative record, including the eight approved design decisions and the completion gate.
+
+  Slice 1 — Domain: Customer + Project ...................... DONE
+  Slice 2 — Infrastructure: schema + migration #7 ........... DONE
+  Slice 3 — Application: ConvertAngebotToProjectCommand ..... DONE
+  Slice 4 — API: conversion + Project detail read + gate .... DONE
+
+Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion",
+on branch feature/phase-8-invoices-payments-project-completion. It introduces Invoice, InvoiceLine
+and Payment, so expect Domain slices, a migration, and a documents-first design review before any
+code. It also finally supplies what Phase 7 left deferred: FR-7.4's Invoice portion of the Project
+detail read, and CompleteProjectCommand, whose "all Invoices Paid or Void" guard plus FR-8.6's
+override is the cross-aggregate rule Project.Complete() deliberately does not enforce itself.
+
+PHASE 7 DECISIONS THAT MUST NOT BE UNDONE
+
+- Project.Complete() enforces only Project's own state invariant, and only from Active (StateMachine
+  §4.2 draws no OnHold → Completed edge). The invoice precondition belongs to Phase 8's handler.
+- Project.AgreedTotal has no mutator. ERD.md's snapshot wording is structural, not a convention.
+- The explicit transaction boundary (D48's amendment) exists only on the create-new-Customer path.
+  Do not add EnableRetryOnFailure to UseSqlServer without revisiting every BeginTransactionAsync
+  caller — a retrying execution strategy forbids user-initiated transactions.
+- A rollback test that lets its own DbContext disposal do the work is not a rollback test. Keep
+  ConversionTransactionTests.AFailedSecondWriteRollsBackTheCustomerInsert exactly as it is.
+- GET /api/v1/projects/{id} is unscoped for Inspectors (PermissionMatrix §5 "R"). Wireframe E1's
+  "Roles: Admin" line is a known divergence resolved in favour of the matrix, as Phase 5 resolved
+  D3's identical one. Do not add an ownership check.
+
+TWO PHASE 7 DECISIONS THAT MUST NOT BE SILENTLY REOPENED
+
+- BR-2's guard lives in ConvertAngebotToProjectCommand, NOT in Project.Create(). BusinessRules.md
+  BR-2 assigns enforcement to that command by name, and Project deliberately cannot see an Angebot
+  at all — a reflection test pins it. This is an approved exception to the general "aggregate state
+  guards belong in the Domain" rule, because the invariant governs a cross-aggregate conversion.
+  DO NOT edit BusinessRules.md to move it.
+- Customer resolution is find-by-LeadId-then-create. No matching or deduplication by email, phone,
+  name or address — that is a customer-identity policy no document specifies.
+
+Sequence Diagram §7 was corrected during Phase 6 — it no longer sets Lead.Status = Won, because the
+Lead already reached Won in the customer's decision handler (StateMachine §5). Do not add a second
+path to Won.
 
 BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
 
@@ -48,16 +83,30 @@ BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
      dotnet test RenoTrack.slnx
      dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure --startup-project src/RenoTrack.Infrastructure
 
-2. Read, in full: CLAUDE.md (§2's constructor/materialisation rule and §22's API ruleset are the
-   newest), PROJECT_STATE.md, NEXT_STEPS.md (especially §5a), PHASE6_PROGRESS.md, and
+2. Read, in full: PHASE7_PROGRESS.md (the active phase — its approved decisions and slice plan),
+   CLAUDE.md (§2's constructor/materialisation rule and §22's API ruleset are the newest),
+   PROJECT_STATE.md, NEXT_STEPS.md (especially §1f and §5a), PHASE6_PROGRESS.md, and
    ARCHITECTURE_DECISIONS.md D57–D65 plus the "Decisions Explicitly Rejected" table.
    PHASE2/3/4/5_PROGRESS.md are historical background.
 
    RenoTrack.Infrastructure.Tests and RenoTrack.Api.Tests need real SQL Server LocalDB
    (`sqllocaldb info` should show MSSQLLocalDB Running; `sqllocaldb start MSSQLLocalDB` if not).
    On this machine an orphaned sqlservr.exe has repeatedly held the instance while `sqllocaldb
-   info` reports it Stopped, with `start` then failing with Windows error 575. The fix is to
-   terminate that one orphaned PID — ask first, and never touch any other sqlservr.exe.
+   info` reports it Stopped, with `start` then failing. This recurred at the start of Phase 7 and
+   the fix worked again: terminate that one orphaned LocalDB PID (identify it by its
+   `...\170\LocalDB\Binn\sqlservr.exe` path), then `sqllocaldb start MSSQLLocalDB`. Ask first, and
+   never touch any other sqlservr.exe — a second one on this machine is a different instance.
+
+   SMART APP CONTROL IS ON AND ENFORCING on this machine
+   (HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1). It
+   intermittently blocks a freshly-built unsigned test DLL with FileLoadException 0x800711C7
+   ("An Application Control policy has blocked this file"), which xUnit reports as a catastrophic
+   failure and zero tests — NOT a test failure, and NOT a code problem. It hit
+   RenoTrack.Api.Tests' Debug binary in Phase 7 Slice 2. Deleting bin/obj and rebuilding did not
+   help; building and running the same project in Release did, because it is a different output
+   path. Use that workaround. DO NOT disable or weaken Smart App Control — it is a machine
+   security setting and not yours to change; if the workaround ever stops working, tell the user
+   and let them decide.
 
 PHASE 6 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
 

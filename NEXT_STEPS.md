@@ -80,11 +80,30 @@ Branch `feature/phase-5-angebot-builder-review`, **merged via PR #11 (merge comm
 
 **Resolved by this phase:** `SaveAngebotItemAsCatalogItemCommand` (the D39 deferral in §2 below) now exists; `Angebot.RemoveSection`/`RemoveItem` were added on documented `PermissionMatrix.md` §3 evidence, correcting `CLAUDE.md` §2's earlier "no evidence exists" conclusion.
 
-## 1e. Phase 6 — Complete on Its Branch, Not Merged
+## 1e. Phase 6 — Complete and Merged to `main`
 
-Branch `feature/phase-6-token-links-public-angebot`, off `main` at `18243ec`. Four slices: the `TokenLink` aggregate + schema (migration #6 `AddTokenLinks`); `POST /angebote/{id}/send`; the anonymous `GET /public/angebote/{token}`; and `POST /public/angebote/{token}/decision` with public-route rate limiting. Decision **D65**. Full record in `PHASE6_PROGRESS.md`.
+Branch `feature/phase-6-token-links-public-angebot`, off `main` at `18243ec`, **merged via PR #12 (merge commit `5a26c42`)**. Four slices: the `TokenLink` aggregate + schema (migration #6 `AddTokenLinks`); `POST /angebote/{id}/send`; the anonymous `GET /public/angebote/{token}`; and `POST /public/angebote/{token}/decision` with public-route rate limiting. Decision **D65**. Full record in `PHASE6_PROGRESS.md`.
 
 **Resolved by this phase:** `Angebot.Send()`/`RecordCustomerApproval()`/`RecordCustomerRejection()` finally have Application commands (the §2 deferral below); `Lead.MarkAngebotSent()`/`MarkWon()`/`MarkLost()` are reachable for the first time, so `LeadStatus.AngebotSent`/`Won`/`Lost` are no longer dead states; rate limiting on `/api/v1/public/*` is built.
+
+**One thing its completion gate missed**, closed in Phase 7 Slice 1: Phase 6 added a fourth Application exception type, `GoneException` (→410), wired into the exception-handler switch, but recorded it in no permanent document — `CLAUDE.md` §17 still asserted "Three Application-layer exception types exist" and §22's mapping list omitted 410. Both are now correct.
+
+## 1f. Phase 7 — Complete on Its Branch, Not Merged
+
+Branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Nothing pushed, no PR. **All four slices complete and the completion gate closed:** the `Customer`/`Project` Domain aggregates, migration #7 `AddCustomersAndProjects`, `ConvertAngebotToProjectCommand` with the D48 transaction amendment, and `ProjectsController` (`POST /api/v1/angebote/{id}/convert-to-project`, `GET /api/v1/projects/{id}`). `PHASE7_PROGRESS.md` carries the per-slice record and the eight design decisions approved before any code was written.
+
+**Do not reopen these two without new evidence:**
+- **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`.** `BusinessRules.md` BR-2 assigns enforcement to that command by name, and `Project` deliberately cannot see an `Angebot` at all (pinned by a reflection test). This is an approved, recorded exception to the general "aggregate state guards live in the Domain" rule, made because the invariant governs a cross-aggregate conversion. **Do not edit `BusinessRules.md` to move it.**
+- **Customer resolution is find-by-`LeadId`-then-create.** No matching or deduplication by email, phone, name or address — that is a customer-identity policy no document specifies.
+
+**Known limitation recorded, not designed around:** `Customers.LeadId` is unique, so a repeat customer arriving as a new Lead gets a second `Customer` row, which makes `ERD.md` §4's "one Customer can have many Projects (e.g. a repeat customer)" unreachable under this schema. Recorded in `ERD.md`'s own physical-schema row. Resolving it needs a customer-identity design; Phase 7 does not invent one.
+
+**Also flagged, deliberately not built:** Wireframe E1 renders "Project: M. Klein — Bathroom Renovation", but `Projects` has no title/name/description column in `ERD.md` and none was added. A Phase 12 presentation concern.
+
+**Gaps carried out of Phase 7, all deliberate:**
+- **FR-7.4's Invoice portion is not served.** `GET /api/v1/projects/{id}` returns the Project, its Customer's name and the originating Lead/Inspection/Angebot ids — no invoice list, no "Invoiced", no "Remaining", because Invoices arrive in Phase 8. Pinned by a test asserting the exact JSON property set, so it cannot drift into a half-built shape.
+- **No `PutOnHold`/`Resume`/`Complete` endpoints.** The Domain carries all three (StateMachine §4.3); `PROJECT_ROADMAP.md` places `CompleteProjectCommand` in Phase 8, where its "all Invoices Paid or Void" guard and FR-8.6 override can actually be enforced. On-hold/resume are assigned to no phase yet.
+- **Wireframe E1's "Roles: Admin" line diverges from `PermissionMatrix.md` §5's Inspector `R`.** Resolved by following the matrix, the same way Phase 5 resolved D3's identical divergence. Not a defect; recorded so it is not re-litigated.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 
