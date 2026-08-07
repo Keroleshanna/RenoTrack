@@ -16,18 +16,18 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 
 - origin/main: 5a26c42 ("Merge pull request #12 from Keroleshanna/feature/phase-6-token-links-public-angebot").
 - PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5) and #12 (Phase 6) are MERGED.
-- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 Slices 1–2 of 4 are
-  COMPLETE; Slices 3–4 are not started.** Nothing has been pushed; no PR exists.
+- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 Slices 1–3 of 4 are
+  COMPLETE; Slice 4 is not started.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 922 passing, 0 failing — 236 Domain, 263 Application, 174 Infrastructure, 249 Api.
-  (The Phase 6 merge baseline was 858; Slice 1 added 51 Domain, Slice 2 added 13 Infrastructure.)
+- Tests: 957 passing, 0 failing — 236 Domain, 290 Application, 180 Infrastructure, 251 Api.
+  (Phase 6 merge baseline 858; Slice 1 +51 Domain, Slice 2 +13 Infrastructure, Slice 3 +35.)
 - Migrations: 7 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects); has-pending-model-changes reports none.
 - Working tree: clean.
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 6 as unmerged, or origin/main as 18243ec, that is a regression — say so.
 
-YOUR TASK: CONTINUE PHASE 7 AT SLICE 3.
+YOUR TASK: CONTINUE PHASE 7 AT SLICE 4.
 
 Phase 7 per PROJECT_ROADMAP.md is "API: Convert Angebot → Project". Its design review is approved
 and its four slices are fixed; PHASE7_PROGRESS.md is the authoritative record of both, including
@@ -35,8 +35,8 @@ the eight approved design decisions. Read it before touching anything.
 
   Slice 1 — Domain: Customer + Project ...................... DONE
   Slice 2 — Infrastructure: schema + migration #7 ........... DONE
-  Slice 3 — Application: ConvertAngebotToProjectCommand ..... NEXT
-  Slice 4 — API: conversion + Project detail read + gate .... not started
+  Slice 3 — Application: ConvertAngebotToProjectCommand ..... DONE
+  Slice 4 — API: conversion + Project detail read + gate .... NEXT
 
 TWO PHASE 7 DECISIONS THAT MUST NOT BE SILENTLY REOPENED
 

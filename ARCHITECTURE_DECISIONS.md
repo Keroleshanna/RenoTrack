@@ -710,6 +710,32 @@ Numbering is chronological across the whole project, not per-phase.
 
 **Consequences:** `UnitOfWorkTests` proves three things directly: `SaveChangesAsync` persists pending changes tracked by the same `DbContext`, calling it with nothing pending doesn't throw, and an already-cancelled token *does* throw — but only when there's a real pending change to save, since EF Core short-circuits `SaveChangesAsync()` entirely (skipping the cancellation check) when nothing is tracked. This was found empirically (a first draft of the cancellation test had no pending change and failed, since EF returned immediately without ever consulting the token) — a small, concrete confirmation that EF's own behavior, not just this wrapper's code, needed to be verified rather than assumed.
 
+### Amendment (Phase 7, Slice 3) — `IUnitOfWork` gains an explicit transaction boundary
+
+D48's **rule** is unchanged and is in fact what triggered this: *"grow the interface only when a real, currently-being-built command needs more, never speculatively."* `ConvertAngebotToProjectCommand` is the first command that needs more, so the trigger fired. Only D48's **finding** — that EF Core's implicit per-`SaveChanges` transaction covers every handler's needs — has expired.
+
+**Why the finding expired.** Conversion is the first case where a brand-new aggregate (`Project`) requires the database-generated identity of another brand-new aggregate (`Customer`) before it can itself be validly constructed. Because the aggregates deliberately have no navigation-property relationship, EF cannot use relationship fix-up to defer that foreign-key assignment until persistence. Verified rather than inferred: a probe against real LocalDB confirmed `Customer.Id` is `0` after `Add()` and before `SaveChanges`.
+
+**Rejected, each for a stated reason:**
+- **A `Project.Customer` navigation property** — breaks CLAUDE.md §2's by-id-only aggregate separation and drags Customer's object graph into every Project load.
+- **Weakening `Project.Create`'s `customerId > 0` guard** — would silently write `CustomerId = 0` and fail later at the foreign key as an unmapped 500. That guard is precisely what made this defect immediate and obvious instead of latent.
+- **Two un-transacted `SaveChanges`** — orphans a Customer, which the unique index on `Customers.LeadId` then makes un-retryable without manual cleanup.
+- **Compensating deletion of the Customer** — compensation is not atomicity (§22's own wording), and it leaves the crash-between-steps hole open.
+- **Client-generated keys for `Customer.Id`** — changes the PK strategy for one table out of nine against `ERD.md`'s `int Id PK` convention, and reopens an already-committed migration.
+- **`ExecuteInTransactionAsync<T>(Func<Task<T>>, …)`** — hides the boundary inside a lambda. The transaction boundary is part of the Application use case and should stay legible in the handler.
+
+**Shape.** `IUnitOfWork.BeginTransactionAsync` returns an `IUnitOfWorkTransaction : IAsyncDisposable` carrying a single `CommitAsync`. **No `RollbackAsync`:** disposing an uncommitted transaction rolls it back, so `await using` covers every escape path — exception, early return, cancellation — and an explicit method would be a redundant second way to do one thing. `IAsyncDisposable` is BCL, so EF Core's `IDbContextTransaction` never reaches the Application layer's contract. `UnitOfWork` still does not implement `IDisposable`: it still does not own the injected `DbContext`, and the caller owns only the transaction it opened.
+
+**Scope.** The transaction is opened **only** on the create-new-Customer path. Reusing an existing Customer needs one `SaveChangesAsync` and opens none — symmetry is not a reason to take a lock.
+
+**Two standing constraints this creates.**
+- A `DbContext` must never be reused after a rolled-back transaction: the change tracker still holds entities as persisted with ids the database no longer has (the D55 family of hazard). In practice the failure propagates and the request scope is disposed.
+- **`EnableRetryOnFailure` must not be added to `UseSqlServer` without revisiting every caller of `BeginTransactionAsync`** — a retrying execution strategy forbids user-initiated transactions and would break this handler at runtime. Not configured today; checked, not assumed.
+
+**A weak test, found by adversarial verification rather than inspection.** The first version of `ConversionTransactionTests.AFailedSecondWriteRollsBackTheCustomerInsert` wrapped its `DbContext` in `await using` and verified through a fresh context. It passed even when `IUnitOfWorkTransaction.DisposeAsync` was gutted to a no-op — because disposing the context tears down the connection, which rolls back any open transaction as a side effect. It proved the business outcome while proving nothing about the mechanism. The test now disposes the transaction explicitly while its context is still alive and re-reads through that same context, which fails as it should when disposal is gutted. **A rollback test that lets its own context disposal do the work is not a rollback test.**
+
+**Correction to the original entry above:** D48's findings state that `INumberGeneratorService` uses "its own explicit `BeginTransactionAsync()` wrapping a raw SQL increment and the entity's save". That has not been true since **D52** replaced the mechanism with a single atomic `UPDATE … OUTPUT` statement — `grep -rn "BeginTransaction" src/` returned nothing at all prior to this amendment.
+
 ---
 
 ## D49 — `AuditLog` Is an Infrastructure Persistence Model, Not a Domain Entity
@@ -1225,3 +1251,13 @@ The first draft *did* fold it in, ordering user seeding after `Verify()` so that
 | Accepting an FR-6.3 rejection reason and discarding it | Slice 4 (approved earlier) | If the API accepts a value, users may reasonably expect it preserved; storing it is an open ADR, so the honest contract is not to accept one |
 | Storing the FR-6.3 rejection reason in `AuditLog.Details` | Slice 4 (approved earlier) | Audit is best-effort by D50 and swallows its own failures — business data must never depend on it |
 | Reusing `AngebotReviewComment` for the customer's rejection reason | Slice 4 (approved earlier) | `AdminUserId` is a required FK to `AspNetUsers` and the type is documented as the *internal* review loop; a customer's words would be misattributed as staff review and surface in the Inspector's comment history |
+| A `Project.Customer` navigation property so EF could fix up the FK in one `SaveChanges` | D48 amendment | Breaks CLAUDE.md §2's by-id-only aggregate separation and drags Customer's graph into every Project load |
+| Weakening `Project.Create`'s `customerId > 0` guard | D48 amendment | Would silently persist `CustomerId = 0` and fail later at the FK as an unmapped 500; the guard is what made the defect immediate |
+| Two un-transacted `SaveChanges` for Customer then Project | D48 amendment | Orphans a Customer that `Customers.LeadId UK` then makes un-retryable without manual cleanup |
+| Compensating deletion of the Customer after a failed Project write | D48 amendment | Compensation is not atomicity (§22), and it leaves the crash-between-steps hole open — a rollback has neither problem |
+| Client-generated keys for `Customer.Id` | D48 amendment | Changes the PK strategy for one table of nine against `ERD.md`'s `int Id PK` convention, and reopens an already-committed migration |
+| `ExecuteInTransactionAsync<T>(Func<Task<T>>, …)` on `IUnitOfWork` | D48 amendment | Hides the boundary inside a lambda; the transaction boundary is part of the use case and belongs in the handler where it can be read |
+| An explicit `RollbackAsync` on `IUnitOfWorkTransaction` | D48 amendment | Disposing an uncommitted transaction already rolls back (verified against LocalDB), so `await using` covers every escape path; a second way to do one thing |
+| Opening a transaction on the reuse-existing-Customer path for symmetry | D48 amendment | One `SaveChangesAsync` is already atomic through EF's implicit transaction — it would take a lock for nothing |
+| Matching Customers by email, phone, name or address during conversion | Phase 7 Slice 3 | A customer-identity policy no document specifies; getting it wrong merges strangers or splits a genuine repeat customer. `ERD.md` records the `LeadId UK` consequence as a known limitation instead |
+| Refreshing an existing Customer's copied details from the Lead at conversion | Phase 7 Slice 3 | Would let an unrelated Lead edit rewrite the party an earlier Project was agreed with — the drift BR-8 forbids for `AngebotItem`; no document asks for a refresh |

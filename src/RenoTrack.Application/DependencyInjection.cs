@@ -22,6 +22,8 @@ using RenoTrack.Application.CatalogItems.Commands.SaveAngebotItemAsCatalogItem;
 using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
+using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
+using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Inspections.Commands.CompleteInspection;
@@ -136,6 +138,8 @@ public static class DependencyInjection
         services.AddScoped<IValidator<RetireCatalogItemCommand>, RetireCatalogItemCommandValidator>();
         services.AddScoped<IValidator<SaveAngebotItemAsCatalogItemCommand>, SaveAngebotItemAsCatalogItemCommandValidator>();
         services.AddScoped<IValidator<SearchCatalogItemsQuery>, SearchCatalogItemsQueryValidator>();
+
+        services.AddScoped<IValidator<ConvertAngebotToProjectCommand>, ConvertAngebotToProjectCommandValidator>();
     }
 
     /// <summary>
@@ -170,6 +174,9 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<UpdateCatalogItemCommand, CatalogItemDto>, UpdateCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<RetireCatalogItemCommand, CatalogItemDto>, RetireCatalogItemCommandHandler>();
         services.AddScoped<ICommandHandler<SaveAngebotItemAsCatalogItemCommand, CatalogItemDto>, SaveAngebotItemAsCatalogItemCommandHandler>();
+
+        // FR-7.1 / BR-2 — the only path by which a Project may come into existence.
+        services.AddScoped<ICommandHandler<ConvertAngebotToProjectCommand, ProjectDto>, ConvertAngebotToProjectCommandHandler>();
     }
 
     /// <summary>

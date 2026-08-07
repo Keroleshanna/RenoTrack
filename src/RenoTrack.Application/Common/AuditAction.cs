@@ -48,4 +48,12 @@ public enum AuditAction
     CatalogItemCreated,
     CatalogItemUpdated,
     CatalogItemRetired,
+
+    /// <summary>
+    /// An approved Angebot was converted into a Project (FR-7.1, BR-2). Logged against the
+    /// <c>Project</c>, per Sequence Diagram §7 — the milestone is the Project coming into
+    /// existence, and unlike Angebot creation this drives no Lead-level status change at all
+    /// (the Lead already reached <c>Won</c> in the customer's decision handler).
+    /// </summary>
+    ProjectCreated,
 }

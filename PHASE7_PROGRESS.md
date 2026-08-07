@@ -11,7 +11,7 @@ a slice of its own.
 |---|---|---|
 | 1 | Domain: `Customer` + `Project` | ✅ done |
 | 2 | Infrastructure: schema + migration #7 `AddCustomersAndProjects` | ✅ done |
-| 3 | Application: `ConvertAngebotToProjectCommand` + repositories | not started |
+| 3 | Application: `ConvertAngebotToProjectCommand` + repositories | ✅ done |
 | 4 | API: conversion + Project detail read + phase completion gate | not started |
 
 ---
@@ -232,3 +232,102 @@ in **Release** did, because that is a different output path. The 249 Api tests a
 verified — against the new schema, since `Api.Tests` creates it with `MigrateAsync` and therefore
 applied migration #7. Smart App Control was **not** disabled or weakened: it is a machine security
 setting, and the workaround is sufficient.
+
+---
+
+## Slice 3 — Application: conversion command + repositories
+
+**Scope:** the conversion use case and its two repositories, plus the transaction abstraction the
+use case forced. No API — that is Slice 4.
+
+### The design problem this slice surfaced, and the approved answer
+
+The handler could not be written as planned. Four constraints hold individually and cannot hold
+together: `Project` references `Customer` by id only (no navigation property); Customer and Project
+must persist atomically; `Project.Create` requires `customerId > 0`; and EF Core assigns identity
+only at `SaveChanges`. On the create-Customer path — **every first conversion** — `customer.Id` is
+still `0` when `Project.Create` is called.
+
+Implementation stopped and the alternatives were put to the user rather than one being chosen
+silently. The approved answer is an explicit transaction: **`IUnitOfWork.BeginTransactionAsync`**
+returning **`IUnitOfWorkTransaction : IAsyncDisposable`** with a single `CommitAsync` and no
+`RollbackAsync`. `ARCHITECTURE_DECISIONS.md` D48 carries the full amendment, including the six
+rejected alternatives and the two standing constraints it creates (never reuse a `DbContext` after
+a rollback; never add `EnableRetryOnFailure` without revisiting every caller).
+
+**None of the approved boundaries were weakened to make this fit:** no navigation property,
+no relaxed `customerId > 0` guard, no PK-strategy change, no compensation, and `Project.Create`
+still never receives an `Angebot` or a `Customer` aggregate.
+
+### Handler shape
+
+Every rejection is evaluated before anything is constructed: validate → Angebot exists → **BR-2**
+→ not already converted → Lead exists. Only then is a Customer resolved and a Project created.
+
+- **Create-Customer path:** one explicit transaction, two saves (the first is what produces the id),
+  then commit. Any escape path disposes without committing, which rolls back.
+- **Reuse-Customer path:** one save, **no** explicit transaction — EF's implicit per-save
+  transaction already covers a single insert.
+- **BR-2's guard is in the handler**, the approved exception to CLAUDE.md §6. `Project` cannot see
+  an `Angebot` at all, so no aggregate could own this rule. `BusinessRules.md` was **not** edited.
+- **No `IOwnershipValidator`** — `PermissionMatrix.md` §5 marks the action Admin `F`, so an
+  ownership call would be a semantic error, not merely redundant (CLAUDE.md §16).
+- **`Lead.Status` is never touched** — Sequence Diagram §7's Phase 6 correction; the Lead reached
+  `Won` in the customer's decision handler and there is no second path.
+- **Customer resolution is by `LeadId` only.** A Customer on a *different* Lead with identical name,
+  email, phone and address is deliberately not reused, and an existing Customer's details are never
+  refreshed from the Lead. Both are pinned by tests.
+- **Audit** logged against `Project` with new `AuditAction.ProjectCreated`, after the commit.
+
+### Tests added (33)
+
+**Application (27) — orchestration and guard ordering only.** These deliberately do **not** claim
+to prove atomicity: a fake `IUnitOfWork` has no database and rolls nothing back. They prove the
+handler opens a transaction on one path and not the other, commits on success, and reaches disposal
+without committing on failure. `FakeCustomerRepository` mirrors a real repository by *not*
+assigning an id on `AddAsync`, so a handler using an unsaved id fails in tests exactly as it would
+against SQL Server.
+
+**Infrastructure (6) — transaction semantics, real LocalDB, and the only place they are proved.**
+Committed path persisting both rows with the Project carrying the Customer's real id; a forced FK
+failure on the second write rolling back the first insert; dispose-without-commit discarding
+everything; the reuse path needing no transaction; and both unique indexes still refusing duplicates
+*past* the Application pre-check, so the backstop and the control flow are each pinned separately.
+
+### Adversarial verification
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | `await using` dropped from the handler's transaction | **3 failures** — the transaction was never disposed |
+| 2 | `IUnitOfWorkTransaction.DisposeAsync` gutted to a no-op | **See below — initially passed** |
+| 3 | BR-2 guard weakened to reject only `Draft` | **6 failures**, including the no-side-effects test |
+| 4 | Already-converted check moved after Customer creation | **1 failure** — `AnAlreadyConvertedAngebotIsRejectedWithNoSideEffects` |
+
+**Experiment 2 found a weak test, which is the most valuable result of this slice.** The rollback
+test originally wrapped its `DbContext` in `await using` and verified through a fresh context — and
+it **passed with `DisposeAsync` gutted to a no-op**, because disposing the context tears down the
+connection, which rolls back any open transaction as a side effect. It proved the business outcome
+while proving nothing about the mechanism, and would have gone on passing if someone deleted the
+disposal entirely, leaving transactions open and holding locks in production.
+
+The test now disposes the transaction **explicitly while its context is still alive** and re-reads
+through that same context (which cannot deadlock, where a fresh context would block on the held
+locks). Re-run with the same defect, it fails: *"no orphaned Customer may survive the rolled-back
+transaction"*. **A rollback test that lets its own context disposal do the work is not a rollback
+test** — now recorded in D48's amendment.
+
+### Documentation updated in this slice
+
+`ARCHITECTURE_DECISIONS.md` (the D48 amendment plus ten new rows in the rejected-decisions table),
+`PROJECT_STATE.md`, `NEXT_STEPS.md`, `HANDOFF_PROMPT.md`, and this file. `BusinessRules.md`
+deliberately unchanged.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- `dotnet test RenoTrack.slnx` → **957 passing, 0 failing** (236 Domain, 290 Application,
+  180 Infrastructure, 251 Api). Slice 3 added **35** — 27 Application, 6 Infrastructure, and 2 in
+  `Api.Tests` DependencyInjectionTests, which reflects over the Application assembly and therefore
+  discovers the new handler and validator automatically.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. Seven migrations; Slice 3
+  adds no schema.

@@ -90,7 +90,7 @@ Branch `feature/phase-6-token-links-public-angebot`, off `main` at `18243ec`, **
 
 ## 1f. Phase 7 — In Progress
 
-Branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Nothing pushed. **Four implementation slices; Slices 1 (Domain: `Customer` + `Project`) and 2 (schema + migration #7 `AddCustomersAndProjects`) are done. Slice 3 (Application) is next.** `PHASE7_PROGRESS.md` carries the per-slice record and the eight design decisions approved before any code was written.
+Branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Nothing pushed. **Four implementation slices; Slices 1 (Domain), 2 (schema + migration #7) and 3 (Application + the D48 transaction amendment) are done. Slice 4 (API) is next.** `PHASE7_PROGRESS.md` carries the per-slice record and the eight design decisions approved before any code was written.
 
 **Do not reopen these two without new evidence:**
 - **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`.** `BusinessRules.md` BR-2 assigns enforcement to that command by name, and `Project` deliberately cannot see an `Angebot` at all (pinned by a reflection test). This is an approved, recorded exception to the general "aggregate state guards live in the Domain" rule, made because the invariant governs a cross-aggregate conversion. **Do not edit `BusinessRules.md` to move it.**
