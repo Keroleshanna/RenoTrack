@@ -9,6 +9,7 @@ using RenoTrack.Application.Angebote;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Leads;
+using RenoTrack.Application.Projects;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
@@ -95,6 +96,7 @@ public static class DependencyInjection
         services.AddScoped<IAngebotQueries, AngebotQueries>();
         services.AddScoped<IAngebotReviewCommentQueries, AngebotReviewCommentQueries>();
         services.AddScoped<ILeadQueries, LeadQueries>();
+        services.AddScoped<IProjectQueries, ProjectQueries>();
         services.AddScoped<IUserQueries, UserQueries>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();

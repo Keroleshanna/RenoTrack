@@ -88,9 +88,9 @@ Branch `feature/phase-6-token-links-public-angebot`, off `main` at `18243ec`, **
 
 **One thing its completion gate missed**, closed in Phase 7 Slice 1: Phase 6 added a fourth Application exception type, `GoneException` (→410), wired into the exception-handler switch, but recorded it in no permanent document — `CLAUDE.md` §17 still asserted "Three Application-layer exception types exist" and §22's mapping list omitted 410. Both are now correct.
 
-## 1f. Phase 7 — In Progress
+## 1f. Phase 7 — Complete on Its Branch, Not Merged
 
-Branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Nothing pushed. **Four implementation slices; Slices 1 (Domain), 2 (schema + migration #7) and 3 (Application + the D48 transaction amendment) are done. Slice 4 (API) is next.** `PHASE7_PROGRESS.md` carries the per-slice record and the eight design decisions approved before any code was written.
+Branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Nothing pushed, no PR. **All four slices complete and the completion gate closed:** the `Customer`/`Project` Domain aggregates, migration #7 `AddCustomersAndProjects`, `ConvertAngebotToProjectCommand` with the D48 transaction amendment, and `ProjectsController` (`POST /api/v1/angebote/{id}/convert-to-project`, `GET /api/v1/projects/{id}`). `PHASE7_PROGRESS.md` carries the per-slice record and the eight design decisions approved before any code was written.
 
 **Do not reopen these two without new evidence:**
 - **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`.** `BusinessRules.md` BR-2 assigns enforcement to that command by name, and `Project` deliberately cannot see an `Angebot` at all (pinned by a reflection test). This is an approved, recorded exception to the general "aggregate state guards live in the Domain" rule, made because the invariant governs a cross-aggregate conversion. **Do not edit `BusinessRules.md` to move it.**
@@ -99,6 +99,11 @@ Branch `feature/phase-7-angebot-to-project`, off `main` at `5a26c42`. Nothing pu
 **Known limitation recorded, not designed around:** `Customers.LeadId` is unique, so a repeat customer arriving as a new Lead gets a second `Customer` row, which makes `ERD.md` §4's "one Customer can have many Projects (e.g. a repeat customer)" unreachable under this schema. Recorded in `ERD.md`'s own physical-schema row. Resolving it needs a customer-identity design; Phase 7 does not invent one.
 
 **Also flagged, deliberately not built:** Wireframe E1 renders "Project: M. Klein — Bathroom Renovation", but `Projects` has no title/name/description column in `ERD.md` and none was added. A Phase 12 presentation concern.
+
+**Gaps carried out of Phase 7, all deliberate:**
+- **FR-7.4's Invoice portion is not served.** `GET /api/v1/projects/{id}` returns the Project, its Customer's name and the originating Lead/Inspection/Angebot ids — no invoice list, no "Invoiced", no "Remaining", because Invoices arrive in Phase 8. Pinned by a test asserting the exact JSON property set, so it cannot drift into a half-built shape.
+- **No `PutOnHold`/`Resume`/`Complete` endpoints.** The Domain carries all three (StateMachine §4.3); `PROJECT_ROADMAP.md` places `CompleteProjectCommand` in Phase 8, where its "all Invoices Paid or Void" guard and FR-8.6 override can actually be enforced. On-hold/resume are assigned to no phase yet.
+- **Wireframe E1's "Roles: Admin" line diverges from `PermissionMatrix.md` §5's Inspector `R`.** Resolved by following the matrix, the same way Phase 5 resolved D3's identical divergence. Not a defect; recorded so it is not re-litigated.
 
 ## 2. Deferred Items — Explicitly Recorded, With Reasons
 

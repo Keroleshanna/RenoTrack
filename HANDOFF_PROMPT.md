@@ -16,27 +16,50 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 
 - origin/main: 5a26c42 ("Merge pull request #12 from Keroleshanna/feature/phase-6-token-links-public-angebot").
 - PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5) and #12 (Phase 6) are MERGED.
-- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 Slices 1–3 of 4 are
-  COMPLETE; Slice 4 is not started.** Nothing has been pushed; no PR exists.
+- Branch: feature/phase-7-angebot-to-project, off main at 5a26c42. **Phase 7 all four slices are
+  COMPLETE, and the phase-completion gate is closed.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 957 passing, 0 failing — 236 Domain, 290 Application, 180 Infrastructure, 251 Api.
-  (Phase 6 merge baseline 858; Slice 1 +51 Domain, Slice 2 +13 Infrastructure, Slice 3 +35.)
+- Tests: 979 passing, 0 failing — 236 Domain, 295 Application, 183 Infrastructure, 265 Api.
+  (Phase 6 merge baseline 858; Phase 7 added 121 — Slice 1 +51, Slice 2 +13, Slice 3 +35, Slice 4 +22.)
 - Migrations: 7 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects); has-pending-model-changes reports none.
 - Working tree: clean.
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 6 as unmerged, or origin/main as 18243ec, that is a regression — say so.
 
-YOUR TASK: CONTINUE PHASE 7 AT SLICE 4.
+YOUR TASK: OPEN THE PHASE 7 PR, THEN BEGIN PHASE 8.
 
-Phase 7 per PROJECT_ROADMAP.md is "API: Convert Angebot → Project". Its design review is approved
-and its four slices are fixed; PHASE7_PROGRESS.md is the authoritative record of both, including
-the eight approved design decisions. Read it before touching anything.
+Phase 7 needs the user's explicit permission before anything is pushed or a PR is opened — never
+push, merge or open a PR without it (CLAUDE.md §19).
+
+Phase 7 per PROJECT_ROADMAP.md was "API: Convert Angebot → Project". PHASE7_PROGRESS.md is the
+authoritative record, including the eight approved design decisions and the completion gate.
 
   Slice 1 — Domain: Customer + Project ...................... DONE
   Slice 2 — Infrastructure: schema + migration #7 ........... DONE
   Slice 3 — Application: ConvertAngebotToProjectCommand ..... DONE
-  Slice 4 — API: conversion + Project detail read + gate .... NEXT
+  Slice 4 — API: conversion + Project detail read + gate .... DONE
+
+Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion",
+on branch feature/phase-8-invoices-payments-project-completion. It introduces Invoice, InvoiceLine
+and Payment, so expect Domain slices, a migration, and a documents-first design review before any
+code. It also finally supplies what Phase 7 left deferred: FR-7.4's Invoice portion of the Project
+detail read, and CompleteProjectCommand, whose "all Invoices Paid or Void" guard plus FR-8.6's
+override is the cross-aggregate rule Project.Complete() deliberately does not enforce itself.
+
+PHASE 7 DECISIONS THAT MUST NOT BE UNDONE
+
+- Project.Complete() enforces only Project's own state invariant, and only from Active (StateMachine
+  §4.2 draws no OnHold → Completed edge). The invoice precondition belongs to Phase 8's handler.
+- Project.AgreedTotal has no mutator. ERD.md's snapshot wording is structural, not a convention.
+- The explicit transaction boundary (D48's amendment) exists only on the create-new-Customer path.
+  Do not add EnableRetryOnFailure to UseSqlServer without revisiting every BeginTransactionAsync
+  caller — a retrying execution strategy forbids user-initiated transactions.
+- A rollback test that lets its own DbContext disposal do the work is not a rollback test. Keep
+  ConversionTransactionTests.AFailedSecondWriteRollsBackTheCustomerInsert exactly as it is.
+- GET /api/v1/projects/{id} is unscoped for Inspectors (PermissionMatrix §5 "R"). Wireframe E1's
+  "Roles: Admin" line is a known divergence resolved in favour of the matrix, as Phase 5 resolved
+  D3's identical one. Do not add an ownership check.
 
 TWO PHASE 7 DECISIONS THAT MUST NOT BE SILENTLY REOPENED
 

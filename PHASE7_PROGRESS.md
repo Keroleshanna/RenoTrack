@@ -12,7 +12,7 @@ a slice of its own.
 | 1 | Domain: `Customer` + `Project` | ✅ done |
 | 2 | Infrastructure: schema + migration #7 `AddCustomersAndProjects` | ✅ done |
 | 3 | Application: `ConvertAngebotToProjectCommand` + repositories | ✅ done |
-| 4 | API: conversion + Project detail read + phase completion gate | not started |
+| 4 | API: conversion + Project detail read + phase completion gate | ✅ done |
 
 ---
 
@@ -331,3 +331,114 @@ deliberately unchanged.
   discovers the new handler and validator automatically.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. Seven migrations; Slice 3
   adds no schema.
+
+---
+
+## Slice 4 — API: conversion endpoint, Project detail read, phase completion gate
+
+### Scope reconstructed from the documents, before any code
+
+| Question | Answer, and where it comes from |
+|---|---|
+| Endpoints | `POST /api/v1/angebote/{id}/convert-to-project` (Architecture.md §5.2, verbatim) and `GET /api/v1/projects/{id}` (approved in the design review; §5.2 lacked the row) |
+| Controller | `ProjectsController` (`PROJECT_ROADMAP.md` Phase 7), with the conversion route as an absolute template — the precedent `AngeboteController` set for `POST /api/v1/leads/{leadId}/angebote` |
+| Authorization | POST Admin only; GET Admin `F` / Inspector `R` (`PermissionMatrix.md` §5). **No `IOwnershipValidator` anywhere** — both actions are `F`/`R`, never `S` |
+| Application layer | POST exposes the existing `ConvertAngebotToProjectCommand` unchanged. GET needed **new** read-side behaviour: `GetProjectByIdQuery`, `IProjectQueries`, `ProjectQueries`, `ProjectDetailDto` |
+| Response contract | POST → 201 + `ProjectDto` + `Location` → the GET. GET → 200 + `ProjectDetailDto`, 404 if absent |
+| Duplicate conversion | `ConflictException` → **409** through the existing single exception handler. No controller-level `if`, no `try`/`catch` |
+| New Domain / schema / migration / repository / transaction | **None.** One read-side query interface and its implementation, nothing more |
+
+### One apparent document conflict, resolved by precedent rather than by decision
+
+Wireframe E1 heads the Project-detail screen **"Roles: Admin"**, while `PermissionMatrix.md` §5
+grants Inspector `R`. That is not an unresolved conflict: **D3 already carries the identical
+divergence** (Wireframes line 235 says "Roles: Admin"; §4 grants Inspector `R` for an `InReview`
+Angebot), and Phase 5 settled it by following the matrix — `AngeboteController.GetReviewComments`
+admits both roles. A wireframe's "Roles" line names the screen's primary audience; CLAUDE.md §16
+says to decide authorization from `PermissionMatrix.md`'s letter. Followed here, and recorded in
+the controller's own remarks so the next reader does not re-litigate it.
+
+### Design points worth not rediscovering
+
+- **`GetProjectByIdQuery` carries no `RequestingInspectorId`, unlike `GetLeadByIdQuery`.** That one
+  has it because a Lead is `S`; a Project is `R` — read-only but unscoped, and §5's own note says
+  why ("Inspector can view, e.g. to see the outcome of a Lead they worked"). A reflection test pins
+  the query's single-parameter shape, so reintroducing a scope would be a visible signature change
+  reviewed against §5, not a predicate quietly added to a `WHERE` clause.
+- **The read projects rather than hydrating** — the opposite of `GetLeadByIdQueryHandler`, and for a
+  stated reason: that handler needs the Domain entity so `IOwnershipValidator` can judge it. Here no
+  ownership rule applies and the response spans three tables, so D36's projection rule governs.
+- **`ProjectQueries` writes its joins out explicitly**, because `Project` holds no navigation
+  property to `Customer` or `Angebot` (CLAUDE.md §2) and there is nothing to `Include`. The read
+  side paying a small visible cost for a write-side guarantee, not a workaround.
+- **`LeadId` is sourced from the Angebot**, the originating document E1's "Originating:" line names.
+  `Customer.LeadId` holds the same value by construction, so the choice is about meaning.
+- **`ProjectDetailDto` is E1 minus Phase 8.** No invoice list, no "Invoiced", no "Remaining" — a
+  documented gap against FR-7.4, pinned by a test that asserts the exact JSON property set.
+- **No `PutOnHold`/`Resume`/`Complete` endpoints**, as agreed in Slice 1: the Domain has all three,
+  `PROJECT_ROADMAP.md` places `CompleteProjectCommand` in Phase 8 where its invoice guard can be
+  enforced, and on-hold/resume are assigned to no phase.
+
+### Tests added (22)
+
+Application 5 (`GetProjectByIdQueryHandlerTests`, including the no-scope-parameter pin);
+Infrastructure 3 (`ProjectQueriesTests` — the three-table projection is genuinely SQL-translatable,
+returns null for an unknown id, and reflects a non-default status); Api 14 (`ProjectEndpointsTests`
+plus 2 discovered automatically by the reflection-driven `DependencyInjectionTests`).
+
+The Api tests drive a Lead all the way to `CustomerApproved` **through the real endpoints**,
+including the customer's own anonymous token-link decision — never by writing a status directly, so
+BR-2's precondition is reached the way production reaches it.
+
+### Adversarial verification
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | `[Authorize(Roles = Admin)]` removed from the conversion action | `An_inspector_cannot_convert` failed |
+| 2 | GET restricted to Admin | `An_inspector_can_read_the_project_detail_and_is_not_scoped` failed |
+| 3 | A speculative `InvoicedTotal` field added to `ProjectDetailDto` | `The_project_detail_carries_no_invoice_fields_yet` failed |
+
+### One finding during verification
+
+The `Location` header is `/api/v1/Projects/{id}` — the `[controller]` route token capitalises the
+segment, which routing then matches case-insensitively. This is API-wide pre-existing behaviour
+(`Angebote`, `Leads`, `CatalogItems` all do it), **not** something this slice introduced. The test
+was changed to follow `LeadReadEndpointsTests`' stronger precedent — follow the `Location` and
+assert it returns 200 — rather than string-matching a lowercase path, because what the contract
+actually promises is that the header resolves.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- **979 passing, 0 failing** — 236 Domain, 295 Application, 183 Infrastructure, 265 Api.
+  Slice 4 added **22**.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Seven** migrations;
+  this slice adds no schema.
+
+---
+
+## Phase 7 completion gate
+
+Documentation reconciliation is a completion criterion, not a publication step. Checked item by
+item against the repository, not from memory.
+
+| Document | Outcome |
+|---|---|
+| `Architecture.md` | §5.2 gained the `GET /api/v1/projects/{id}` row it lacked, and the conversion row now records its contract. §6 already listed Customer and Project as aggregate roots — no change needed |
+| `ERD.md` | Corrected in Slice 1 (`Customers.Address` nullable + the repeat-customer limitation). Slice 2's three-way review confirmed the rest already described what was built. **No further change** |
+| `BusinessRules.md` | **Deliberately unchanged.** BR-2 assigns enforcement to `ConvertAngebotToProjectCommand` and that is exactly where the guard lives |
+| `StateMachine.md` | §4's transition table matches the Domain exactly, including `Complete` only from `Active`. **No change** |
+| `PermissionMatrix.md` | §5 matches what was built (`F`/`—` for conversion, `F`/`R` for the read). **No change** |
+| `Sequence Diagram.md` | §7 matches the implementation, including its Phase 6 correction that `Lead.Status` is untouched. **No change** |
+| `Wireframes.md` | Unchanged. E1's "Roles: Admin" line is the known, precedented divergence recorded above; E1's project title has no schema backing and stays flagged for Phase 12 |
+| `CLAUDE.md` | §17/§22 corrected in Slice 1 for `GoneException` |
+| `ARCHITECTURE_DECISIONS.md` | D48 amended in Slice 3; ten rows added to the rejected-decisions table |
+| `PROJECT_STATE.md` / `NEXT_STEPS.md` / `HANDOFF_PROMPT.md` | Current as of this slice, with final verified figures |
+| `PROJECT_ROADMAP.md` | Phase 7's entry describes what was built. **No change** |
+
+**Known gaps carried out of Phase 7, all deliberate and recorded in `NEXT_STEPS.md`:** FR-7.4's
+Invoice portion (Phase 8); no `PutOnHold`/`Resume`/`Complete` endpoints (Phase 8 and unassigned);
+no Project title column (Phase 12); the repeat-customer limitation from `Customers.LeadId UK`; and
+everything Phase 4/6 already carried forward.
+
+**Phase 7 is complete: four slices, no implementation residue, no documentation residue.**

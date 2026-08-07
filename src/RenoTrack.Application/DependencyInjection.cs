@@ -23,6 +23,7 @@ using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
+using RenoTrack.Application.Projects.Queries.GetProjectById;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
@@ -140,6 +141,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<SearchCatalogItemsQuery>, SearchCatalogItemsQueryValidator>();
 
         services.AddScoped<IValidator<ConvertAngebotToProjectCommand>, ConvertAngebotToProjectCommandValidator>();
+        services.AddScoped<IValidator<GetProjectByIdQuery>, GetProjectByIdQueryValidator>();
     }
 
     /// <summary>
@@ -197,6 +199,8 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto>, GetPublicAngebotByTokenQueryHandler>();
 
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, PagedResult<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
+
+        services.AddScoped<IQueryHandler<GetProjectByIdQuery, ProjectDetailDto>, GetProjectByIdQueryHandler>();
     }
 
     /// <summary>
