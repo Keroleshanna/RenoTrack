@@ -56,4 +56,13 @@ public enum AuditAction
     /// (the Lead already reached <c>Won</c> in the customer's decision handler).
     /// </summary>
     ProjectCreated,
+
+    /// <summary>
+    /// An Invoice was created against a Project (FR-8.1, Phase 8 Slice 3). Logged against the
+    /// <c>Invoice</c>, not the Project: unlike Angebot creation — which drives
+    /// <c>Lead.MarkAngebotInProgress()</c> and is therefore a Lead-level milestone — this drives no
+    /// status change on any other aggregate at all. The milestone is the Invoice coming into
+    /// existence, and SRS FR-12.1 names "Invoice creation/status changes" as its own audited event.
+    /// </summary>
+    InvoiceCreated,
 }

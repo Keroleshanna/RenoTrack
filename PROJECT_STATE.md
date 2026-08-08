@@ -7,7 +7,7 @@
 
 ## 1. Current Phase
 
-**Phase 8 — API: Invoices, Splitting, Payment Tracking, Project Completion**, per `PROJECT_ROADMAP.md` (branch `feature/phase-8-invoices-payments-project-completion`, off `main` at `697292b`). **Slice 1 of 7 done** — the `Invoice` aggregate root, its `Payment` child, `InvoiceStatus`/`PaymentMethod`, and `Money`'s subtraction operator. See `PHASE8_PROGRESS.md`, which records the thirteen design decisions approved before any code was written, including the approved VAT-allocation strategy, the `InvoiceLine` deferral, the full-payment-only semantics, and the deliberate absence of any overdue scheduler.
+**Phase 8 — API: Invoices, Splitting, Payment Tracking, Project Completion**, per `PROJECT_ROADMAP.md` (branch `feature/phase-8-invoices-payments-project-completion`, off `main` at `697292b`). **Slices 1–3 of 7 done** — the `Invoice` aggregate and its `Payment` child, their schema via migration #8 `AddInvoicesAndPayments`, and the first Invoice use case (creation with the approved per-rate VAT allocation, invoice numbering, and BR-3's remaining-balance read). See `PHASE8_PROGRESS.md`, which records the thirteen design decisions approved before any code was written, including the approved VAT-allocation strategy, the `InvoiceLine` deferral, the full-payment-only semantics, and the deliberate absence of any overdue scheduler.
 
 - **Phase 7 (convert Angebot → Project) — ✅ complete and merged** (PR #13, merge commit `697292b`, branch `feature/phase-7-angebot-to-project`). Four slices: the `Customer` and `Project` Domain aggregates, their schema via migration #7 `AddCustomersAndProjects`, `ConvertAngebotToProjectCommand` with the explicit transaction boundary D48's amendment introduced, and the `ProjectsController` conversion + detail-read endpoints. `PHASE7_PROGRESS.md` is the per-slice record and carries the eight design decisions approved before any code was written — including the two that must not be silently reopened: **BR-2's guard belongs to `ConvertAngebotToProjectCommand`, not `Project.Create`**, and **Customer resolution is find-by-`LeadId`-then-create**.
 
@@ -28,18 +28,18 @@
 
 - **`feature/phase-8-invoices-payments-project-completion` is the current branch**, branched off `origin/main` at `697292b`. `origin/main` is at `697292b` (PR #13, the Phase 7 merge). Nothing on this branch has been pushed.
 - Every earlier feature branch is merged and no longer active: Phase 7 (`feature/phase-7-angebot-to-project`), Phase 6 (`feature/phase-6-token-links-public-angebot`), Phase 5 (`feature/phase-5-angebot-builder-review`), the Development bootstrap (`feature/phase-5-development-bootstrap`), Phase 4 (`feature/phase-4-api-auth-leads-inspections`), Phase 3 (`feature/phase-3-infrastructure-efcore`, final commit `f5d3108`) and Phase 2 (`feature/phase-2-application-layer`).
-- **Next step:** Phase 8 Slice 2 (Infrastructure schema + migration #8 `AddInvoicesAndPayments`). Per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
+- **Next step:** Phase 8 Slice 4 (Send Invoice + the public token-link read). Per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
 As of the last verified run, on `feature/phase-8-invoices-payments-project-completion` at the end of Phase 8 Slice 1:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **1,068 tests passing, 0 failing.** (The Phase 7 merge baseline, re-verified independently at the start of Phase 8, was **979**; Slice 1 added **74**, all in Domain — 61 `InvoiceTests`, 9 `PaymentTests`, 4 `MoneyTests`. Slice 2 added **15**, all in Infrastructure.)
+- `dotnet test RenoTrack.slnx` → **1,148 tests passing, 0 failing.** (The Phase 7 merge baseline, re-verified independently at the start of Phase 8, was **979**; Slice 1 added **74** Domain, Slice 2 **15** Infrastructure, Slice 3 **80** — 22 Domain, 26 Application, 12 Infrastructure, 20 Api.)
 - `dotnet ef migrations has-pending-model-changes` → no pending changes (**eight** migrations: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`, `AddCustomersAndProjects`, `AddInvoicesAndPayments`).
-  - `RenoTrack.Domain.Tests`: **310 tests.**
-  - `RenoTrack.Application.Tests`: **295 tests.**
-  - `RenoTrack.Infrastructure.Tests`: **198 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
-  - `RenoTrack.Api.Tests`: **265 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
+  - `RenoTrack.Domain.Tests`: **332 tests.**
+  - `RenoTrack.Application.Tests`: **321 tests.**
+  - `RenoTrack.Infrastructure.Tests`: **210 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
+  - `RenoTrack.Api.Tests`: **285 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
 
 ## 4. Domain Layer — Complete Inventory
@@ -119,11 +119,12 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 | `IUnitOfWork` | `SaveChangesAsync`, `BeginTransactionAsync` (Phase 7 Slice 3 — D48 amendment) |
 | `IUnitOfWorkTransaction` | `CommitAsync` + `IAsyncDisposable`; no `RollbackAsync` — disposal rolls back |
 | `ICustomerRepository` | `AddAsync`, `FindByLeadIdAsync` |
-| `IProjectRepository` | `AddAsync`, `ExistsForAngebotAsync` |
+| `IProjectRepository` | `AddAsync`, `ExistsForAngebotAsync`, `GetByIdAsync` (Phase 8 Slice 3) |
+| `IInvoiceRepository` | `AddAsync` only (Phase 8 Slice 3) |
 | `IAuditService` | `LogAsync` |
 | `IEmailSender` | `SendNewWebsiteLeadNotificationAsync`, `SendAngebotSubmittedForReviewNotificationAsync`, `SendAngebotChangesRequestedNotificationAsync` |
 | `IFileStorage` | `SaveAsync`, `DeleteAsync` (**`GetAsync` still not built** — nothing reads a stored file back; see §8) |
-| `INumberGeneratorService` | `NextAngebotNumberAsync` |
+| `INumberGeneratorService` | `NextAngebotNumberAsync`, `NextInvoiceNumberAsync` (Phase 8 Slice 3 — same mechanism, own sequence row; unique and never reused, **not gapless**, D66) |
 | `IOwnershipValidator` | `EnsureInspectionOwnership`, `EnsureLeadOwnership`, `EnsureAngebotOwnership` |
 | `ICatalogItemRepository` | `AddAsync`, `GetByIdAsync` |
 | `IUserQueries` | `IsActiveInspectorAsync` (Phase 4 Slice 7, D62 — one combined question, deliberately not splittable) |
@@ -190,7 +191,7 @@ One test class per entity/value-object, in `tests/RenoTrack.Domain.Tests/{Entiti
 
 ### 6.1 `RenoTrackDbContext` (`src/RenoTrack.Infrastructure/Persistence/RenoTrackDbContext.cs`)
 
-One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `CatalogItems`, `AngebotReviewComments`. No `DbSet` for child entities (`AngebotSection`, `AngebotItem`, `InspectionPhoto`) — reachable only through their aggregate root's navigation. `OnModelCreating` calls `ApplyConfigurationsFromAssembly` — no configuration inlined there. `AuditLog`, `NumberSequence`, `RefreshToken` and the Identity tables were each added by the later slice that actually needed them (Phase 3 Slices 10, 11 and 15; Phase 4 Slice 4), never speculatively — see §6.4 and `CLAUDE.md` §21.
+One `DbSet<T>` per aggregate root only: `Leads`, `Inspections`, `Angebote`, `CatalogItems`, `AngebotReviewComments`, `TokenLinks`, `Customers`, `Projects`, `Invoices`. No `DbSet` for child entities (`AngebotSection`, `AngebotItem`, `InspectionPhoto`, `Payment`) — reachable only through their aggregate root's navigation. `OnModelCreating` calls `ApplyConfigurationsFromAssembly` — no configuration inlined there. `AuditLog`, `NumberSequence`, `RefreshToken` and the Identity tables were each added by the later slice that actually needed them (Phase 3 Slices 10, 11 and 15; Phase 4 Slice 4), never speculatively — see §6.4 and `CLAUDE.md` §21.
 
 **`InitialCreate` migration** (`Persistence/Migrations/`) — the first real migration, generated via `RenoTrackDbContextFactory` (`IDesignTimeDbContextFactory<RenoTrackDbContext>`, design-time only — DI composition is still Slice 14). Creates exactly 8 tables (matching §6.1's `DbSet`s + child entities); confirmed via `InitialCreateMigrationTests` to apply cleanly to a fresh LocalDB database and to have zero pending model changes (i.e., the migration and the current EF model are in sync). Not yet applied to any shared/persistent database.
 
@@ -278,7 +279,7 @@ Current `BusinessRules.md` rule count: **BR-1 through BR-14** (BR-1–BR-9 from 
 
 ## 9. Immediate Next Step
 
-**Phase 8 Slice 2 — Infrastructure schema + migration #8 `AddInvoicesAndPayments`.**
+**Phase 8 Slice 4 — Send Invoice + public token read.**
 
 **Phase 8 (API: Invoices, splitting, payment tracking, project completion) is in progress** on `feature/phase-8-invoices-payments-project-completion`, off `main` at `697292b`. Slice 1 of 7 is done (the `Invoice` aggregate, its `Payment` child, two enums, `Money`'s subtraction operator). Nothing has been pushed and no PR exists. `PHASE8_PROGRESS.md` is the per-slice record and carries the thirteen design decisions approved before any code was written. Four of them a later slice must not silently reopen: **`InvoiceLine` is deferred entirely**; **Phase 8 is full-payment-only** (`Payment.Amount` is always the Invoice's gross, and the one-to-many ERD shape is not partial-payment support); **no overdue scheduler of any kind is to be invented** — the transition exists, automatic execution is a recorded gap awaiting a job-hosting decision; and **invoice numbering guarantees uniqueness and non-reuse but not gaplessness**.
 

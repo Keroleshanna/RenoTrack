@@ -6,6 +6,7 @@ using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
+using RenoTrack.Application.Projects.Queries.GetProjectInvoiceBalance;
 
 namespace RenoTrack.Api.Controllers;
 
@@ -49,7 +50,8 @@ namespace RenoTrack.Api.Controllers;
 [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
 public sealed class ProjectsController(
     ICommandHandler<ConvertAngebotToProjectCommand, ProjectDto> convertHandler,
-    IQueryHandler<GetProjectByIdQuery, ProjectDetailDto> getProjectByIdHandler) : ControllerBase
+    IQueryHandler<GetProjectByIdQuery, ProjectDetailDto> getProjectByIdHandler,
+    IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto> getInvoiceBalanceHandler) : ControllerBase
 {
     /// <summary>
     /// Converts a customer-approved Angebot into a Project (SRS FR-7.1, BR-2). Admin only.
@@ -98,6 +100,39 @@ public sealed class ProjectsController(
             cancellationToken);
 
         return Ok(project);
+    }
+
+    /// <summary>
+    /// A Project's invoice balance (BR-3, Sequence Diagram §8, Wireframes E1/E2). Admin "F",
+    /// Inspector "R".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is Project financial-summary data, not an Invoice-management action</b>, which is why
+    /// it sits on this controller rather than <c>InvoicesController</c>. `PermissionMatrix.md` §5
+    /// grants it Admin <c>F</c> / Inspector <c>R</c> — the same grant as the Project detail read
+    /// directly above, read-only and **unscoped**, so there is no <c>IOwnershipValidator</c> call
+    /// and no per-Inspector filtering. It confers no permission over Invoices themselves: create,
+    /// send, mark-paid and void all remain Admin-only on <c>InvoicesController</c>.
+    /// </para>
+    /// <para>
+    /// <b><c>remaining</c> may be negative, and that is the point.</b> BR-3 warns rather than
+    /// blocks, so a Project invoiced beyond its agreed total reports a negative remainder — that
+    /// value *is* the warning. It is never clamped, and there is no separate warning flag.
+    /// <c>alreadyInvoiced</c> excludes <c>Void</c> invoices (StateMachine.md §3.3) and nothing else.
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id:int}/invoice-balance")]
+    [ProducesResponseType<ProjectInvoiceBalanceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetInvoiceBalance(int id, CancellationToken cancellationToken)
+    {
+        var balance = await getInvoiceBalanceHandler.HandleAsync(
+            new GetProjectInvoiceBalanceQuery(id),
+            cancellationToken);
+
+        return Ok(balance);
     }
 
     /// <summary>The authenticated caller's user id, from the token's subject claim (D61).</summary>

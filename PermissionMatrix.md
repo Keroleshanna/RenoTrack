@@ -69,6 +69,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 |---|---|---|---|
 | Convert Angebot to Project | F | — | Admin-only (FR-7.1) |
 | View Project detail | F | R | Inspector can view (e.g. to see the outcome of a Lead they worked), but not act on it |
+| View Project financial summary (Agreed / Invoiced / Remaining) | F | R | *Added in Phase 8 Slice 3.* This row previously did not exist, while `GET /api/v1/projects/{id}/invoice-balance` (Sequence Diagram §8, BR-3) and Wireframe E1's "Agreed Total / Invoiced / Remaining" line both assumed a permission. Resolved as **Project read data**, matching "View Project detail" directly above — read-only and **unscoped**, so no ownership check applies. It also keeps the standalone balance endpoint consistent with the Inspector-readable Project detail that will carry the same figures under FR-7.4. **This grants no Invoice-management permission of any kind:** every row below stays Admin-only |
 | Create Invoice | F | — | Admin-only (FR-8.1) |
 | Send Invoice | F | — | Admin-only |
 | Mark Invoice Paid | F | — | Admin-only (FR-8.4) |

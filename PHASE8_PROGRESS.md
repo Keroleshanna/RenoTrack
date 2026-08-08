@@ -11,7 +11,7 @@ a slice of its own.
 |---|---|---|
 | 1 | Domain: `Invoice` + `Payment` child | ✅ done |
 | 2 | Infrastructure: schema + migration #8 `AddInvoicesAndPayments` | ✅ done |
-| 3 | Create Invoice + remaining balance + numbering + VAT allocation | ⬜ not started |
+| 3 | Create Invoice + remaining balance + numbering + VAT allocation | ✅ done |
 | 4 | Send Invoice + public token read | ⬜ not started |
 | 5 | Mark Paid + Void | ⬜ not started |
 | 6 | Complete Project + FR-7.4 Project detail invoice information | ⬜ not started |
@@ -304,3 +304,135 @@ built.
 - `dotnet test RenoTrack.slnx` → **1,068 passing, 0 failing** (310 Domain, 295 Application,
   198 Infrastructure, 265 Api). Slice 2 added **15**, all in Infrastructure.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations.
+
+---
+
+## Slice 3 — Create Invoice + remaining balance + numbering + VAT allocation
+
+**Scope:** the first Invoice use case and the BR-3 balance read. No send, no mark-paid, no void, no
+overdue, no project completion, no `InvoiceLine`, no Payment surface, no schema change.
+
+### Scope reconstructed from the documents, before any code
+
+| Question | Answer, and where it comes from |
+|---|---|
+| Endpoints | `POST /api/v1/projects/{id}/invoices` (Architecture §5.2, Sequence §8, Wireframe E2) and `GET /api/v1/projects/{id}/invoice-balance` (Sequence §8, BR-3; §5.2 lacked the row) |
+| Controllers | Creation on a new `InvoicesController` (Admin-only); the balance on `ProjectsController`, because it is Project read data |
+| Authorization | Create: Admin `F` / Inspector `—`. Balance: Admin `F` / Inspector `R`. **No `IOwnershipValidator` anywhere** — `F` and `R`, never `S` |
+| Lifecycle | Creation only, into `Draft`. **No transition is performed in this slice** |
+| Guard | StateMachine §5's, assigned to `CreateInvoiceCommand` by name: an Invoice needs an `Active`/`OnHold` Project |
+| Numbering | A second method on the existing `INumberGeneratorService`, own sequence row, `RE-{YYYY}-{NNNNN}` |
+| Transactions | One `SaveChangesAsync`. **No explicit transaction** — a single insert is already atomic |
+| New Domain / schema / migration | **None**, apart from the pure `VatAllocation` calculation |
+
+### Two questions the documents did not answer — raised before implementation, decided by the user
+
+1. **The balance endpoint's authorization was undocumented.** `PermissionMatrix.md` §5 had no row for
+   it, and it grants Inspectors `—` on every Invoice action but `R` on Project detail. **Decided:
+   Admin `F` / Inspector `R`, as Project financial-summary data**, governing Slice 6's
+   `ProjectDetailDto` too — while conferring no Invoice-management permission. §5 gained the row.
+2. **A positive Invoice against a zero-gross Angebot has no defined allocation.** Reachable, not
+   hypothetical: `AngebotItem` accepts a `UnitPrice` of zero, so an all-zero Angebot reaches
+   `CustomerApproved`. **Decided: reject with `ConflictException` → 409**, inventing no rate — and
+   kept as narrow as the arithmetic, so a **zero-gross Invoice** against the same Angebot is still
+   allowed, and a zero-valued Project stays valid.
+
+### Design points worth not rediscovering
+
+- **The invariant is enforced twice, on purpose.** `VatAllocation` guarantees
+  `Net + VAT == Gross` by construction; `Invoice.Create` re-checks it structurally. The allocator
+  could be replaced tomorrow and the aggregate would still refuse an incoherent invoice.
+- **Within each rate group, VAT is `share − net`, not a second rate calculation.** That is what makes
+  the equality exact rather than approximate: a rounded net cannot leave a stray cent behind.
+- **A zero target returns before the divisor is ever touched**, which is what makes the zero/zero case
+  safe rather than lucky.
+- **The residual rule is internal.** It is not in `BusinessRules.md` and has no ADR: no requirement
+  specifies which rate group absorbs a cent, the per-rate detail is neither stored nor returned, and
+  the tests pin the externally visible properties (exact totals, BR-11 rounding, proportionality,
+  determinism) rather than the rule itself.
+- **BR-3 is a warning end to end.** No comparison against `AgreedTotal` exists in the handler, no
+  validator maximum exists, `Remaining` is never clamped, and there is no warning flag. The negative
+  number *is* the warning, and it is asserted at three layers.
+- **`AlreadyInvoiced` excludes `Void` and nothing else** — StateMachine §3.3's own wording. `Draft`
+  counts exactly as `Paid` does.
+- **The number is reserved last**, after every pre-evaluable guard (D66). Four tests assert the
+  sequence is untouched on each rejection path.
+- **`IProjectRepository.GetByIdAsync` was added** (write side, not `IProjectQueries`) because the
+  status guard is a rule about the aggregate's own state.
+- **201 carries no `Location`** — no invoice read endpoint is documented anywhere.
+
+### One implementation fact EF Core forced, found by tests rather than inspection
+
+`GetInvoiceBalanceAsync` was first written as a single query with a correlated `SUM` in the
+projection. It does not translate: reading `.Amount` off a value-converted `Money` property works in
+a plain projection (the Project detail read depends on that) but **not inside an aggregate, and not
+inside a correlated subquery** — EF Core throws `InvalidOperationException` rather than silently
+evaluating on the client, which is the good outcome. The shipped version is two statements, with
+`EF.Property<decimal>` naming the provider column so the `SUM` still runs in SQL. Both are indexed
+reads; the cost is one extra round trip, not a scan.
+
+### Tests added (80)
+
+**Domain (22)** — `VatAllocationTests`: the totals reconcile across a continuous 2,000-value range
+and across a four-rate mix; a single rate derives exactly; allocating the whole Angebot gross
+reproduces the Angebot's own net and VAT; half the gross carries half the VAT within a cent; the
+result is order-independent and repeatable; zero targets never divide; a positive target against a
+zero-gross mix is refused.
+
+**Application (26)** — `CreateInvoiceCommandHandlerTests` (20) covering the happy path, the split,
+one save, no transaction, the audit target, both 409s, the preserved zero/zero case, over-invoicing
+accepted, and four "no number reserved" assertions; `GetProjectInvoiceBalanceQueryHandlerTests` (6)
+covering pass-through of a negative remainder, the no-warning-field pin and the no-scope-parameter
+pin.
+
+**Infrastructure (12)** — `ProjectInvoiceBalanceQueriesTests` (8) against real LocalDB: no invoices
+gives zero rather than null, Sequence §8's worked example, accumulation, the `Void` exclusion, a
+negative remainder, isolation between Projects, unknown → null, and full cent precision through the
+SQL `SUM`. `NumberGeneratorServiceTests` (4) gained the invoice format, sequential increment,
+independence from the Angebot counter within one year, and a 50-parallel-caller uniqueness proof.
+
+**Api (20)** — `InvoiceEndpointsTests` (16), plus 4 discovered automatically by the reflection-driven
+`DependencyInjectionTests` (two handlers and two validators): the 201 contract with no `Location`,
+the split on the wire, the row reaching the database, both role gates with empty-body assertions,
+both 409-free BR-3 paths, the raw-JSON no-warning-field pin, and the two tests that hold Decision 1
+together — an Inspector *can* read the balance, and doing so still leaves invoice creation 403.
+
+### Adversarial verification
+
+Each defect introduced, the suite run, the file restored byte-identically.
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | Over-invoicing hard-blocked with a `ConflictException` | **2 failures** across Application and Api — `AnInvoiceExceedingTheAgreedTotalIsAccepted`, `Over_invoicing_is_allowed_and_reports_a_negative_remaining` |
+| 2 | `Remaining` clamped with `Math.Max(0m, …)` | **2 failures** across Infrastructure and Api — the negative remainder disappeared at both layers |
+| 3 | `Void` exclusion removed from the balance query | **1 failure** — `VoidInvoicesAreExcludedAndEveryOtherStatusCounts` |
+| 4 | Number reserved immediately after loading the Project, before the guards | **2 failures** — `NoNumberIsReservedWhenTheProjectIsCompleted`, `NoNumberIsReservedWhenTheAngebotGrossIsZero` |
+| 5 | `InvoicesController` widened to `Admin,Inspector` | **2 failures** — `An_inspector_cannot_create_an_invoice` and `Reading_the_balance_grants_an_inspector_no_invoice_permissions` |
+| 6 | Balance read narrowed to Admin only | **2 failures** — `An_inspector_can_read_the_balance_and_is_not_scoped` and, again, the paired test |
+
+Experiments 5 and 6 are worth keeping together: `Reading_the_balance_grants_an_inspector_no_invoice_permissions`
+fails in **both** directions, which is what makes Decision 1's boundary — visibility without
+management rights — a tested property rather than a comment.
+
+### Documentation updated in this slice
+
+- **`PermissionMatrix.md` §5** — new "View Project financial summary" row, Admin `F` / Inspector `R`,
+  recording narrowly why it was added and that it grants no Invoice permission.
+- **`Architecture.md` §5.2** — the missing `GET /api/v1/projects/{id}/invoice-balance` row, and the
+  `POST /projects/{id}/invoices` row filled in with its real contract. **§8** — the invoice-numbering
+  entry corrected to state the guarantee that exists (unique, never reused) rather than the one it
+  claimed (gapless), with the BR-5→BR-9 mis-citation fixed and no assertion about German law.
+- **`ARCHITECTURE_DECISIONS.md`** — **D66** added; thirteen rows added to the rejected-decisions table.
+- **`PROJECT_STATE.md` / `NEXT_STEPS.md` / `HANDOFF_PROMPT.md`** and this file — current figures and
+  the two decisions recorded as standing constraints.
+- **`BusinessRules.md` deliberately unchanged.** BR-3 and BR-9 already say what the code does; the
+  residual-cent rule is not a business rule and was not promoted into one.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- `dotnet test RenoTrack.slnx` → **1,148 passing, 0 failing** (332 Domain, 321 Application,
+  210 Infrastructure, 285 Api). Slice 3 added **80** — 22 Domain, 26 Application, 12 Infrastructure,
+  20 Api.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations; this
+  slice adds no schema.

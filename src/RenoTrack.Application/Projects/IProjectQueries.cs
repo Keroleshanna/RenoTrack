@@ -28,4 +28,21 @@ public interface IProjectQueries
     /// </para>
     /// </summary>
     Task<ProjectDetailDto?> GetByIdAsync(int id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// BR-3's running total for one Project — agreed, already invoiced, and the difference — or
+    /// <see langword="null"/> if no such Project exists. Sequence Diagram §8.
+    ///
+    /// <para>
+    /// <b><c>AlreadyInvoiced</c> excludes <c>Void</c> invoices and nothing else.</b>
+    /// StateMachine.md §3.3's side-effect column says a voided invoice is "excluded from
+    /// 'remaining balance' math going forward"; no document excludes any other status, so a
+    /// <c>Draft</c> invoice counts exactly as a <c>Paid</c> one does.
+    /// </para>
+    /// <para>
+    /// <b>No scope parameter</b>, for the same reason <see cref="GetByIdAsync"/> has none: §5
+    /// grants Inspectors <c>R</c> on Project data — read-only but unscoped.
+    /// </para>
+    /// </summary>
+    Task<ProjectInvoiceBalanceDto?> GetInvoiceBalanceAsync(int projectId, CancellationToken cancellationToken);
 }

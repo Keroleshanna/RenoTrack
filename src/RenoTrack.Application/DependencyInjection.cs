@@ -22,8 +22,11 @@ using RenoTrack.Application.CatalogItems.Commands.SaveAngebotItemAsCatalogItem;
 using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
+using RenoTrack.Application.Invoices.Commands.CreateInvoice;
+using RenoTrack.Application.Invoices.Dtos;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
+using RenoTrack.Application.Projects.Queries.GetProjectInvoiceBalance;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
@@ -142,6 +145,9 @@ public static class DependencyInjection
 
         services.AddScoped<IValidator<ConvertAngebotToProjectCommand>, ConvertAngebotToProjectCommandValidator>();
         services.AddScoped<IValidator<GetProjectByIdQuery>, GetProjectByIdQueryValidator>();
+        services.AddScoped<IValidator<GetProjectInvoiceBalanceQuery>, GetProjectInvoiceBalanceQueryValidator>();
+
+        services.AddScoped<IValidator<CreateInvoiceCommand>, CreateInvoiceCommandValidator>();
     }
 
     /// <summary>
@@ -179,6 +185,9 @@ public static class DependencyInjection
 
         // FR-7.1 / BR-2 — the only path by which a Project may come into existence.
         services.AddScoped<ICommandHandler<ConvertAngebotToProjectCommand, ProjectDto>, ConvertAngebotToProjectCommandHandler>();
+
+        // FR-8.1 — the only path by which an Invoice may come into existence.
+        services.AddScoped<ICommandHandler<CreateInvoiceCommand, InvoiceDto>, CreateInvoiceCommandHandler>();
     }
 
     /// <summary>
@@ -201,6 +210,7 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, PagedResult<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
 
         services.AddScoped<IQueryHandler<GetProjectByIdQuery, ProjectDetailDto>, GetProjectByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto>, GetProjectInvoiceBalanceQueryHandler>();
     }
 
     /// <summary>

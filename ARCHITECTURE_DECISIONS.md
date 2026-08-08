@@ -1156,6 +1156,36 @@ The first draft *did* fold it in, ordering user seeding after `Verify()` so that
 
 ---
 
+## D66 — Invoice Numbers Are Unique and Never Reused, But Not Gapless; Reserved as Late as Possible
+
+**Phase 8, Slice 3.**
+
+### The conflict, found while reconstructing the slice
+
+`Architecture.md` §8 said invoice numbering "must never skip or reuse numbers". The mechanism this project actually has cannot deliver the first half of that. `NumberGeneratorService` reserves a number with a single `UPDATE … OUTPUT` statement that commits **independently** of the caller's unit of work — that independence is exactly what D52 chose, because EF Core cannot express atomic increment-and-return inside the caller's transaction. So if anything fails after the reservation and before the Invoice row commits, the number is consumed and never appears on any document: a gap.
+
+§8 also attributed the requirement to **BR-5**. BR-5 is the mandatory §14 UStG *field list*; the numbering rule is **BR-9** ("An Invoice number, once issued, is never reused or reassigned — even if that Invoice is later Voided"). `StateMachine.md` §3.1 and §3.4 carried the same mis-citation and were corrected in Slice 1.
+
+Read literally, **BR-9 requires uniqueness and non-reuse — not gaplessness.** The stricter claim existed only in §8's own prose.
+
+### The decision
+
+1. **Guarantee uniqueness and non-reuse.** Both hold absolutely: the sequence only ever increments, a voided Invoice keeps its row and number, and the unique index on `Invoices.InvoiceNumber` is the backstop. Proven by a 50-parallel-caller integration test on the invoice sequence specifically, not inherited from the Angebot one.
+2. **Do not claim gaplessness.** `Architecture.md` §8 now states the real guarantee and names the accepted failure window.
+3. **Reserve as late as practical.** `CreateInvoiceCommandHandler` takes the number only after every guard that can be evaluated beforehand has passed — the Project exists, the Project is not `Completed`, the originating Angebot exists, and the VAT allocation has been computed. Four Application tests assert `ReservationCount == 0` on each rejection path, so a future reordering that burns a number on an ordinary bad request fails visibly.
+
+**Accepted failure window:** between the reservation statement committing and the Invoice's own `SaveChangesAsync` committing. In practice that is one insert. A gap can still occur if the database connection drops, the process dies, or the insert violates a constraint at that instant.
+
+**No claim is made about German legal requirements.** The documents this project owns require non-reuse; whether the law additionally requires an unbroken sequence is not something this decision asserts in either direction. If it is confirmed as a requirement, it needs its own design — reserving at send time rather than creation, or a compensating reservation table — not a re-reading of this entry.
+
+### Alternatives rejected
+
+- **Reserve inside the caller's transaction.** D52 established that EF Core cannot express this atomically; achieving it would need raw SQL participating in an explicit transaction held open across the whole handler, taking a row lock on the sequence for the duration of unrelated work. It would narrow the window, not close it — a rollback still discards the number — while adding contention to every concurrent invoice creation.
+- **Allocate the number after the commit and update the row.** Moves the gap into a worse place: an Invoice would briefly exist with no number, and a failure between the two writes leaves a permanently unnumbered legal document.
+- **Detect and reuse gaps.** Directly forbidden by BR-9's "never reused or reassigned".
+- **A gapless-at-read-time renumbering view.** Would make the number on a sent document differ from the number in the database — the one thing invoice numbering exists to prevent.
+- **Leave §8's wording alone.** Rejected outright: a document asserting a guarantee the code does not provide is worse than no document, and this is a legally-adjacent claim.
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1261,3 +1291,16 @@ The first draft *did* fold it in, ordering user seeding after `Verify()` so that
 | Opening a transaction on the reuse-existing-Customer path for symmetry | D48 amendment | One `SaveChangesAsync` is already atomic through EF's implicit transaction — it would take a lock for nothing |
 | Matching Customers by email, phone, name or address during conversion | Phase 7 Slice 3 | A customer-identity policy no document specifies; getting it wrong merges strangers or splits a genuine repeat customer. `ERD.md` records the `LeadId UK` consequence as a known limitation instead |
 | Refreshing an existing Customer's copied details from the Lead at conversion | Phase 7 Slice 3 | Would let an unrelated Lead edit rewrite the party an earlier Project was agreed with — the drift BR-8 forbids for `AngebotItem`; no document asks for a refresh |
+| Blocking an Invoice that exceeds the Project's agreed total | D66 / Phase 8 Slice 3 | BR-3 says the system "warns (does not hard-block)"; a 409 or validator maximum would convert a documented warning into a prohibition |
+| Clamping `Remaining` at zero on the invoice-balance read | D66 / Phase 8 Slice 3 | The negative value *is* BR-3's warning — flooring it deletes the only signal the rule asks the system to produce |
+| An `isOverInvoiced`/`warning` field on the balance DTO | Phase 8 Slice 3 | Sequence Diagram §8 defines three figures; a flag would invent a contract no document specifies, and the number already carries the information |
+| Excluding `Draft` invoices from `AlreadyInvoiced` | Phase 8 Slice 3 | StateMachine §3.3 excludes `Void` and nothing else |
+| Reserving the invoice number before the Project/Angebot guards | D66 | A reservation is irreversible (D52), so a number taken before an ordinary bad request is a number burned for nothing |
+| Reserving the invoice number inside the caller's transaction | D66 | D52 established EF Core cannot express it; would hold a sequence row lock across unrelated work and still not close the gap |
+| Inventing a VAT rate for a positive Invoice against a zero-gross Angebot | Phase 8 Slice 3 | No proportion exists to allocate by; assuming 0%, picking among zero-valued groups, or blending would fabricate a legally relevant figure. Rejected with a 409 instead, kept as narrow as the arithmetic problem |
+| Rejecting a **zero-gross** Invoice against a zero-gross Angebot | Phase 8 Slice 3 | It needs no proportion, so the arithmetic problem does not arise — widening the rule would invalidate a Project the documents allow |
+| A blended effective VAT rate derived from the Angebot's totals | Phase 8 Slice 3 | Collapses a legally mixed-rate document (BR-6) into a rate appearing on no document |
+| Promoting the residual-cent rule into `BusinessRules.md` or an ADR of its own | Phase 8 Slice 3 | Deterministic rounding machinery, not business policy; no requirement specifies which rate group absorbs a cent, and the per-rate detail is neither stored nor returned |
+| An explicit transaction in `CreateInvoiceCommandHandler` | Phase 8 Slice 3 | One insert is already atomic under EF Core's implicit transaction; D48's amendment exists for genuine multi-save identity problems, not for symmetry |
+| An `IOwnershipValidator` call on Invoice creation or the balance read | Phase 8 Slice 3 | `PermissionMatrix.md` §5 marks them `F` and `R` respectively, never `S` — an ownership check would be a semantic error (CLAUDE.md §16) |
+| A `GET /api/v1/invoices/{id}` invented so 201 could carry a `Location` | Phase 8 Slice 3 | No document defines an invoice read endpoint; `POST /leads/{id}/inspections` already returns 201 without one |

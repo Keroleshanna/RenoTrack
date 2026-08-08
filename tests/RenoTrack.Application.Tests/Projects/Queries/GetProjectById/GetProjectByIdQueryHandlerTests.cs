@@ -4,6 +4,7 @@ using RenoTrack.Application.Projects;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
 using RenoTrack.Domain.Enums;
+using RenoTrack.Application.Tests.Fakes;
 
 namespace RenoTrack.Application.Tests.Projects.Queries.GetProjectById;
 
@@ -70,13 +71,4 @@ public class GetProjectByIdQueryHandlerTests
         Assert.Equal([nameof(GetProjectByIdQuery.Id)], parameters);
     }
 
-    private sealed class FakeProjectQueries : IProjectQueries
-    {
-        private readonly Dictionary<int, ProjectDetailDto> _projects = [];
-
-        public void Seed(ProjectDetailDto project) => _projects[project.Id] = project;
-
-        public Task<ProjectDetailDto?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
-            Task.FromResult(_projects.GetValueOrDefault(id));
-    }
 }

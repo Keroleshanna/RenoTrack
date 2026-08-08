@@ -91,6 +91,7 @@ public static class DependencyInjection
         services.AddScoped<ITokenLinkRepository, TokenLinkRepository>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<ICatalogItemRepository, CatalogItemRepository>();
         services.AddScoped<ICatalogItemQueries, CatalogItemQueries>();
         services.AddScoped<IAngebotQueries, AngebotQueries>();
