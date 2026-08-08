@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Domain.Entities;
 
@@ -16,4 +17,16 @@ public sealed class InvoiceRepository(RenoTrackDbContext dbContext) : IInvoiceRe
 {
     public async Task AddAsync(Invoice invoice, CancellationToken cancellationToken) =>
         await dbContext.Invoices.AddAsync(invoice, cancellationToken);
+
+    /// <summary>
+    /// Eagerly includes <c>Payments</c> — CLAUDE.md §4's "a repository returns the full aggregate"
+    /// rule, which is why this uses <c>FirstOrDefaultAsync</c> rather than <c>FindAsync</c>
+    /// (<c>FindAsync</c> supports no <c>Include</c>), exactly as <c>InspectionRepository</c> does
+    /// for its photos. Nothing in Slice 4 reads a Payment, but a partial load is not a contract
+    /// this project offers.
+    /// </summary>
+    public async Task<Invoice?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+        await dbContext.Invoices
+            .Include(invoice => invoice.Payments)
+            .FirstOrDefaultAsync(invoice => invoice.Id == id, cancellationToken);
 }

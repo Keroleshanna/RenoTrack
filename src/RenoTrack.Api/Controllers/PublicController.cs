@@ -6,6 +6,8 @@ using RenoTrack.Api.Public.Dtos;
 using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetPublicAngebotByToken;
+using RenoTrack.Application.Invoices.Dtos;
+using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
 using RenoTrack.Application.Common;
 
 namespace RenoTrack.Api.Controllers;
@@ -46,7 +48,8 @@ namespace RenoTrack.Api.Controllers;
 [AllowAnonymous]
 public sealed class PublicController(
     IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto> getPublicAngebotHandler,
-    ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto> recordDecisionHandler) : ControllerBase
+    ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto> recordDecisionHandler,
+    IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto> getPublicInvoiceHandler) : ControllerBase
 {
     /// <summary>
     /// The read-only Angebot behind a token link (SRS FR-6.2, Wireframe A3).
@@ -113,5 +116,40 @@ public sealed class PublicController(
             cancellationToken);
 
         return Ok(angebot);
+    }
+
+    /// <summary>
+    /// The read-only Invoice behind a token link (SRS FR-8.3, Wireframe A4).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read-only is the whole surface.</b> `PermissionMatrix.md` §7 grants the customer "View
+    /// Invoice via token link" and nothing else — there is no invoice decision action, so unlike the
+    /// Angebot link this one is never consumed and <c>UsedAt</c> is never set on it. BR-4 mentions
+    /// "an Invoice's decision-type action" hypothetically; none is documented and none is invented.
+    /// </para>
+    /// <para>
+    /// 404 covers both an unknown token and a token belonging to something other than an Invoice,
+    /// deliberately indistinguishably. 410 means the link genuinely expired.
+    /// </para>
+    /// <para>
+    /// <b>Bank details and a PDF download are absent</b>, though Wireframe A4 shows both: no
+    /// document defines where the company's IBAN/BIC live (G-5), and PDF generation is Phase 14's
+    /// (G-4). A4's "VAT (19%)" label likewise cannot carry a percentage — an Invoice stores only a
+    /// VAT *amount*, since `InvoiceLine` is deferred.
+    /// </para>
+    /// </remarks>
+    [HttpGet("invoices/{token}")]
+    [ProducesResponseType<PublicInvoiceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status410Gone)]
+    public async Task<IActionResult> GetInvoice(string token, CancellationToken cancellationToken)
+    {
+        var invoice = await getPublicInvoiceHandler.HandleAsync(
+            new GetPublicInvoiceByTokenQuery(token),
+            cancellationToken);
+
+        return Ok(invoice);
     }
 }

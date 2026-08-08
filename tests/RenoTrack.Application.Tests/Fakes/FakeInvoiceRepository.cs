@@ -18,4 +18,17 @@ public sealed class FakeInvoiceRepository : IInvoiceRepository
         AddedInvoices.Add(invoice);
         return Task.CompletedTask;
     }
+
+    private readonly Dictionary<int, Invoice> _byId = [];
+
+    public Task<Invoice?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+        Task.FromResult(_byId.GetValueOrDefault(id));
+
+    /// <summary>Simulates database-assigned identity — reflection, test infrastructure only (CLAUDE.md §14).</summary>
+    public Invoice Seed(Invoice invoice, int id)
+    {
+        typeof(Invoice).GetProperty(nameof(Invoice.Id))!.SetValue(invoice, id);
+        _byId[id] = invoice;
+        return invoice;
+    }
 }

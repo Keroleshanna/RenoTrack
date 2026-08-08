@@ -65,4 +65,12 @@ public enum AuditAction
     /// existence, and SRS FR-12.1 names "Invoice creation/status changes" as its own audited event.
     /// </summary>
     InvoiceCreated,
+
+    /// <summary>
+    /// The Invoice was sent to the customer via a token link (FR-8.3, Phase 8 Slice 4). Logged
+    /// against the <c>Invoice</c>, unlike <see cref="AngebotSent"/> which is logged against the Lead
+    /// — sending an Angebot drives <c>Lead.MarkAngebotSent()</c>, a pipeline milestone, whereas
+    /// sending an Invoice changes no other aggregate's state at all.
+    /// </summary>
+    InvoiceSent,
 }

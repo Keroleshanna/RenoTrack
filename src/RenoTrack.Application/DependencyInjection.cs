@@ -23,6 +23,8 @@ using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
+using RenoTrack.Application.Invoices.Commands.SendInvoice;
+using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
 using RenoTrack.Application.Invoices.Dtos;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
@@ -148,6 +150,8 @@ public static class DependencyInjection
         services.AddScoped<IValidator<GetProjectInvoiceBalanceQuery>, GetProjectInvoiceBalanceQueryValidator>();
 
         services.AddScoped<IValidator<CreateInvoiceCommand>, CreateInvoiceCommandValidator>();
+        services.AddScoped<IValidator<SendInvoiceCommand>, SendInvoiceCommandValidator>();
+        services.AddScoped<IValidator<GetPublicInvoiceByTokenQuery>, GetPublicInvoiceByTokenQueryValidator>();
     }
 
     /// <summary>
@@ -188,6 +192,7 @@ public static class DependencyInjection
 
         // FR-8.1 — the only path by which an Invoice may come into existence.
         services.AddScoped<ICommandHandler<CreateInvoiceCommand, InvoiceDto>, CreateInvoiceCommandHandler>();
+        services.AddScoped<ICommandHandler<SendInvoiceCommand, InvoiceDto>, SendInvoiceCommandHandler>();
     }
 
     /// <summary>
@@ -211,6 +216,10 @@ public static class DependencyInjection
 
         services.AddScoped<IQueryHandler<GetProjectByIdQuery, ProjectDetailDto>, GetProjectByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto>, GetProjectInvoiceBalanceQueryHandler>();
+
+        // Last in the Invoice group, matching the Angebot group above: the customer's read is the
+        // final step, after the document has been created and sent.
+        services.AddScoped<IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto>, GetPublicInvoiceByTokenQueryHandler>();
     }
 
     /// <summary>

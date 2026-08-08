@@ -17,10 +17,10 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - origin/main: 697292b ("Merge pull request #13 from Keroleshanna/feature/phase-7-angebot-to-project").
 - PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6) and #13 (Phase 7) are MERGED.
 - Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b.
-  **Phase 8 Slices 1–3 of 7 are COMPLETE.** Nothing has been pushed; no PR exists.
+  **Phase 8 Slices 1–4 of 7 are COMPLETE.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 1,148 passing, 0 failing — 332 Domain, 321 Application, 210 Infrastructure, 285 Api.
-  (Phase 7 merge baseline 979; Slice 1 +74 Domain, Slice 2 +15 Infrastructure, Slice 3 +80.)
+- Tests: 1,190 passing, 0 failing — 332 Domain, 342 Application, 215 Infrastructure, 301 Api.
+  (Phase 7 merge baseline 979; Slice 1 +74, Slice 2 +15, Slice 3 +80, Slice 4 +42.)
 - Migrations: 8 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments); has-pending-model-changes
   reports none.
@@ -28,7 +28,7 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
 
-YOUR TASK: CONTINUE PHASE 8 AT SLICE 4.
+YOUR TASK: CONTINUE PHASE 8 AT SLICE 5.
 
 Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion".
 PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions.
@@ -36,8 +36,8 @@ PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved 
   Slice 1 — Domain: Invoice + Payment child ................. DONE
   Slice 2 — Infrastructure: schema + migration #8 ........... DONE
   Slice 3 — Create Invoice + balance + numbering + VAT split ... DONE
-  Slice 4 — Send Invoice + public token read ............... next
-  Slice 5 — Mark Paid + Void
+  Slice 4 — Send Invoice + public token read ............... DONE
+  Slice 5 — Mark Paid + Void .............................. next
   Slice 6 — Complete Project + FR-7.4 invoice information
   Slice 7 — Overdue capability + Phase 8 completion gate
 

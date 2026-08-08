@@ -49,6 +49,12 @@ public sealed class LoggingNoOpEmailSender(ILogger<LoggingNoOpEmailSender> logge
         return Task.CompletedTask;
     }
 
+    public Task SendInvoiceReadyNotificationAsync(InvoiceReadyNotification notification, CancellationToken cancellationToken)
+    {
+        LogNotSent(nameof(SendInvoiceReadyNotificationAsync), $"InvoiceId={notification.InvoiceId}, InvoiceNumber={notification.InvoiceNumber}");
+        return Task.CompletedTask;
+    }
+
     public Task SendAngebotDecisionNotificationAsync(AngebotDecisionNotification notification, CancellationToken cancellationToken)
     {
         LogNotSent(

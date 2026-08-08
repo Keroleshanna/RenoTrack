@@ -12,7 +12,7 @@ a slice of its own.
 | 1 | Domain: `Invoice` + `Payment` child | ✅ done |
 | 2 | Infrastructure: schema + migration #8 `AddInvoicesAndPayments` | ✅ done |
 | 3 | Create Invoice + remaining balance + numbering + VAT allocation | ✅ done |
-| 4 | Send Invoice + public token read | ⬜ not started |
+| 4 | Send Invoice + public token read | ✅ done |
 | 5 | Mark Paid + Void | ⬜ not started |
 | 6 | Complete Project + FR-7.4 Project detail invoice information | ⬜ not started |
 | 7 | Overdue capability + Phase 8 completion gate | ⬜ not started |
@@ -434,5 +434,123 @@ management rights — a tested property rather than a comment.
 - `dotnet test RenoTrack.slnx` → **1,148 passing, 0 failing** (332 Domain, 321 Application,
   210 Infrastructure, 285 Api). Slice 3 added **80** — 22 Domain, 26 Application, 12 Infrastructure,
   20 Api.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations; this
+  slice adds no schema.
+
+---
+
+## Slice 4 — Send Invoice + public token read
+
+**Scope:** the `Draft → Sent` transition and the customer's read-only view. No mark-paid, no void, no
+overdue, no project completion, no Payment surface, no `InvoiceLine`, no schema change, no PDF.
+
+### Scope reconstructed from the documents, before any code
+
+| Question | Answer, and where it comes from |
+|---|---|
+| Operations | **Send only.** Architecture §5.2, Sequence §9's first half, and this file's slice table |
+| Endpoints | `POST /api/v1/invoices/{id}/send` (Admin `F`, PermissionMatrix §5) and `GET /api/v1/public/invoices/{token}` (anonymous, §7 "read-only", Wireframe A4) |
+| Transition | `Draft → Sent`, guard `GrossAmount > 0` (StateMachine §3.3) — already in `Invoice.Send()`, so **this slice adds no Domain code** |
+| Ownership scoping | **None on either.** Send is `F`; the public read has no principal at all |
+| Audit | `InvoiceSent` → target `Invoice`, after the commit |
+| Notification | FR-9.1 names Angebot **and Invoice**; Sequence §9 sends to `Customer.Email`. New `SendInvoiceReadyNotificationAsync` + `InvoiceReadyNotification`, after the commit |
+| Transaction | One `SaveChangesAsync` covering the status change and the token row. **No explicit transaction** |
+| Payment creation | Not here — Payments arrive with mark-paid in Slice 5 |
+| `InvoiceLine` | Not required by anything in this slice; stays deferred |
+| Project completion | Not assigned here, and its invoice precondition could not be enforced yet |
+
+**No contradiction, no undocumented rule, no authorization or transaction ambiguity was found.**
+
+### Design points worth not rediscovering
+
+- **The Domain guard runs before the token is generated**, per Architecture §9's ordering principle.
+  Nothing before the commit is irreversible, but the ordering is kept anyway — and two tests assert
+  a refused send issues no token, commits nothing, audits nothing and emails nothing.
+- **Both writes share one `SaveChangesAsync`.** A committed token link for an Invoice that never
+  reached `Sent` is a live credential for a bill nobody issued; a `Sent` Invoice with no link is a
+  customer who cannot see what they owe.
+- **`InvoiceSent` is audited against the `Invoice`, not the Project** — unlike `AngebotSent`, which
+  is logged against the Lead because sending an Angebot drives `Lead.MarkAngebotSent()`. Sending an
+  Invoice changes no other aggregate's state at all.
+- **The public read does *not* check `UsedAt`.** Sequence §12 scopes that check to "decision-type
+  actions only", and for an Invoice the check is not merely skipped but **unreachable**:
+  PermissionMatrix §7 grants the customer viewing and nothing else, so no Invoice decision action
+  exists and no Invoice link is ever consumed. BR-4 mentions "an Invoice's decision-type action"
+  hypothetically; none is documented and none was invented.
+- **A wrong-entity-type token and an unknown token are the same branch**, so they cannot drift into
+  producing distinguishable responses — a test asserts the two messages are identical.
+- **No `Draft` guard on the public read.** A token link only exists once an Invoice is sent, so such
+  a check would be unreachable code, and CLAUDE.md §6 forbids a handler re-checking aggregate state.
+- **`PublicInvoiceDto` is a separate hierarchy**, never a projection of `InvoiceDto` — Phase 6's rule.
+  Internal ids, `IssueDate`, `Status`, `VoidReason` and Payments are all withheld, pinned by property
+  name at the Application layer and against raw JSON at the API layer.
+- **The public invoice route inherits D65's rate limiter and `RouteDiagnostics`' token redaction by
+  placement**, because it sits on the existing `PublicController` and its route parameter is named
+  `token`. Both are pinned by tests rather than assumed.
+
+### Three gaps recorded rather than filled
+
+1. **Wireframe A4's "VAT (19%)" cannot carry a percentage.** An Invoice stores a VAT *amount* and no
+   rate, because `InvoiceLine` is deferred and the per-rate split is computed at creation then
+   discarded. The amount is exposed; deriving or assuming a rate on a document of this kind would
+   fabricate a legally relevant figure.
+2. **No bank details** (G-5) — A4 renders IBAN/BIC and no document defines where they live.
+3. **No PDF and no attachment field** (G-4) — Sequence §9 draws `IPdfGenerator`; that is Phase 14's.
+   FR-8.3's "token link, by email as a PDF, or both" is satisfied by the link.
+
+**Flagged for Slice 5:** the public DTO carries no `Status`. At the end of Slice 4 a token-bearing
+Invoice can only be `Sent`, so the field would be dead data — but Void and Paid arrive in Slice 5,
+and **that is when it must be decided whether a voided or paid invoice says so on the customer's
+page.** A voided invoice silently rendering as an ordinary payable bill would be the failure mode.
+
+### Tests added (42)
+
+**Application (21)** — `SendInvoiceCommandHandlerTests` (13): the transition, exactly one token
+issued for the right entity type, both writes in one save, no explicit transaction, the audit target,
+the email addressed to `Customer.Email` carrying the same token that was persisted, all four
+rejections, and two "no residue on rejection" assertions. `GetPublicInvoiceByTokenQueryHandlerTests`
+(8): the happy path, unknown/wrong-type/expired/empty-token/dangling-entity cases, the
+identical-message proof, the used-token-still-renders rule, and the DTO property pin.
+
+**Infrastructure (5)** — `InvoiceRepositoryTests` against real LocalDB: round trip, null for an
+unknown id, `GetByIdAsync` eagerly loading `Payments` (CLAUDE.md §4's full-aggregate contract, which
+Slice 5 will depend on), a mutation persisting through `SaveChangesAsync` alone, and `AddAsync` not
+committing.
+
+**Api (16)** — `InvoiceEndpointsTests` grew by 12 (send happy path, the token row actually landing,
+the second-send 409, unknown 404, both send role gates, the public read, the raw-JSON field pin,
+unknown and Angebot tokens both 404, the token never echoed in an error body, and the rate-limiter
+placement pin), plus 4 discovered automatically by the reflection-driven `DependencyInjectionTests`.
+
+### Adversarial verification
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | `invoice.Send()` moved *after* the token was generated and staged | **2 failures** — `ARefusedSendIssuesNoTokenAndLeavesNoTrace`, `AZeroGrossRejectionIssuesNoToken` |
+| 2 | Entity-type check dropped from the public read (an Angebot token would resolve) | **1 failure** — `AnAngebotTokenIsNotFoundRatherThanADistinctError` |
+| 3 | Expiry check removed from the public read | **1 failure** — `AnExpiredTokenIsGone` |
+| 4 | Internal `Id` added to `PublicInvoiceDto` | **2 failures** across Application and Api — both property pins |
+| 5 | Class-level `[Authorize(Roles = Admin)]` weakened to `[Authorize]` | **3 failures** — `An_inspector_cannot_send_an_invoice`, `An_inspector_cannot_create_an_invoice`, `Reading_the_balance_grants_an_inspector_no_invoice_permissions` |
+
+**Experiment 5's first attempt was a non-defect, and that is worth recording.** Adding
+`[Authorize(Roles = "Admin,Inspector")]` to the *action* while leaving the class-level attribute in
+place changed nothing and failed no test — ASP.NET Core **ANDs** multiple `[Authorize]` attributes,
+so an action-level attribute can never widen a class-level gate. The experiment was redone at class
+level, where it fails loudly. The lesson generalises: when adversarially testing a role gate, weaken
+the attribute that actually governs, or the experiment proves nothing.
+
+### Documentation updated in this slice
+
+`Architecture.md` §5.2 (the send and public-invoice rows filled in with their real contracts),
+`PROJECT_STATE.md`, `NEXT_STEPS.md`, `HANDOFF_PROMPT.md`, and this file. **`PermissionMatrix.md`,
+`StateMachine.md`, `BusinessRules.md` and `ERD.md` all needed no change** — every rule this slice
+implements was already stated correctly in them.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- `dotnet test RenoTrack.slnx` → **1,190 passing, 0 failing** (332 Domain, 342 Application,
+  215 Infrastructure, 301 Api). Slice 4 added **42** — 21 Application, 5 Infrastructure, 16 Api.
+  Domain unchanged, correctly: the transition it uses already existed.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations; this
   slice adds no schema.

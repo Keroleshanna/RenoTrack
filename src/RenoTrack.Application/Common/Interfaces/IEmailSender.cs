@@ -30,6 +30,12 @@ public interface IEmailSender
     Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken);
 
     /// <summary>
+    /// SRS FR-9.1 / Sequence Diagram §9: email the customer their token link when an Invoice is
+    /// sent. FR-9.1 names Angebot and Invoice together; this is the Invoice half.
+    /// </summary>
+    Task SendInvoiceReadyNotificationAsync(InvoiceReadyNotification notification, CancellationToken cancellationToken);
+
+    /// <summary>
     /// SRS FR-9.2's third Admin trigger / Sequence Diagram §6: the customer has approved or
     /// rejected. Completes the three notifications FR-9.2 enumerates.
     /// </summary>

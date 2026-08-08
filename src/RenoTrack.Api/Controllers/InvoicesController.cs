@@ -5,6 +5,7 @@ using RenoTrack.Api.Invoices.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
+using RenoTrack.Application.Invoices.Commands.SendInvoice;
 using RenoTrack.Application.Invoices.Dtos;
 
 namespace RenoTrack.Api.Controllers;
@@ -31,15 +32,16 @@ namespace RenoTrack.Api.Controllers;
 /// by resource beats cohesion by URL prefix.
 /// </para>
 /// <para>
-/// <b>There is deliberately no <c>send</c>, <c>mark-paid</c>, <c>void</c> or read endpoint yet.</b>
-/// The Domain carries all three transitions (StateMachine.md §3.3); they arrive in Slices 4 and 5.
+/// <b>There is deliberately no <c>mark-paid</c>, <c>void</c> or read endpoint yet.</b> The Domain
+/// carries both remaining transitions (StateMachine.md §3.3); they arrive in Slice 5.
 /// </para>
 /// </remarks>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Authorize(Roles = Roles.Admin)]
 public sealed class InvoicesController(
-    ICommandHandler<CreateInvoiceCommand, InvoiceDto> createInvoiceHandler) : ControllerBase
+    ICommandHandler<CreateInvoiceCommand, InvoiceDto> createInvoiceHandler,
+    ICommandHandler<SendInvoiceCommand, InvoiceDto> sendInvoiceHandler) : ControllerBase
 {
     /// <summary>
     /// Creates one Invoice against a Project, splitting the entered gross across the originating
@@ -84,6 +86,38 @@ public sealed class InvoicesController(
             cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, invoice);
+    }
+
+    /// <summary>
+    /// Sends a <c>Draft</c> Invoice to the customer as a token link (SRS FR-8.3, Sequence Diagram
+    /// §9). Admin only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **No request body** — the Invoice id comes from the route and the Admin from the token's
+    /// subject claim (D61), so there is no value a caller could legitimately supply. In particular
+    /// the token and its expiry are generated server-side.
+    /// </para>
+    /// <para>
+    /// 409 when the Invoice is not <c>Draft</c> (already sent, paid or voided) or its gross amount
+    /// is zero — StateMachine.md §3.3's guard, raised by the aggregate itself and mapped by the one
+    /// exception handler (D59). **No PDF is generated and none is attached**: Sequence Diagram §9
+    /// draws one, but that is Phase 14's work (G-4), and FR-8.3 is satisfied by the link.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/send")]
+    [ProducesResponseType<InvoiceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Send(int id, CancellationToken cancellationToken)
+    {
+        var invoice = await sendInvoiceHandler.HandleAsync(
+            new SendInvoiceCommand(id, SentByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(invoice);
     }
 
     /// <summary>The authenticated caller's user id, from the token's subject claim (D61).</summary>

@@ -311,7 +311,241 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         Assert.Equal(0m, balance.GetProperty("remaining").GetDecimal());
     }
 
+    // ---- Send (Slice 4) ----------------------------------------------------
+
+    [Fact]
+    public async Task Admin_can_send_a_draft_invoice()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Sent", body.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// The status change and the token row must land together — a token for an Invoice that never
+    /// became Sent would be a live credential for a bill nobody issued.
+    /// </summary>
+    [Fact]
+    public async Task Sending_issues_a_token_link_for_the_invoice()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+        var link = await context.TokenLinks.SingleAsync(
+            t => t.EntityType == TokenLinkEntityType.Invoice && t.EntityId == invoiceId);
+        Assert.Null(link.UsedAt);
+
+        var invoice = await context.Invoices.SingleAsync(i => i.Id == invoiceId);
+        Assert.Equal(InvoiceStatus.Sent, invoice.Status);
+    }
+
+    /// <summary>StateMachine.md §3.3: only a Draft Invoice may be sent — a second send is a 409.</summary>
+    [Fact]
+    public async Task Sending_an_already_sent_invoice_is_a_conflict()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null)).StatusCode);
+
+        var second = await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Sending_an_unknown_invoice_is_not_found()
+    {
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync("/api/v1/invoices/999999999/send", content: null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// PermissionMatrix §5: "Send Invoice — Admin F / Inspector —". The empty-body assertion is what
+    /// distinguishes a role-gate 403 from an ownership 403 (Phase 4 Slice 9's lesson).
+    /// </summary>
+    [Fact]
+    public async Task An_inspector_cannot_send_an_invoice()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var inspector = await InspectorClientAsync();
+
+        var response = await inspector.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task An_anonymous_caller_cannot_send_an_invoice()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // ---- Public read (Slice 4) ---------------------------------------------
+
+    [Fact]
+    public async Task The_customer_can_read_the_invoice_with_their_token()
+    {
+        var (invoiceId, token) = await SentInvoiceAsync();
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.GetAsync($"/api/v1/public/invoices/{token}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("M. Klein", body.GetProperty("customerName").GetString());
+        Assert.Equal(
+            body.GetProperty("grossAmount").GetDecimal(),
+            body.GetProperty("netAmount").GetDecimal() + body.GetProperty("vatAmount").GetDecimal());
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var invoice = await context.Invoices.SingleAsync(i => i.Id == invoiceId);
+        Assert.Equal(invoice.InvoiceNumber, body.GetProperty("invoiceNumber").GetString());
+    }
+
+    /// <summary>
+    /// The public payload is a separate hierarchy from InvoiceDto, and what it withholds is the
+    /// point — no internal ids, no issue date, no status, no void reason, no payments. Asserted
+    /// against raw JSON so a typed read cannot ignore an added field.
+    /// </summary>
+    [Fact]
+    public async Task The_public_payload_exposes_only_the_customer_facing_fields()
+    {
+        var (_, token) = await SentInvoiceAsync();
+        using var anonymous = factory.CreateClient();
+
+        var body = await anonymous.GetFromJsonAsync<JsonElement>($"/api/v1/public/invoices/{token}");
+
+        Assert.Equal(
+            ["customerName", "dueDate", "grossAmount", "invoiceNumber", "netAmount", "vatAmount"],
+            body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task An_unknown_public_token_is_not_found()
+    {
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.GetAsync("/api/v1/public/invoices/not-a-real-token");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// An Angebot token on the invoice route must be indistinguishable from an unknown one — the
+    /// same 404, so an anonymous caller learns nothing about which tokens exist.
+    /// </summary>
+    [Fact]
+    public async Task An_angebot_token_on_the_invoice_route_is_not_found()
+    {
+        var projectId = await ConvertedProjectAsync();
+
+        string angebotToken;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+            var project = await context.Projects.SingleAsync(p => p.Id == projectId);
+            angebotToken = (await context.TokenLinks.SingleAsync(
+                t => t.EntityType == TokenLinkEntityType.Angebot && t.EntityId == project.AngebotId)).Token;
+        }
+
+        using var anonymous = factory.CreateClient();
+        var response = await anonymous.GetAsync($"/api/v1/public/invoices/{angebotToken}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// The token is the credential, so it must never reach a diagnostic surface — not the
+    /// ProblemDetails body, not `instance`. Phase 6's rule, now covering the invoice route, which
+    /// `RouteDiagnostics` picks up automatically because the route parameter is named `token`.
+    /// </summary>
+    [Fact]
+    public async Task A_failing_public_read_never_echoes_the_token()
+    {
+        const string secret = "a-secret-invoice-token-value";
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.GetAsync($"/api/v1/public/invoices/{secret}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.DoesNotContain(secret, body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The invoice route joins the existing public controller, so it inherits D65's rate-limit
+    /// policy by placement rather than by a second declaration. Pinned so a future refactor cannot
+    /// move it somewhere unthrottled.
+    /// </summary>
+    [Fact]
+    public void The_public_invoice_route_lives_on_the_rate_limited_controller()
+    {
+        var method = typeof(RenoTrack.Api.Controllers.PublicController)
+            .GetMethods()
+            .Single(m => m.Name == "GetInvoice");
+
+        Assert.Equal(typeof(RenoTrack.Api.Controllers.PublicController), method.DeclaringType);
+        Assert.NotNull(typeof(RenoTrack.Api.Controllers.PublicController)
+            .GetCustomAttributes(typeof(Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute), inherit: false)
+            .SingleOrDefault());
+    }
+
     // ---- Seeding -----------------------------------------------------------
+
+    /// <summary>A Draft Invoice on a real converted Project, created through the real endpoint.</summary>
+    private async Task<int> DraftInvoiceAsync()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var created = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 297.50m, dueDate = DateTime.UtcNow.AddDays(14) });
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        return (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+    }
+
+    /// <summary>
+    /// A Sent Invoice and the token the customer actually received — read back from the database
+    /// because the token is never returned in any response body, deliberately.
+    /// </summary>
+    private async Task<(int InvoiceId, string Token)> SentInvoiceAsync()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        var sent = await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+        Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var token = (await context.TokenLinks.SingleAsync(
+            t => t.EntityType == TokenLinkEntityType.Invoice && t.EntityId == invoiceId)).Token;
+
+        return (invoiceId, token);
+    }
 
     /// <summary>
     /// Drives a Lead all the way to a converted Project through the real endpoints — including the
