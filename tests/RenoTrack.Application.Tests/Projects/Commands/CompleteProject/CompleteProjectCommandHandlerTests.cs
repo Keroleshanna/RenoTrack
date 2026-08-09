@@ -160,14 +160,12 @@ public class CompleteProjectCommandHandlerTests
     [InlineData(InvoiceStatus.Overdue)]
     public async Task AnUnsettledInvoiceBlocksCompletion(InvoiceStatus status)
     {
-        SeedProject();
+        var project = SeedProject();
         SeedInvoice(status);
 
         await Assert.ThrowsAsync<ConflictException>(() => CompleteAsync());
 
-        // The in-memory aggregate has already been mutated at this point — `Complete()` runs first
-        // so the Project's own state guard reports before any invoice-derived refusal. What matters
-        // is that nothing was committed; `ABlockedCompletionCommitsNothing…` states that directly.
+        Assert.Equal(ProjectStatus.Active, project.Status);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
     }
@@ -210,10 +208,11 @@ public class CompleteProjectCommandHandlerTests
     [Fact]
     public async Task AProjectWithNoInvoicesAtAllIsBlocked()
     {
-        SeedProject();
+        var project = SeedProject();
 
         await Assert.ThrowsAsync<ConflictException>(() => CompleteAsync());
 
+        Assert.Equal(ProjectStatus.Active, project.Status);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
     }
 
@@ -266,12 +265,13 @@ public class CompleteProjectCommandHandlerTests
     [Fact]
     public async Task AnOverrideWithNothingToOverrideIsRejectedAndAuditsNothing()
     {
-        SeedProject();
+        var project = SeedProject();
         SeedInvoice(InvoiceStatus.Paid);
 
         await Assert.ThrowsAsync<ValidationException>(
             () => CompleteAsync(forceOverride: true, reason: Reason));
 
+        Assert.Equal(ProjectStatus.Active, project.Status);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
     }
@@ -310,76 +310,88 @@ public class CompleteProjectCommandHandlerTests
     // ---- The override's reach (K-5) ----------------------------------------
 
     /// <summary>
-    /// <b>The override bypasses the invoice precondition and nothing else.</b> The Project's own
-    /// <c>Active</c>-only invariant belongs to the aggregate and no request field can reach it.
+    /// <b>The invariant: no combination of inputs completes a non-<c>Active</c> Project.</b> All
+    /// eight combinations of the two non-<c>Active</c> statuses, blocking/settled Invoices and
+    /// <c>forceOverride</c> are enumerated, and every one of them must refuse, leave the Project's
+    /// status untouched, commit nothing and audit nothing.
     ///
     /// <para>
-    /// All four combinations of invoice state and <c>forceOverride</c> are enumerated for both
-    /// non-<c>Active</c> statuses, because the ordering that makes this true is the thing most
-    /// easily reversed: with the invoice predicate evaluated first, the settled + override cell
-    /// reported a 400 "nothing to override" instead of the Project's own state refusal, and the
-    /// blocking + no-override cell reported an invoice message. Every cell must be
-    /// <see cref="InvalidOperationException"/> — the Domain's own — and nothing may be written.
+    /// <b>The exception type deliberately varies, and that is the accepted cost of the approved
+    /// ordering.</b> Preconditions are evaluated before the aggregate is touched, so an
+    /// invoice-derived refusal can be reported ahead of the Project's own state refusal: blocking
+    /// Invoices without an override give <see cref="ConflictException"/> from the invoice guard,
+    /// settled Invoices with an override give <see cref="ValidationException"/> ("nothing to
+    /// override"), and the remaining two reach <c>Complete()</c> and get the Domain's own
+    /// <see cref="InvalidOperationException"/>. Only the *reason* differs — never the outcome. The
+    /// alternatives were a handler-level <c>Status</c> check (CLAUDE.md §6) or a public
+    /// precondition probe on <c>Project</c> (§2); both were rejected in favour of keeping those
+    /// rules intact.
     /// </para>
     /// </summary>
     [Theory]
-    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Draft, false)]
-    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Draft, true)]
-    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Paid, false)]
-    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Paid, true)]
-    [InlineData(ProjectStatus.Completed, InvoiceStatus.Draft, false)]
-    [InlineData(ProjectStatus.Completed, InvoiceStatus.Draft, true)]
-    [InlineData(ProjectStatus.Completed, InvoiceStatus.Paid, false)]
-    [InlineData(ProjectStatus.Completed, InvoiceStatus.Paid, true)]
-    public async Task ANonActiveProjectIsRefusedForItsOwnStateInEveryCombination(
+    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Draft, false, typeof(ConflictException))]
+    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Draft, true, typeof(InvalidOperationException))]
+    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Paid, false, typeof(InvalidOperationException))]
+    [InlineData(ProjectStatus.OnHold, InvoiceStatus.Paid, true, typeof(ValidationException))]
+    [InlineData(ProjectStatus.Completed, InvoiceStatus.Draft, false, typeof(ConflictException))]
+    [InlineData(ProjectStatus.Completed, InvoiceStatus.Draft, true, typeof(InvalidOperationException))]
+    [InlineData(ProjectStatus.Completed, InvoiceStatus.Paid, false, typeof(InvalidOperationException))]
+    [InlineData(ProjectStatus.Completed, InvoiceStatus.Paid, true, typeof(ValidationException))]
+    public async Task ANonActiveProjectIsNeverCompleted(
         ProjectStatus status,
         InvoiceStatus invoiceStatus,
-        bool forceOverride)
+        bool forceOverride,
+        Type expected)
     {
         var project = SeedProject(status);
         SeedInvoice(invoiceStatus);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var thrown = await Record.ExceptionAsync(
             () => CompleteAsync(forceOverride, forceOverride ? Reason : null));
 
+        Assert.IsType(expected, thrown);
         Assert.Equal(status, project.Status);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
     }
 
     /// <summary>
-    /// The other half of the ordering: the Project's state guard runs <b>before</b> any Invoice is
-    /// consulted, so a non-<c>Active</c> Project never even reaches the repository. Asserted on the
-    /// call counter rather than inferred from the exception type, which both guards could produce
-    /// for different reasons.
+    /// <b>No refusal path leaves a mutated aggregate behind.</b> The preconditions are all
+    /// evaluated before <c>Complete()</c> is called, so a blocked completion never modifies the
+    /// Project at all — the guarantee rests on ordering, not on the request-scoped
+    /// <c>DbContext</c> being disposed before anything commits.
     /// </summary>
-    [Fact]
-    public async Task ANonActiveProjectIsRefusedBeforeAnyInvoiceIsRead()
+    [Theory]
+    [InlineData(InvoiceStatus.Draft)]
+    [InlineData(InvoiceStatus.Sent)]
+    [InlineData(InvoiceStatus.Overdue)]
+    public async Task ABlockedCompletionLeavesTheProjectUntouched(InvoiceStatus status)
     {
-        SeedProject(ProjectStatus.Completed);
-        SeedInvoice(InvoiceStatus.Draft);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => CompleteAsync());
-
-        Assert.Equal(0, _invoiceRepository.HasCompletionBlockingInvoicesCallCount);
-    }
-
-    /// <summary>
-    /// The mutation that <c>Complete()</c> performs before the invoice predicate is evaluated must
-    /// never be persisted on a refusal path. Nothing commits, so the request-scoped
-    /// <c>DbContext</c> discards it — but the guarantee is worth an explicit assertion, because it
-    /// rests on scope lifetime rather than on a guard.
-    /// </summary>
-    [Fact]
-    public async Task ABlockedCompletionCommitsNothingEvenThoughTheAggregateWasAlreadyMutated()
-    {
-        SeedProject();
-        SeedInvoice(InvoiceStatus.Sent);
+        var project = SeedProject();
+        SeedInvoice(status);
 
         await Assert.ThrowsAsync<ConflictException>(() => CompleteAsync());
 
+        Assert.Equal(ProjectStatus.Active, project.Status);
+        Assert.Null(project.CompletedAt);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Equal(0, _unitOfWork.BeginTransactionCallCount);
+        Assert.Empty(_auditService.Calls);
+    }
+
+    /// <summary>The same guarantee on the other refusal path — the empty override (I-3).</summary>
+    [Fact]
+    public async Task ARejectedOverrideLeavesTheProjectUntouched()
+    {
+        var project = SeedProject();
+        SeedInvoice(InvoiceStatus.Paid);
+
+        await Assert.ThrowsAsync<ValidationException>(
+            () => CompleteAsync(forceOverride: true, reason: Reason));
+
+        Assert.Equal(ProjectStatus.Active, project.Status);
+        Assert.Null(project.CompletedAt);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
     }
 

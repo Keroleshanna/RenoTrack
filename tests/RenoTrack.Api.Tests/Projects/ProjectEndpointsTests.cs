@@ -552,13 +552,16 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
     }
 
     /// <summary>
-    /// The Project's own state guard runs before the invoice predicate, so an already-`Completed`
-    /// Project whose Invoices are all settled reports **409** for its own state — not the 400 an
-    /// earlier draft produced by evaluating "is there anything to override?" first. This is the
-    /// exact cell that ordering change fixed, over HTTP.
+    /// <b>The accepted error-precedence consequence, pinned rather than left to be rediscovered.</b>
+    /// Preconditions are evaluated before the aggregate is touched, so an already-`Completed`
+    /// Project whose Invoices are all settled reports **400 "nothing to override"** — the invoice
+    /// rule answers first — rather than a 409 for its own state. The outcome is still a refusal and
+    /// the Project stays `Completed`; only the reason differs. Changing this would require either a
+    /// handler-level `Status` check (CLAUDE.md §6) or a public precondition probe on `Project`
+    /// (§2), both of which were rejected.
     /// </summary>
     [Fact]
-    public async Task An_override_on_a_completed_project_with_settled_invoices_is_a_conflict_not_a_bad_request()
+    public async Task An_override_on_a_completed_project_with_settled_invoices_reports_the_invoice_rule_first()
     {
         var projectId = await ConvertedProjectAsync();
         var invoiceId = await CreateInvoiceAsync(projectId, gross: 100.00m);
@@ -576,7 +579,13 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
             $"/api/v1/projects/{projectId}/complete",
             new { forceOverride = true, reason = "Trying again." });
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        // Refused all the same, and the Project is untouched — the outcome, not the wording, is
+        // what the guard exists for.
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        Assert.Equal(ProjectStatus.Completed, (await context.Projects.SingleAsync(p => p.Id == projectId)).Status);
     }
 
     /// <summary>

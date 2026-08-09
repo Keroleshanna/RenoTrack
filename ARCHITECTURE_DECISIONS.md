@@ -1221,12 +1221,12 @@ invoiced close silently. FR-7.3's "once its final invoice has been paid" presupp
 - **The override reaches the invoice precondition and nothing else.** `Project.Complete()`'s
   `Active`-only invariant lives inside the aggregate and no request field can reach it, so an
   `OnHold` or already-`Completed` Project is refused regardless of `forceOverride`.
-- **The Project's own state guard is evaluated first, and it is evaluated by calling
-  `Project.Complete()` rather than by inspecting `Status`.** A handler-level
-  `if (project.Status != Active)` is forbidden by CLAUDE.md §6, and a `CanComplete()` probe added so
-  Application could look is what §2 forbids — so invoking the transition *is* the check. A
-  non-`Active` Project is therefore refused for its own state in all four combinations of invoice
-  state and `forceOverride`, and its Invoices are never read.
+- **Nothing is mutated until every precondition has passed, and the resulting error precedence is
+  accepted.** The invoice predicate and the override rules are evaluated first; `Complete()` is
+  called last. For a non-`Active` Project this means an invoice-derived refusal can be reported
+  ahead of the Project's own state refusal — a blocking-Invoice 409 in one cell, and the 400
+  "nothing to override" in another. **No combination of inputs completes a non-`Active` Project**;
+  only the reported reason differs, and all eight cells are enumerated in tests.
 - **An override with nothing to override is a 400**, thrown as FluentValidation's own
   `ValidationException` so both of the endpoint's 400s share one field-keyed body, and **no audit
   entry is written** for the refused attempt.
@@ -1278,13 +1278,25 @@ invoiced close silently. FR-7.3's "once its final invoice has been paid" presupp
 - **Letting the override bypass the `Active` guard.** FR-8.6 is about Invoices; nothing suggests an
   override should reopen a closed Project or skip `Resume`.
 - **Re-checking `Project.Status` in the handler before calling `Complete()`.** CLAUDE.md §6 forbids
-  it, and it would create a second place for the `Active`-only rule to drift. The requirement that
-  the state guard run *first* is met by calling `Complete()` first instead.
-- **Evaluating the invoice predicate before `Complete()` (the first draft's order).** It let a
-  non-`Active` Project be refused for the wrong reason — an invoice-worded 409 when Invoices were
-  blocking, and a 400 "nothing to override" when they were settled, for a Project whose real
-  problem was that it was already closed. Reversed; eight enumerated cells plus a "no Invoice is
-  read" call-counter assertion now hold the order in place.
+  it — its only exception is ordering "for a non-Domain reason… never to duplicate a state check",
+  and this would be exactly a duplicated state check.
+- **A public `Project.EnsureCanComplete()` throwing precondition method**, so the state guard could
+  run before the invoice predicate. §2 says "do not grow the Domain's public surface just to answer
+  a question the aggregate's own mutator already answers by throwing" — and that sentence is
+  general; the `IsEditable` parenthetical is an example, not the scope. Reading it as limited to
+  *properties* in order to make this ordering implementable was considered and **rejected by the
+  Product Owner**: a rule is not reinterpreted to fit an implementation. Note the codebase agrees
+  independently — `ProjectTests.ExposesExactlyTheDocumentedTransitions` pins the aggregate's public
+  mutating surface to `Complete`/`PutOnHold`/`Resume`, so such a method fails a Domain test.
+- **Calling `Complete()` first as the state check, letting scope disposal discard the mutation when
+  a later guard throws.** Implemented, then **rejected**: it uses a Domain state transition as a
+  validation probe, and it makes correctness depend on the request-scoped `DbContext` never being
+  committed between the mutation and the refusal — a property no guard enforces. (The comparable
+  Phase 4 Slice 9 ordering is tolerated there because reordering would cost error quality on a
+  double-submit; here a clean alternative existed.)
+- **Amending §6 to permit a handler-level state check for guard precedence.** Strictly worse than
+  amending §2: it puts a second copy of the `Active`-only rule in Application, which is the drift
+  §6 exists to prevent.
 - **`ArgumentException` for the empty-override 400.** Maps to 400 (D59) but produces a different
   body shape from the validator's own 400 on the same endpoint, for the same class of caller error.
 - **A new Application exception type for it.** CLAUDE.md §17 adds one when a real scenario needs a

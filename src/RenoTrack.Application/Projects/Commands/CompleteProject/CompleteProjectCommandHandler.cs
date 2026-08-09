@@ -22,13 +22,25 @@ namespace RenoTrack.Application.Projects.Commands.CompleteProject;
 /// value of <c>ForceOverride</c> can complete a Project that is not <c>Active</c>.
 /// </para>
 /// <para>
-/// <b>The Project's own state guard runs first, and the ordering is load-bearing.</b>
-/// <c>Complete()</c> is invoked before the invoice predicate is evaluated, so an <c>OnHold</c> or
-/// already-<c>Completed</c> Project is refused for <i>its own state</i> in every combination of
-/// invoice statuses and <c>ForceOverride</c> — never with an invoice-derived message, and never
-/// with the "nothing to override" 400. An earlier draft evaluated the predicate first, which made
-/// a settled-invoice <c>Completed</c> Project report 400 instead of 409; four tests now pin all
-/// four combinations so it cannot drift back.
+/// <b>Nothing is mutated until every precondition has passed, and the resulting error precedence
+/// is a knowingly-accepted cost.</b> The invoice predicate and the override rules are evaluated
+/// first; <c>Complete()</c> — the only transition to <c>Completed</c> in the system — is called
+/// last. For a Project that is not <c>Active</c> this means an invoice-derived refusal can be
+/// reported ahead of the Project's own state refusal:
+/// </para>
+/// <list type="table">
+///   <item><description><c>OnHold</c>/<c>Completed</c> + blocking Invoices + no override → 409, invoice wording</description></item>
+///   <item><description><c>OnHold</c>/<c>Completed</c> + blocking Invoices + override → 409, <c>Complete()</c>'s own state message</description></item>
+///   <item><description><c>OnHold</c>/<c>Completed</c> + settled Invoices + no override → 409, <c>Complete()</c>'s own state message</description></item>
+///   <item><description><c>OnHold</c>/<c>Completed</c> + settled Invoices + override → 400 "nothing to override"</description></item>
+/// </list>
+/// <para>
+/// Every cell refuses, and <b>no combination of inputs completes a non-<c>Active</c> Project</b> —
+/// only the reported reason differs in the first and last. That was accepted deliberately: the
+/// alternatives were a handler-level <c>Status</c> check (CLAUDE.md §6), a public precondition
+/// probe on <c>Project</c> (§2), or mutating the aggregate before the invoice guard and relying on
+/// scope disposal to discard it. All three were rejected in favour of keeping both rules intact and
+/// never touching the aggregate on a refusal path. Eight enumerated cells pin the behaviour.
 /// </para>
 /// <para>
 /// <b>The blocking predicate</b> (Phase 8 Slice 6, decisions K-1 and I-2) is stated on
@@ -61,10 +73,9 @@ namespace RenoTrack.Application.Projects.Commands.CompleteProject;
 /// visible signature change to review against FR-9.1/FR-9.2.
 /// </para>
 /// <para>
-/// <b>Known race, stated rather than solved:</b> the predicate is read before the commit, so an
-/// Invoice created or sent concurrently between the read and <c>SaveChangesAsync</c> would not be
-/// seen. No document requires locking here, and inventing one would be policy rather than
-/// implementation.
+/// <b>Known race, stated rather than solved:</b> the predicate is read, then the aggregate is
+/// mutated and committed. An Invoice created or sent concurrently in between would not be seen. No
+/// document requires locking here, and inventing one would be policy rather than implementation.
 /// </para>
 /// </summary>
 public sealed class CompleteProjectCommandHandler(
@@ -80,22 +91,6 @@ public sealed class CompleteProjectCommandHandler(
 
         var project = await projectRepository.GetByIdAsync(command.ProjectId, cancellationToken)
             ?? throw new NotFoundException(nameof(Project), command.ProjectId);
-
-        // The Project's own state guard runs FIRST, and it runs by invoking the transition rather
-        // than by inspecting `Status` here — a handler must never re-check an aggregate's state
-        // field (CLAUDE.md §6), and a `CanComplete()` probe added just so this layer could look is
-        // exactly what §2 forbids. So `Complete()` *is* step "verify the Project is Active": an
-        // OnHold or already-Completed Project throws here, before any Invoice is consulted, and no
-        // value of ForceOverride can reach past it.
-        //
-        // The aggregate is mutated in memory before the invoice precondition is evaluated below,
-        // and that is safe rather than merely tolerable: every refusal path throws, so
-        // `SaveChangesAsync` is never reached and the request-scoped DbContext is disposed with the
-        // change discarded. The same shape `CompleteInspectionCommandHandler` has carried since
-        // Phase 4 Slice 9 — safety from scope lifetime, not from a guard. Nothing may be inserted
-        // between here and the refusals that commits or audits; `IAuditService` in particular
-        // shares this DbContext, so an audit call placed here would flush this mutation.
-        project.Complete();
 
         var blocked = await invoiceRepository.HasCompletionBlockingInvoicesForProjectAsync(
             command.ProjectId, cancellationToken);
@@ -119,6 +114,17 @@ public sealed class CompleteProjectCommandHandler(
                     $"Project {project.Id} has no blocking Invoices, so there is nothing to override.")
             ]);
         }
+
+        // The first and only mutation, reached only once every precondition above has passed — so
+        // no refusal path leaves a modified aggregate behind for scope disposal to clean up.
+        //
+        // Its self-guard (Active only) is not re-checked here and cannot be: a handler must never
+        // inspect an aggregate's state field (CLAUDE.md §6), and a public precondition probe on
+        // `Project` would grow the Domain's public surface to answer a question this very call
+        // already answers by throwing (§2). Consequently the Project's own state refusal is
+        // reported *after* the invoice-derived ones — see the accepted precedence in the class
+        // remarks. The guard is never bypassed, only reported second.
+        project.Complete();
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

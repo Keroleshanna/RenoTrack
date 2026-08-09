@@ -757,54 +757,73 @@ full record is **D67**; the reconciliation lives in `StateMachine.md` §4.4.
   `CreateInvoiceCommand` requires `Active`/`OnHold`. Slice 3 and Slice 6 wrote those guards without
   reference to each other; an API test drives the whole path to prove they meet correctly.
 
-### Guard ordering — settled after a first draft got it wrong
+### Guard ordering — a three-rule conflict, surfaced and decided rather than interpreted away
 
-**The Project's own state guard runs first.** The order is: load → `Complete()` → evaluate the
-invoice predicate → 409 / 400 → save → audit. A non-`Active` Project is therefore refused for *its
-own state* in **every** combination of invoice statuses and `forceOverride`, and no Invoice is even
-read:
+**The shipped order is: load → invoice predicate → 409 / 400 → `Complete()` → save → audit.**
+Nothing touches the aggregate until every precondition has passed.
+
+Reaching that took three attempts, and the middle one is worth recording because it was rejected
+for the right reason.
+
+**The conflict.** The reviewed ordering asked for the Project's own `Active` state to be verified
+*before* the invoice predicate. There are exactly three mechanisms for that, and each is closed by
+a rule this project has already committed to:
+
+| Mechanism | Blocked by |
+|---|---|
+| Handler reads `project.Status` | **CLAUDE.md §6** — "A handler never checks `Status`… itself before calling a Domain method", whose only exception is ordering "for a non-Domain reason… **never to duplicate a state check**" |
+| A public throwing probe (`Project.EnsureCanComplete()`) | **CLAUDE.md §2** — "do not grow the Domain's public surface just to answer a question the aggregate's own mutator already answers by throwing" |
+| Read `Status` from `IProjectQueries` | §6 again, on a read projection |
+
+An intermediate implementation called `Complete()` first and let the request-scoped `DbContext`'s
+disposal discard the mutation when a later guard threw. **That was rejected by the Product Owner**:
+a Domain state transition must not be used as a validation probe, and correctness must not rest on
+scope lifetime. An `EnsureCanComplete()` probe was then proposed and also rejected — the reading
+that §2's prohibition is limited to *properties* leans on its parenthetical example against its
+general sentence, and reinterpreting a rule to make an implementation possible is not a decision
+this project makes.
+
+**Decided: keep §2 and §6 exactly as written, and change the ordering instead.** The cost is error
+precedence on a Project that is not `Active`:
 
 | Project state | Invoices | `forceOverride` | Result |
 |---|---|---|---|
-| `OnHold` / `Completed` | blocking | no | 409, `Project.Complete()`'s own state message |
-| `OnHold` / `Completed` | blocking | yes + reason | 409, same |
-| `OnHold` / `Completed` | all settled | no | 409, same |
-| `OnHold` / `Completed` | all settled | yes + reason | 409, same |
+| `OnHold` / `Completed` | blocking | no | 409, **invoice wording** (not the Project-state message) |
+| `OnHold` / `Completed` | blocking | yes + reason | 409, `Project.Complete()`'s own state message |
+| `OnHold` / `Completed` | all settled | no | 409, `Project.Complete()`'s own state message |
+| `OnHold` / `Completed` | all settled | yes + reason | **400 "nothing to override"** |
 
-**The first draft evaluated the predicate first, and two of those four cells were wrong** — row 1
-reported an invoice-worded 409, and row 4 reported a **400 "nothing to override"** for a Project
-whose real problem was that it was already closed. All eight combinations (both non-`Active`
-statuses × blocking/settled × override/no-override) are now enumerated in one Theory, plus a test
-asserting the invoice repository is **not called at all** for a non-`Active` Project — a call
-counter, not an exception type, since both guards can raise the same type for different reasons.
+**Every cell refuses, and no combination of inputs completes a non-`Active` Project** — the
+security and Domain outcomes are correct throughout; only the reported reason differs in rows 1
+and 4. All eight combinations (both non-`Active` statuses × blocking/settled × override/no-override)
+are enumerated in one Theory that asserts the exception type *and* that the Project's status is
+unchanged, nothing committed and nothing audited.
 
-**`Complete()` is how the `Active` check is performed, deliberately.** A handler-level
-`if (project.Status != Active)` is forbidden by CLAUDE.md §6, and a `Project.CanComplete()` probe
-added so this layer could look is exactly what §2 forbids. Invoking the transition *is* the check.
+**No refusal path leaves a mutated aggregate**, and that is now a property of ordering rather than
+of scope lifetime — asserted directly for all three blocking statuses and for the rejected
+override.
 
-**The aggregate is therefore mutated in memory before the invoice predicate is evaluated, and that
-is safe rather than merely tolerable:** every refusal path throws, `SaveChangesAsync` is never
-reached, and the request-scoped `DbContext` is disposed with the change discarded — the same shape
-`CompleteInspectionCommandHandler` has carried since Phase 4 Slice 9, where safety comes from scope
-lifetime rather than from a guard. One consequence is load-bearing and is stated in the handler's
-own comment: **nothing may be inserted between `Complete()` and the refusals that commits or
-audits**, because `IAuditService` shares this `DbContext` (NEXT_STEPS §5a) and would flush the
-pending mutation. A test asserts a blocked completion commits nothing despite the mutation.
+**`Project.Complete()` remains the only transition to `Completed`.** `ProjectTests`'
+`ExposesExactlyTheDocumentedTransitions` pins the aggregate's public mutating surface to exactly
+`Complete`/`PutOnHold`/`Resume`, so a second path — including a precondition probe — fails a Domain
+test before it can be used.
 
-### Tests added (78)
+### Tests added (80)
 
 **Domain (0)** — correctly: `Project.Complete()` and its exhaustive state-machine coverage have
 existed since Phase 7 Slice 1, and this slice adds no Domain code.
 
-**Application (40)** — `CompleteProjectCommandHandlerTests` (38): both settled statuses and a mixed
+**Application (42)** — `CompleteProjectCommandHandlerTests` (40): both settled statuses and a mixed
 set; one save with no transaction; all three unsettled statuses blocking; the two named
 reconciliation tests (a `Draft` blocks *though §3.4 would not*, a `Void` does not *though Sequence
 §10 would*); the zero-Invoice clause; isolation from another Project's Invoices; the override from
 every blocked state; the empty-override 400 auditing nothing; three bad-reason cases and the mirror
-rule; both non-`Active` states refusing under an override; both audit shapes; no audit after a
-failed commit; not-found before any Invoice is read; and two reflection pins (no
-`IOwnershipValidator`, no `IEmailSender`). `GetProjectByIdQueryHandlerTests` gained 2 — the invoice
-portion passing through untouched, and the `ProjectInvoiceDto` property pin.
+rule; **all eight non-`Active` combinations, each asserting the accepted exception type plus an
+unchanged status, no commit and no audit**; **two "leaves the Project untouched" tests covering both
+refusal paths**; both audit shapes; no audit after a failed commit; not-found before any Invoice is
+read; and two reflection pins (no `IOwnershipValidator`, no `IEmailSender`).
+`GetProjectByIdQueryHandlerTests` gained 2 — the invoice portion passing through untouched, and the
+`ProjectInvoiceDto` property pin.
 
 **Infrastructure (15)** — `ProjectQueriesTests` (7) against real LocalDB: the empty case, E1's
 worked example, `Void` in the list but out of the figures, agreement with the balance endpoint, a
@@ -833,18 +852,33 @@ Each defect introduced, the suite run, the file restored and confirmed **byte-id
 | 3 | The empty-override 400 removed | **2 failures** — `AnOverrideWithNothingToOverrideIsRejectedAndAuditsNothing` and its Api counterpart |
 | 4 | `Void` allowed to count toward `AlreadyInvoiced` on the detail read | **3 failures** — the two Infrastructure tests (including the balance-agreement test) and the Api one |
 | 5 | Audit moved before `SaveChangesAsync` | **1 failure** — `AFailedCommitAuditsNothing` |
-| 6 | Guard ordering reversed — invoice predicate evaluated before `Complete()` (the first draft's order) | **6 failures** — half the eight-cell ordering Theory, the "no Invoice is read" counter assertion, and the Api test for the `Completed` + settled + override cell |
+
+A second round of seven was run after the ordering decision, each one aimed at a property the
+Product Owner named explicitly. Projects run are stated per row; each file was restored and
+confirmed byte-identical by `diff`.
+
+| # | Property under test | Defect introduced | Result |
+|---|---|---|---|
+| 1 | `Draft`/`Sent`/`Overdue` block without an override | Status clause disabled in both the repository and the fake | **29 failures** — 26 Application, 3 Infrastructure |
+| 2 | `Paid`/`Void` stay non-blocking | `Paid` and `Void` added to the status clause | **17 failures** — 14 Application, 3 Infrastructure |
+| 3 | Zero Invoices still require an override | Zero-Invoice clause removed | **3 failures** — `AProjectWithNoInvoicesAtAllIsBlocked`, `AnOverrideCompletesAProjectWithNoInvoicesAtAll`, `AProjectWithNoInvoicesIsBlocked` |
+| 4 | `forceOverride` with nothing blocking returns 400 | The empty-override branch disabled | **6 failures** — 4 Application, 2 Api |
+| 5 | No override completes `OnHold`/`Completed` | `Project.Complete()`'s guard loosened to admit `OnHold` | **4 failures** — 2 Domain (`Complete_FromAnyOtherState_Throws(OnHold)`, `FailedTransition_LeavesCompletedAtUntouched`), 2 Application ordering cells |
+| 6 | `Complete()` is the only transition to `Completed` | A public `ForceComplete()` added to `Project` | **1 failure** — `ExposesExactlyTheDocumentedTransitions` |
+| 7 | No Project mutation on any refusal path | `Complete()` moved back ahead of the guards (the rejected intermediate design) | **8+ failures** in Application — every "leaves the Project untouched" assertion and six ordering cells |
+
+Experiment 6 is the one worth keeping. It shows the aggregate's existing public-surface test is
+what would have caught an `EnsureCanComplete()` probe **as a failing Domain test**, independently
+of anyone reading §2 — the rule and the test agree without being coupled.
 
 Two findings worth keeping.
 
-**1. Experiment 2 revealed the guard-ordering defect empirically, not by inspection — and it was
-then fixed rather than documented around.** Making a `Draft` non-blocking caused the
-non-`Active` test to fail for **both** `OnHold` and `Completed`, because with nothing blocking, the
-empty-override 400 fired before `project.Complete()` could refuse. That exposed the first draft's
-real ordering flaw: a non-`Active` Project could be refused for the wrong reason. The order was
-changed so the Project's own state guard runs first, and experiment 6 now holds the new order in
-place. **An adversarial experiment that fails for a reason you did not predict is a finding, not
-noise.**
+**1. Round one's experiment 2 exposed the error-precedence question empirically, not by
+inspection.** Making a `Draft` non-blocking caused the non-`Active` test to fail for **both**
+`OnHold` and `Completed`, because with nothing blocking, the empty-override 400 fired before
+`project.Complete()` could refuse. That is what surfaced the whole ordering question — which then
+turned out to be a three-rule conflict requiring a decision, not a bug requiring a fix. **An
+adversarial experiment that fails for a reason you did not predict is a finding, not noise.**
 
 **2. `git checkout` is the wrong tool for restoring an adversarial edit to an uncommitted file.**
 Restoring experiment 1 that way reverted the file to `HEAD`, silently deleting the entire new
@@ -876,8 +910,8 @@ generalises: within an unfinished slice, copy the file aside first and restore f
 ### Verification
 
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **1,322 passing, 0 failing** (332 Domain, 417 Application,
-  230 Infrastructure, 343 Api). Slice 6 added **78** — 0 Domain, 40 Application, 15 Infrastructure,
+- `dotnet test RenoTrack.slnx` → **1,324 passing, 0 failing** (332 Domain, 419 Application,
+  230 Infrastructure, 343 Api). Slice 6 added **80** — 0 Domain, 42 Application, 15 Infrastructure,
   23 Api.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations; this
   slice adds no schema.

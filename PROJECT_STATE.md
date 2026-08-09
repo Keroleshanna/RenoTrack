@@ -34,11 +34,11 @@
 
 As of the last verified run, on `feature/phase-8-invoices-payments-project-completion` at the end of Phase 8 Slice 6:
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
-- `dotnet test RenoTrack.slnx` → **1,322 tests passing, 0 failing.** (The Phase 7 merge baseline, re-verified independently at the start of Phase 8, was **979**; Slice 1 +74, Slice 2 +15, Slice 3 +80, Slice 4 +42, Slice 5 +54, Slice 6 +78.)
+- `dotnet test RenoTrack.slnx` → **1,324 tests passing, 0 failing.** (The Phase 7 merge baseline, re-verified independently at the start of Phase 8, was **979**; Slice 1 +74, Slice 2 +15, Slice 3 +80, Slice 4 +42, Slice 5 +54, Slice 6 +80.)
 - **Environment caveat, verified on 2026-08-09:** Smart App Control on this machine intermittently blocks freshly-built unsigned assemblies with `FileLoadException 0x800711C7`, which xUnit reports as a catastrophic failure and **zero tests** — not a test failure. During Slice 6 it hit `RenoTrack.Application.dll` in Debug and `RenoTrack.Infrastructure.Tests.dll` / `RenoTrack.Api.dll` in Release, and cleared on retry. **The figures above come from a genuine full Release run with all four projects executing.** If a run reports zero tests for a project, retry before believing anything; never weaken Smart App Control.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes (**eight** migrations: `InitialCreate`, `AddAuditLog`, `AddNumberSequence`, `AddIdentity`, `AddRefreshTokens`, `AddTokenLinks`, `AddCustomersAndProjects`, `AddInvoicesAndPayments`).
   - `RenoTrack.Domain.Tests`: **332 tests.**
-  - `RenoTrack.Application.Tests`: **417 tests.**
+  - `RenoTrack.Application.Tests`: **419 tests.**
   - `RenoTrack.Infrastructure.Tests`: **230 tests** (real SQL Server LocalDB integration tests; `LoggingNoOpEmailSenderTests`/`DependencyInjectionTests`/`LocalDiskFileStorageTests`/`TokenLinkServiceTests` open no database connection — `LocalDiskFileStorageTests` uses real disk I/O in a temporary root).
   - `RenoTrack.Api.Tests`: **343 tests** (real `WebApplicationFactory<Program>` against real LocalDB, schema via `MigrateAsync`, D58 — including Phase 6's public token-link surface and rate-limiting coverage; `PublicRateLimitPartitionTests` is the one class here that runs against plain `HttpContext` objects rather than the host, deliberately, because `TestServer` supplies no `RemoteIpAddress`).
 - **Run both commands again yourself at the start of any new session before writing code.** Do not trust this count without re-verifying; it reflects only what existed when this file was written.
