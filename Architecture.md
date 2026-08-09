@@ -106,10 +106,20 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 - Pagination on list endpoints (`?page=`, `?pageSize=`), filtering by status/date/assignee where relevant (per SRS FR-2.4).
 - CQRS-lite in the Application layer: one Command or Query class per use case, handled by a single handler — keeps each business operation isolated and testable (this is the same pattern used successfully on the previous project, and is proven to keep controllers thin).
 
-### 5.2 Representative Endpoints
+### 5.2 API Endpoint Inventory
+
+> **Authoritative and exhaustive.** Every endpoint the API exposes has a row here, and a row is
+> added in the same commit that adds the endpoint. *(Retitled during the Phase 8 completion sweep:
+> this section read "Representative Endpoints" while every slice from Phase 4 onward treated it as
+> the inventory and logged missing rows as defects. The heading now matches the practice, and the
+> table was reconciled against all 8 controllers and their 38 actions — the three rows that were
+> missing are marked below.)* A row may cover sibling routes that share a contract; it may never
+> omit one.
 
 | Resource | Endpoint | Notes |
 |---|---|---|
+| Auth | `POST /api/v1/auth/login` | Anonymous. Email + password → access token + refresh token (SRS FR-10.1). **Row added in the Phase 8 completion sweep** — built in Phase 4 Slice 4 and never listed here. Every failure mode returns an identical 401 so login cannot become an account-enumeration oracle; FR-10.3's lockout is wired explicitly (D60). Deliberately outside the CQRS pipeline — no Application command exists or should |
+| Auth | `POST /api/v1/auth/refresh` | Anonymous. Exchanges a refresh token for a new pair. **Row added in the Phase 8 completion sweep.** Tokens are persisted as SHA-256 hashes only, rotated on every use, and presenting an already-revoked token revokes the whole chain for that user (D60) |
 | Leads | `POST /api/v1/leads` | Public — used by the website contact form |
 | Leads | `GET /api/v1/leads`, `GET /api/v1/leads/{id}` | Dashboard, Admin/Inspector (scoped) |
 | Inspections | `POST /api/v1/leads/{leadId}/inspections` | Admin schedules |
@@ -127,6 +137,7 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Angebote | `POST /api/v1/angebote/{id}/duplicate` | Inspector duplicates a whole Angebot onto another Lead (SRS FR-4.11). Source restricted to their own; target Lead ownership and the one-active-Angebot rule both apply. Section-level duplication is deferred until a real caller needs it |
 | Angebote | `POST /api/v1/angebote/{id}/submit-for-review` | Inspector → Admin |
 | Angebote | `POST /api/v1/angebote/{id}/approve`, `/request-changes`, `/send` | Admin |
+| Angebote | `GET /api/v1/angebote/{id}/review-comments` | The internal review history, oldest first. Admin `F`, Inspector `R` (`PermissionMatrix.md` §4 "View review comment history" — both roles read, only Admin writes). **Row added in the Phase 8 completion sweep** — built in Phase 5 Slice 2 and never listed here |
 | Angebot decision (public) | `GET /api/v1/public/angebote/{token}` | Token-link view, no auth. **Built in Phase 6.** Returns a dedicated public DTO — never the internal `AngebotDetailDto` — carrying only what Wireframe A3 renders; internal ids, staff ids, `CatalogItemId` and timestamps are deliberately absent. Readable **after** a decision (BR-4). 404 for unknown *or* non-Angebot tokens, indistinguishably; 410 for expiry |
 | Angebot decision (public) | `POST /api/v1/public/angebote/{token}/decision` | Lead approves/rejects. **Built in Phase 6.** Body is `{ decision }` only — **no rejection reason**, a deliberate documented gap against FR-6.3 pending its own ADR. Consumes the link, records the Angebot decision and moves the Lead to `Won`/`Lost` in one transaction (StateMachine §5). 409 if the link has already decided |
 | Projects | `POST /api/v1/angebote/{id}/convert-to-project` | Admin. **Built in Phase 7.** BR-2's guard (only a `CustomerApproved` Angebot converts) and "already converted" both surface as 409. No request body — the Angebot id comes from the route and the Admin from the token (D61). Returns 201 with a `Location` pointing at the row below |
@@ -158,7 +169,7 @@ Aggregate roots (each owns its child entities and is the only entry point for mo
 - **CatalogItem** (root) — independent aggregate; an AngebotItem may optionally carry a `CatalogItemId` as a traceability link only (BR-8: no live reference, since editing a Catalog item must never retroactively change a past Angebot)
 - **Customer** (root)
 - **Project** (root) — references Customer, Angebot by id.
-- **Invoice** (root) → InvoiceLine (child), Payment (child)
+- **Invoice** (root) → Payment (child); InvoiceLine (child) **is designed but deliberately not built** — see `ERD.md`'s `InvoiceLines` row for the Phase 8 deferral and its revisit trigger
 - **User** (root) — Admin/Inspector accounts
 - **TokenLink** (root) — polymorphic reference to Angebot or Invoice via `EntityType` + `EntityId`
 
@@ -311,7 +322,16 @@ Passwords have **no default and are never compiled in**. The recommended source 
 
 ---
 
-## 14. Build Roadmap (Suggested Phases)
+## 14. Build Roadmap — Indicative Grouping Only (NOT the phase numbering)
+
+> **`PROJECT_ROADMAP.md` is the canonical source for phase numbering and ownership** (settled during
+> the Phase 8 completion sweep). The table below is the original architectural sketch of *what
+> groups together*, written before the roadmap existed, and its numbers **do not correspond** to the
+> real phases — its "6" is roughly the real Phases 7–8, its "11" is the real Phase 14, its "12" is
+> the real Phase 15. It is kept as a record of the intended sequencing of concerns; **cite
+> `PROJECT_ROADMAP.md`, never this table, for which phase owns what.** Neither list is renumbered:
+> the roadmap is authoritative and the historical phases are already built and merged under their
+> own numbers.
 
 Kept intentionally small and sequential, so each phase is a shippable, demoable increment:
 

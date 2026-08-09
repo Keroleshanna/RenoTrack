@@ -15,7 +15,7 @@ a slice of its own.
 | 4 | Send Invoice + public token read | ✅ done |
 | 5 | Mark Paid + Void | ✅ done |
 | 6 | Complete Project + FR-7.4 Project detail invoice information | ✅ done |
-| 7 | Overdue capability + Phase 8 completion gate | ⬜ not started |
+| 7 | Overdue capability + Phase 8 completion gate | ✅ done |
 
 ---
 
@@ -920,3 +920,136 @@ generalises: within an unfinished slice, copy the file aside first and restore f
   (`FileLoadException 0x800711C7`), in Debug *and* initially in Release. It cleared on retry, and
   every figure above comes from a genuine Release run of the whole suite. Smart App Control was not
   modified, weakened or worked around.
+
+---
+
+## Slice 7 — Overdue capability + the Phase 8 completion gate
+
+**Scope:** confirm the overdue capability against G-3, then run the phase's completion gate as a
+full cross-document/repository audit. **No production code was added, and none was required** — see
+the finding below. No schema, no migration, no new test.
+
+### The overdue capability was already complete, and that is the finding
+
+G-3 says *"the `Sent → Overdue` transition and whatever query/repository capability it genuinely
+requires are built and tested"* while forbidding **every** mechanism that could invoke it (no Admin
+endpoint, no `BackgroundService`, no read-time derivation). Reconstructed against the repository:
+
+- `Invoice.MarkOverdue(DateTime asOf)` exists, guards `Sent` only, compares calendar days (an
+  invoice due today is not overdue today), and is exhaustively tested — Slice 1.
+- The `(Status, DueDate)` index exists — Slice 2, because `ERD.md` §3 defines it.
+- **`MarkOverdue` has zero callers in `src/`.**
+
+With no consumer, `CLAUDE.md` §4 forbids adding a repository method, and Phase 4 Slice 10 treats an
+unreachable handler as a defect to close rather than a state to create. **"Whatever it genuinely
+requires" therefore evaluates to nothing further.** Building an unused
+`GetOverdueCandidatesAsync`, an unreachable `MarkInvoiceOverdueCommand`, or a scheduler were each
+put to the Product Owner and each rejected.
+
+**Recorded consequence, not a defect:** `InvoiceStatus.Overdue` is **unreachable in production**.
+No invoice can enter it today, which means the `Overdue`-blocks-completion clause (K-1) and the
+`Overdue → Open` public mapping are correct but currently unexercisable outside tests, and
+`Overdue → Paid` / `Overdue → Void` are likewise unreachable. **Revisit trigger:** an explicitly
+chosen job-hosting/scheduling strategy. Do not invent one to make a roadmap line look complete.
+
+### The completion gate: a full audit, not a tidy-up
+
+The Product Owner directed a **full** cross-document and cross-repository audit rather than only
+fixing the contradictions already known. Twelve areas were audited. The findings are separated
+below into **pre-existing contradictions**, **corrections made**, **deferred requirements** and
+**verified-clean results**, so a later reader can tell which is which.
+
+#### Pre-existing contradictions found (none caused by Phase 8)
+
+| # | Contradiction | Resolution |
+|---|---|---|
+| X1 | `PROJECT_ROADMAP.md` Phase 8 promised a *"Scheduled check"* — the scheduler G-3 rejects | Roadmap corrected to describe the capability and record the automation gap |
+| X2 | `PROJECT_ROADMAP.md` Phase 8 said real PDF generation is "Phase 11" (twice); Phase 11 is the Angebot Builder UI and **Phase 14** owns PDF, as `Architecture.md`/`ERD.md`/this file already said | Roadmap corrected to Phase 14 |
+| X3 | `Architecture.md` §6 listed `InvoiceLine` as a built `Invoice` child, contradicting G-2 | §6 corrected to mark it designed-not-built, pointing at `ERD.md`'s deferral row |
+| X4 | `Architecture.md` §14's milestone table numbers phases differently from `PROJECT_ROADMAP.md` (its "6" ≈ real Phases 7–8, its "11" = real Phase 14, its "12" = real Phase 15) | **`PROJECT_ROADMAP.md` declared canonical**; §14 retitled and reframed as an indicative grouping. Neither list renumbered |
+| X5 | `BusinessRules.md` BR-3, `Sequence Diagram.md` §8 and `PROJECT_ROADMAP.md` all named a `GetRemainingInvoiceBalanceQuery` **that has never existed**; the shipped class is `GetProjectInvoiceBalanceQuery` | All three documents corrected. **The production class was not renamed** |
+| X6 | `BusinessRules.md` BR-4 named `ValidateTokenLinkHandler` as BR-4's enforcer and `Sequence Diagram.md` §12 drew it as a participant — **it was never built** | Both corrected to describe the inlined validation in the three real handlers. **Explicitly not recorded as a missing implementation**: three call sites with different outcomes do not justify a shared abstraction, and building one would need a flag argument to express BR-4's asymmetry |
+| X7 | `Architecture.md` §5.2 was titled *"Representative Endpoints"* while every slice since Phase 4 treated it as the authoritative inventory and logged missing rows as defects | Retitled **"API Endpoint Inventory"** and declared authoritative and exhaustive |
+| X8 | `Sequence Diagram.md` §9 still drew `IPdfGenerator`/`GenerateAsync` with no correction note, unlike §7 and §10 | §9 annotated: deferred design intent, not implemented, consistent with G-4 |
+| X9 | `CLAUDE.md` §21 asserts no schema exists for `Customer`/`Project`/`Invoice`/`InvoiceLine`/`Payment`/`TokenLink` — five of the six now do. **The rule is still right; the statement of fact is three phases stale** | **Recorded, deliberately not fixed.** The Product Owner ruled `CLAUDE.md` out of scope for this slice |
+
+#### Implemented but undocumented (found by the endpoint reconciliation)
+
+`Architecture.md` §5.2 was reconciled against all 8 controllers and their 38 actions. Three rows
+were missing and have been added:
+
+- `GET /api/v1/angebote/{id}/review-comments` — built Phase 5 Slice 2
+- `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh` — built Phase 4 Slice 4
+
+The table now covers every endpoint the API exposes. Rows may cover sibling routes sharing one
+contract; they may never omit one.
+
+#### Deferred requirements newly recorded
+
+Five `PermissionMatrix.md` grants have no endpoint and had never been written down anywhere: **edit
+Lead contact details**, **assign/reassign an Inspector to a Lead**, **view a Lead's activity
+timeline**, **reassign an Inspection**, and **change own password**. All predate Phase 8; none is
+assigned a phase, because no authoritative document claims them. `NEXT_STEPS.md` §5a carries the
+full record, including that reassigning an Inspection would need a Domain transition that does not
+exist, and that Phase 15's *global* Audit Log screen does **not** cover Wireframe C1's per-Lead
+timeline.
+
+#### Verified clean — stated because absence of a finding is itself a result
+
+- **No unreachable handlers.** 26 commands + 10 queries ↔ 36 non-auth endpoints, 1:1. The defect
+  Phase 4 Slice 10 closed has not recurred; authentication's two endpoints deliberately have no
+  command (D60).
+- **No speculative interface growth.** Every method on all 18 interfaces has a production consumer.
+- **No dead `AuditAction` values.** All 19 have a producer.
+- **All 13 Phase 8 decisions hold in code**, checked individually: no `BackgroundService` or
+  `IHostedService` anywhere; no `IPdfGenerator`; no IBAN/BIC field (all three appear only in
+  explanatory comments saying why they are absent); no `InvoiceLine` type, `DbSet`, configuration or
+  migration content; `VatAllocation` present; `Payments` the only cascade; `MarkPaid` still takes no
+  amount.
+- **All previously deferred items re-verified as still deferred**, including `POST /api/v1/leads`
+  still carrying no rate limiter and `Roles.cs`'s namespace mismatch.
+- **`ERD.md` matches the schema**: 12 `DbSet`s, 17 configurations (child entities correctly have a
+  configuration and no `DbSet`), `RefreshTokens` documented, 8 migrations, no model drift.
+- **`PermissionMatrix.md` matches every `[Authorize]`**, including `PublicController`'s deliberate
+  class-level `[AllowAnonymous]` inversion and `InvoicesController`'s class-level Admin gate.
+- **SRS FR-2.4's filtering is implemented** — `GetLeadsQuery` carries `Status`,
+  `AssignedInspectorId` and `CreatedFrom`. It had never been confirmed anywhere.
+
+### Documentation updated in this slice
+
+`Architecture.md` (§5.2 retitled + 3 rows, §6, §14), `PROJECT_ROADMAP.md` (scheduler, two PDF phase
+references, query name), `BusinessRules.md` (BR-3, BR-4 — **no new rule minted**),
+`Sequence Diagram.md` (§8, §9, §12), `PROJECT_STATE.md` (§5.2–§8 fully reconciled),
+`NEXT_STEPS.md` (five newly-recorded gaps), `HANDOFF_PROMPT.md`, and this file.
+**`CLAUDE.md` deliberately untouched.**
+
+### Phase 8 completion checklist
+
+Phase 6's gate missed `GoneException`'s documentation because there was no list. There is one now;
+every box was checked against the repository, not from memory.
+
+- [x] Every approved Phase 8 decision (G-1…G-13) verified against the implementation
+- [x] Every Phase 8 endpoint present in `Architecture.md` §5.2 — and §5.2 reconciled against *all*
+      controllers, not only Phase 8's
+- [x] `PermissionMatrix.md` reconciled against every `[Authorize]`/`[AllowAnonymous]`
+- [x] `StateMachine.md` reconciled against the Domain, including unreachable-by-decision transitions
+- [x] `ERD.md` reconciled against EF configurations, migrations and the model snapshot
+- [x] `BusinessRules.md` "Enforced by" lines verified to name artefacts that exist
+- [x] `Sequence Diagram.md` annotated wherever it depicts deferred design intent
+- [x] Every deferred item re-verified as still deferred, and newly-found gaps recorded
+- [x] Current-state documents (`PROJECT_STATE.md`, `NEXT_STEPS.md`, `HANDOFF_PROMPT.md`) reconciled
+- [x] No unreachable handler, no speculative interface method, no dead enum value
+- [x] `CLAUDE.md` unmodified; no approved decision reopened
+- [x] Build (Debug **and** Release) 0 Warnings / 0 Errors; full Release suite green with all four
+      projects executing; no model drift; 8 migrations
+- [ ] **Publication** — push, PR, merge. **Deliberately not done.** "Phase 8 complete" means the
+      branch is publishable-complete; publication is a separate, explicitly-authorised action
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors** in Debug **and** Release.
+- `dotnet test RenoTrack.slnx -c Release` → **1,324 passing, 0 failing** (332 Domain, 419
+  Application, 230 Infrastructure, 343 Api). **Slice 7 adds 0 tests** — correctly, since it adds no
+  production code.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations.
+- Working tree clean; `CLAUDE.md` unchanged (`git diff` empty for it).

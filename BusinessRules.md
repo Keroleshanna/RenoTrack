@@ -32,12 +32,12 @@ Each rule states: **the rule itself**, **why it exists**, and **where it's enfor
 ### BR-3 — Invoices should sum to the agreed total
 **Rule:** The sum of all Invoices for a Project should equal the Project's Agreed Total. The system warns (does not hard-block) the Admin if invoices being created do not sum to the agreed total.
 **Rationale:** Gives the Admin flexibility (e.g. rounding, a discount applied later) while still catching obvious data-entry mistakes.
-**Enforced by:** `GetRemainingInvoiceBalanceQuery` surfaces the running total to the Admin on every invoice-creation screen (Sequence Diagram §8).
+**Enforced by:** `GetProjectInvoiceBalanceQuery` surfaces the running total to the Admin on every invoice-creation screen (Sequence Diagram §8), served by `GET /api/v1/projects/{id}/invoice-balance` and repeated inside `GET /api/v1/projects/{id}` (FR-7.4). *(Corrected in the Phase 8 completion sweep: this rule, Sequence Diagram §8 and `PROJECT_ROADMAP.md` all named a `GetRemainingInvoiceBalanceQuery` that was never built under that name. The shipped class name is authoritative; nothing about the rule changed.)* The warning is the number itself — `Remaining` goes negative when invoices exceed the agreed total and is never clamped, never blocked and never accompanied by a separate warning flag.
 
 ### BR-4 — A token link is single-use for decisions
 **Rule:** Once a Lead has approved or rejected an Angebot via a token link, or an Invoice's decision-type action has been used, the same link cannot be reused for another state-changing action. Viewing (read-only) remains allowed.
 **Rationale:** Prevents a forwarded or leaked email link from being used to flip a decision after the fact.
-**Enforced by:** `TokenLink.UsedAt` check in `ValidateTokenLinkHandler` (Architecture §7.2; Sequence Diagram §12).
+**Enforced by:** the `TokenLink.UsedAt` check inside `RecordAngebotDecisionCommandHandler`, which is the only state-changing token action that exists; it consumes the link in the same `SaveChangesAsync` as the decision. The read-only handlers — `GetPublicAngebotByTokenQueryHandler` and `GetPublicInvoiceByTokenQueryHandler` — validate existence, entity type and expiry but deliberately **do not** check `UsedAt`, which is this rule's "viewing (read-only) remains allowed" half. *(Corrected in the Phase 8 completion sweep: this line and Sequence Diagram §12 named a shared `ValidateTokenLinkHandler` that was never built. Validation is inlined in each handler instead, and no such abstraction is required — three call sites with different outcomes do not justify one. This is a documentation correction, not a recorded gap.)*
 
 ### BR-7 — Lead status only moves via explicit actions
 **Rule:** A Lead's status can only move forward through the defined pipeline via explicit, named actions — never silently or as a side effect of an unrelated operation.

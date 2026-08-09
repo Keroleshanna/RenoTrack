@@ -7,20 +7,23 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system — public
 website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
-project and not a fresh start. **Phases 0–7 are complete and merged to `main`; Phase 8 is in
-progress on its branch.** A prior conversation ended for context reasons and persisted everything
-into the repository, so you depend on the files, not on any chat history. Do not treat anything
-below as optional reading.
+project and not a fresh start. **Phases 0–7 are complete and merged to `main`; Phase 8 is COMPLETE
+on its branch but not yet published.** A prior conversation ended for context reasons and persisted
+everything into the repository, so you depend on the files, not on any chat history. Do not treat
+anything below as optional reading.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
 - origin/main: 697292b ("Merge pull request #13 from Keroleshanna/feature/phase-7-angebot-to-project").
 - PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6) and #13 (Phase 7) are MERGED.
 - Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b.
-  **Phase 8 Slices 1–6 of 7 are COMPLETE.** Nothing has been pushed; no PR exists.
+  **ALL SEVEN PHASE 8 SLICES ARE COMPLETE and the completion gate is closed.** Nothing has been
+  pushed; no PR exists. The branch is publishable-complete; publication is a separate action
+  requiring explicit permission.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
 - Tests: 1,324 passing, 0 failing — 332 Domain, 419 Application, 230 Infrastructure, 343 Api.
-  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +80.)
+  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +80, 7 +0 — Slice 7
+  added no production code, by decision.)
 - Migrations: 8 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments); has-pending-model-changes
   reports none.
@@ -28,10 +31,18 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
 
-YOUR TASK: CONTINUE PHASE 8 AT SLICE 7.
+YOUR TASK: PHASE 8 IS COMPLETE. THE NEXT DELIVERABLE IS PHASE 9 (Email Service Integration).
 
-Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion".
-PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions.
+Phase 9 per PROJECT_ROADMAP.md is "Email Service Integration (real, not placeholder)" — replacing
+LoggingNoOpEmailSender with a real implementation plus the German templates FR-9.3 requires.
+IT IS BLOCKED ON SRS OQ-3 (which email provider), which is still unanswered — resolve that with the
+Product Owner before designing anything. All six IEmailSender methods and their notification models
+already exist and are called from real handlers, so Phase 9 changes the implementation, not the
+call sites. DO NOT START PHASE 9 WITHOUT AN EXPLICIT INSTRUCTION AND A DESIGN REVIEW.
+
+Phase 8 per PROJECT_ROADMAP.md was "API: Invoices, Splitting, Payment Tracking, Project Completion".
+PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions,
+the seven slice records, and Slice 7's completion checklist and full audit findings.
 
   Slice 1 — Domain: Invoice + Payment child ................. DONE
   Slice 2 — Infrastructure: schema + migration #8 ........... DONE
@@ -39,7 +50,7 @@ PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved 
   Slice 4 — Send Invoice + public token read ............... DONE
   Slice 5 — Mark Paid + Void .............................. DONE
   Slice 6 — Complete Project + FR-7.4 invoice information .. DONE
-  Slice 7 — Overdue capability + Phase 8 completion gate ... next
+  Slice 7 — Overdue capability + Phase 8 completion gate ... DONE
 
 PHASE 8 DECISIONS THAT MUST NOT BE SILENTLY REOPENED (full list in PHASE8_PROGRESS.md)
 
@@ -234,6 +245,6 @@ WORKING RULES — NOT OPTIONAL
 - Report unexpected findings rather than designing around them silently.
 - Report only final verified figures in a closeout; do not state a count and then correct it.
 
-CONFIRM STEP 1, THEN CONTINUE PHASE 8 AT SLICE 7 — DESIGN REVIEW AND EXPLICIT APPROVAL FIRST,
+CONFIRM STEP 1, THEN BEGIN PHASE 9 — DESIGN REVIEW AND EXPLICIT APPROVAL FIRST,
 NEVER IMPLEMENTATION FIRST.
 ```
