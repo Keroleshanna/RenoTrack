@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
+using RenoTrack.Api.Projects.Dtos;
+using RenoTrack.Application.Projects.Commands.CompleteProject;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
@@ -38,11 +40,12 @@ namespace RenoTrack.Api.Controllers;
 /// <c>GetReviewComments</c> admits both roles for exactly this reason.
 /// </para>
 /// <para>
-/// <b>There is deliberately no endpoint for <c>PutOnHold</c>, <c>Resume</c> or <c>Complete</c>.</b>
-/// The Domain carries all three (StateMachine.md §4.3) but `PROJECT_ROADMAP.md` places
-/// <c>CompleteProjectCommand</c> in Phase 8, where its "all Invoices Paid or Void" guard and
-/// FR-8.6 override can actually be enforced; on-hold/resume are assigned to no phase at all. Adding
-/// any of them here would be scope this phase did not agree.
+/// <b><c>Complete</c> arrived in Phase 8 Slice 6; <c>PutOnHold</c> and <c>Resume</c> still have no
+/// endpoint.</b> The Domain carries all three (StateMachine.md §4.3), but on-hold/resume are
+/// assigned to no phase at all and Phase 8 deliberately does not claim them (G-8).
+/// <b>Consequence worth knowing:</b> <c>Project.Complete()</c> refuses anything but <c>Active</c>,
+/// so if on-hold ever ships without resume, an <c>OnHold</c> Project would be unable to be either
+/// resumed or completed. Unreachable today only because nothing can put a Project on hold either.
 /// </para>
 /// </remarks>
 [ApiController]
@@ -50,6 +53,7 @@ namespace RenoTrack.Api.Controllers;
 [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
 public sealed class ProjectsController(
     ICommandHandler<ConvertAngebotToProjectCommand, ProjectDto> convertHandler,
+    ICommandHandler<CompleteProjectCommand, ProjectDto> completeProjectHandler,
     IQueryHandler<GetProjectByIdQuery, ProjectDetailDto> getProjectByIdHandler,
     IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto> getInvoiceBalanceHandler) : ControllerBase
 {
@@ -80,14 +84,66 @@ public sealed class ProjectsController(
     }
 
     /// <summary>
-    /// One Project with the originating context Wireframe E1 renders (SRS FR-7.4). Admin "F",
-    /// Inspector "R".
+    /// Marks a Project Completed (SRS FR-7.3, FR-8.6, StateMachine.md §4.3, Sequence Diagram §10).
+    /// Admin only.
     /// </summary>
     /// <remarks>
-    /// **FR-7.4's Invoice portion is not served here and is deferred to Phase 8** — Invoices do not
-    /// exist yet. The response carries the Project, its Customer's name, and the originating Lead,
-    /// Inspection and Angebot ids; it does not carry the invoice list, "Invoiced" or "Remaining".
-    /// A documented gap, not an oversight.
+    /// <para>
+    /// Every guard lives below this method (CLAUDE.md §22). <b>409</b> covers two distinct
+    /// refusals: the Project's Invoices block it (it has none at all, or one or more is
+    /// <c>Draft</c>/<c>Sent</c>/<c>Overdue</c>) and no override was supplied; or the Project is not
+    /// <c>Active</c>, which <c>Project.Complete()</c> refuses on its own. <b>The override reaches
+    /// only the first.</b> No value of <c>forceOverride</c> completes an <c>OnHold</c> or already
+    /// <c>Completed</c> Project.
+    /// </para>
+    /// <para>
+    /// <b>400</b> covers three: <c>forceOverride</c> without a reason (FR-8.6 requires one), a
+    /// reason without <c>forceOverride</c> (rejected rather than silently dropped), and
+    /// <c>forceOverride</c> when nothing is actually blocking — an override must override
+    /// something, and a false justification must not enter the audit trail.
+    /// </para>
+    /// <para>
+    /// <b>The body is optional</b>; omitting it means no override. The Admin's id comes from the
+    /// token's subject claim and the Project's from the route (D61).
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/complete")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Complete(
+        int id,
+        [FromBody] CompleteProjectRequest? request,
+        CancellationToken cancellationToken)
+    {
+        request ??= new CompleteProjectRequest();
+
+        var project = await completeProjectHandler.HandleAsync(
+            new CompleteProjectCommand(
+                ProjectId: id,
+                ForceOverride: request.ForceOverride,
+                Reason: request.Reason,
+                CompletedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(project);
+    }
+
+    /// <summary>
+    /// One Project with the originating context and Invoices Wireframe E1 renders (SRS FR-7.4).
+    /// Admin "F", Inspector "R".
+    /// </summary>
+    /// <remarks>
+    /// <b>FR-7.4 is served in full as of Phase 8 Slice 6.</b> The response carries the Project, its
+    /// Customer's name, the originating Lead/Inspection/Angebot ids, the "Invoiced"/"Remaining"
+    /// figures and the Project's Invoices. The two figures follow Slice 3's rules exactly —
+    /// <c>Void</c> excluded and nothing else, never clamped, so a negative <c>remaining</c> is
+    /// BR-3's warning. <b>Voided Invoices still appear in the list</b> (BR-9); they are absent from
+    /// the arithmetic only. All of it is Inspector-readable and unscoped, and none of it confers
+    /// any Invoice-management permission.
     /// </remarks>
     [HttpGet("{id:int}")]
     [ProducesResponseType<ProjectDetailDto>(StatusCodes.Status200OK)]

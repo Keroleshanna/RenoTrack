@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RenoTrack.Application.Common;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
 using RenoTrack.Infrastructure.Persistence;
@@ -229,12 +230,13 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
     }
 
     /// <summary>
-    /// FR-7.4's Invoice portion is deferred to Phase 8, and the response must not pretend
-    /// otherwise. Asserted against raw JSON rather than a typed read, so a field added later cannot
-    /// slip in unnoticed — the same technique Phase 6 used to pin the public DTO's surface.
+    /// The response's exact surface, asserted against raw JSON rather than a typed read so a field
+    /// added later cannot slip in unnoticed — the technique Phase 6 introduced for the public DTO.
+    /// <b>Updated in Phase 8 Slice 6</b>, which is when FR-7.4's Invoice portion arrived; through
+    /// Phase 7 this same test pinned its absence.
     /// </summary>
     [Fact]
-    public async Task The_project_detail_carries_no_invoice_fields_yet()
+    public async Task The_project_detail_exposes_exactly_the_documented_fields()
     {
         var projectId = await ConvertedProjectAsync();
         using var admin = await AdminClientAsync();
@@ -246,11 +248,384 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
 
         Assert.Equal(
             ["id", "status", "agreedTotal", "createdAt", "completedAt", "customerId", "customerName",
-             "leadId", "inspectionId", "angebotId", "angebotNumber"],
+             "leadId", "inspectionId", "angebotId", "angebotNumber", "alreadyInvoiced", "remaining",
+             "invoices"],
             propertyNames);
     }
 
+    /// <summary>
+    /// An invoice row carries E1's four columns plus the id its "Mark Paid" button needs — no net
+    /// or VAT split, no issue date, no void reason, no payments. Pinned against raw JSON so a typed
+    /// read cannot ignore an added field.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_row_exposes_exactly_the_documented_fields()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.GetAsync($"/api/v1/projects/{projectId}");
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        var row = body.GetProperty("invoices").EnumerateArray().Single();
+
+        Assert.Equal(
+            ["id", "invoiceNumber", "grossAmount", "status", "dueDate"],
+            row.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal("Draft", row.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// FR-7.4 over HTTP, with the two figures agreeing with the standalone balance endpoint — the
+    /// duplication FR-7.4's "in one place" requires, held together by an assertion rather than by
+    /// hope.
+    /// </summary>
+    [Fact]
+    public async Task The_project_detail_carries_the_invoice_list_and_figures()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var detail = await (await admin.GetAsync($"/api/v1/projects/{projectId}")).Content
+            .ReadFromJsonAsync<JsonElement>();
+        var balance = await (await admin.GetAsync($"/api/v1/projects/{projectId}/invoice-balance")).Content
+            .ReadFromJsonAsync<JsonElement>();
+
+        Assert.Single(detail.GetProperty("invoices").EnumerateArray());
+        Assert.Equal(100.00m, detail.GetProperty("alreadyInvoiced").GetDecimal());
+        Assert.Equal(
+            balance.GetProperty("alreadyInvoiced").GetDecimal(),
+            detail.GetProperty("alreadyInvoiced").GetDecimal());
+        Assert.Equal(
+            balance.GetProperty("remaining").GetDecimal(),
+            detail.GetProperty("remaining").GetDecimal());
+    }
+
+    /// <summary>
+    /// K-3, end to end: a voided Invoice stays on the page (BR-9 — a numbered record, not a deleted
+    /// one) and simultaneously leaves the arithmetic (StateMachine.md §3.3). The two halves fail
+    /// independently, so neither can be broken quietly.
+    /// </summary>
+    [Fact]
+    public async Task A_voided_invoice_stays_in_the_list_but_leaves_the_figures()
+    {
+        var projectId = await ConvertedProjectAsync();
+        var invoiceId = await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/void", new { reason = "Wrong project." });
+
+        var body = await (await admin.GetAsync($"/api/v1/projects/{projectId}")).Content
+            .ReadFromJsonAsync<JsonElement>();
+
+        var row = body.GetProperty("invoices").EnumerateArray().Single();
+        Assert.Equal("Void", row.GetProperty("status").GetString());
+        Assert.Equal(0m, body.GetProperty("alreadyInvoiced").GetDecimal());
+    }
+
+    /// <summary>
+    /// The invoice list is Project-detail data (`PermissionMatrix.md` §5, decision K-3), so an
+    /// Inspector sees it — and, in the same request, gains no Invoice-management permission. Both
+    /// halves are asserted together, so widening or narrowing either one fails here.
+    /// </summary>
+    [Fact]
+    public async Task An_inspector_sees_the_invoice_list_and_still_cannot_manage_invoices()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var inspector = await InspectorClientAsync();
+
+        var detail = await inspector.GetAsync($"/api/v1/projects/{projectId}");
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var body = await detail.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Single(body.GetProperty("invoices").EnumerateArray());
+
+        var create = await inspector.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 50.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+
+        Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
+        Assert.Empty(await create.Content.ReadAsStringAsync());
+    }
+
+    // ---- Completion (FR-7.3, FR-8.6) ---------------------------------------
+
+    [Fact]
+    public async Task Admin_can_complete_a_project_whose_invoices_are_all_paid()
+    {
+        var projectId = await ConvertedProjectAsync();
+        var invoiceId = await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        var response = await admin.PostAsync($"/api/v1/projects/{projectId}/complete", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Completed", body.GetProperty("status").GetString());
+        Assert.NotEqual(JsonValueKind.Null, body.GetProperty("completedAt").ValueKind);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var project = await context.Projects.SingleAsync(p => p.Id == projectId);
+        Assert.Equal(ProjectStatus.Completed, project.Status);
+    }
+
+    /// <summary>
+    /// The body is optional, which is what makes the ordinary case a single click with nothing to
+    /// say. The test above already omits it entirely; this one proves an explicit
+    /// <c>forceOverride: false</c> is equivalent rather than a second, differently-behaving shape.
+    /// </summary>
+    [Fact]
+    public async Task An_explicit_non_override_body_behaves_like_an_absent_one()
+    {
+        var projectId = await ConvertedProjectAsync();
+        var invoiceId = await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "Cash" });
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete", new { forceOverride = false });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Completing_a_project_with_an_unpaid_invoice_is_a_conflict()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync($"/api/v1/projects/{projectId}/complete", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        Assert.Equal(ProjectStatus.Active, (await context.Projects.SingleAsync(p => p.Id == projectId)).Status);
+    }
+
+    /// <summary>
+    /// I-2 over HTTP: a Project that was never invoiced is blocked, even though "all Invoices are
+    /// Paid or Void" is vacuously true of it. This is the clause no document states outright, so it
+    /// is the one most likely to be "simplified" away.
+    /// </summary>
+    [Fact]
+    public async Task Completing_a_project_with_no_invoices_at_all_is_a_conflict()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync($"/api/v1/projects/{projectId}/complete", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_override_with_a_reason_completes_a_project_with_unpaid_invoices()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete",
+            new { forceOverride = true, reason = "Customer waived the final instalment in writing." });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "Completed",
+            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// FR-8.6 requires the reason to be recorded, and `ERD.md` defines no Project column for it —
+    /// so the AuditLog row is its only home (decision K-7). If that row stopped carrying it, the
+    /// justification for overriding a financial guard would exist nowhere at all.
+    /// </summary>
+    [Fact]
+    public async Task An_override_records_its_reason_in_the_audit_log()
+    {
+        const string reason = "Final instalment written off — see ticket 4471.";
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete", new { forceOverride = true, reason });
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var entry = await context.AuditLogs.SingleAsync(
+            log => log.EntityType == "Project" && log.EntityId == projectId && log.Action == AuditAction.ProjectCompleted);
+
+        Assert.Equal(reason, entry.Details);
+    }
+
+    /// <summary>I-3: an override that overrides nothing is refused, and nothing is recorded.</summary>
+    [Fact]
+    public async Task An_override_with_nothing_to_override_is_a_bad_request()
+    {
+        var projectId = await ConvertedProjectAsync();
+        var invoiceId = await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "Cash" });
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete",
+            new { forceOverride = true, reason = "Nothing is actually outstanding." });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        Assert.Equal(ProjectStatus.Active, (await context.Projects.SingleAsync(p => p.Id == projectId)).Status);
+        Assert.False(await context.AuditLogs.AnyAsync(
+            log => log.EntityType == "Project" && log.EntityId == projectId && log.Action == AuditAction.ProjectCompleted));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task An_override_without_a_real_reason_is_a_bad_request(string? reason)
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete", new { forceOverride = true, reason });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    /// <summary>K-4's mirror rule: a reason without an override is refused, never silently dropped.</summary>
+    [Fact]
+    public async Task A_reason_without_an_override_is_a_bad_request()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete",
+            new { forceOverride = false, reason = "Just noting something." });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Completed is terminal (StateMachine.md §4.2 draws no outgoing edge), so a second click is a
+    /// 409 rather than a silent success.
+    /// </summary>
+    [Fact]
+    public async Task Completing_an_already_completed_project_is_a_conflict()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        var first = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete", new { forceOverride = true, reason = "Written off." });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var second = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete", new { forceOverride = true, reason = "Again." });
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    /// <summary>
+    /// `PermissionMatrix.md` §5 marks completion Admin <c>F</c> / Inspector <c>—</c>. The body is
+    /// asserted empty because an authorization-middleware rejection carries none while a
+    /// <c>ForbiddenException</c> yields ProblemDetails — without that, this test could not tell a
+    /// role gate from an ownership check, and there is no ownership check here to find.
+    /// </summary>
+    [Fact]
+    public async Task An_inspector_cannot_complete_a_project()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var inspector = await InspectorClientAsync();
+
+        var response = await inspector.PostAsync($"/api/v1/projects/{projectId}/complete", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Completion_requires_authentication()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.PostAsync($"/api/v1/projects/{projectId}/complete", content: null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Completing_an_unknown_project_is_a_not_found()
+    {
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync("/api/v1/projects/999999/complete", content: null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// A completed Project is no longer <c>Active</c>/<c>OnHold</c>, so StateMachine.md §5's
+    /// "an Invoice cannot exist without an Active/OnHold Project" now bites — the two guards this
+    /// slice added and Slice 3 added meet here, and neither was written with the other in mind.
+    /// </summary>
+    [Fact]
+    public async Task No_further_invoice_can_be_created_once_the_project_is_completed()
+    {
+        var projectId = await ConvertedProjectAsync();
+        await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete", new { forceOverride = true, reason = "Written off." });
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 25.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
     // ---- Helpers -----------------------------------------------------------
+
+    private async Task<int> CreateInvoiceAsync(int projectId, decimal gross)
+    {
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = gross, dueDate = DateTime.UtcNow.AddDays(14) });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+    }
 
     private Task<HttpClient> InspectorClientAsync() =>
         ClientAsync(RenoTrackApiFactory.InspectorEmail, RenoTrackApiFactory.InspectorPassword);

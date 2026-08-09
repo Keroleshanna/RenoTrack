@@ -1186,6 +1186,98 @@ Read literally, **BR-9 requires uniqueness and non-reuse — not gaplessness.** 
 - **A gapless-at-read-time renumbering view.** Would make the number on a sent document differ from the number in the database — the one thing invoice numbering exists to prevent.
 - **Leave §8's wording alone.** Rejected outright: a document asserting a guarantee the code does not provide is worse than no document, and this is a legally-adjacent claim.
 
+## D67 — A Project's Completion Guard: Two Clauses, One Override, and a Reason That Lives Only in the Audit Log
+
+**Date:** 2026-08-09 (Phase 8 Slice 6). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+`StateMachine.md` §5 assigns "a Project cannot silently become `Completed` with unpaid Invoices" to
+`CompleteProjectCommand` by name, and SRS FR-8.6 grants an Admin override "with a reason". Building
+it required answering three questions the documents either contradicted themselves on or never
+asked.
+
+**1. Which Invoice statuses block — contradicted three ways.** `StateMachine.md` §4.3's guard read
+"All Invoices.Status == `Paid` (or `Void`)"; §3.4's invariant, four sections away in the *same
+file*, read "while any of its Invoices are in `Sent` or `Overdue`"; `Sequence Diagram.md` §10's
+`alt Any invoice not Paid` would have blocked on a `Void`, contradicting both. FR-8.6's "remain
+unpaid" is ambiguous between all three.
+
+**2. A Project with no Invoices at all — never asked.** "All Invoices are `Paid` or `Void`" is
+vacuously true over an empty set, so the guard as written would let a Project that was never
+invoiced close silently. FR-7.3's "once its final invoice has been paid" presupposes one exists.
+
+**3. Where the override reason is stored — no column exists.** `ERD.md`'s `PROJECT` defines none.
+§4.3 says the AuditLog entry records it.
+
+### Decision
+
+- **Blocking predicate:** a Project is blocked when it has **no Invoices at all**, **or** at least
+  one Invoice is `Draft`, `Sent` or `Overdue`. `Paid` and `Void` never block. §4.3 wins over §3.4
+  and over Sequence §10; both losing documents were **corrected**, and `StateMachine.md` §4.4 now
+  records the reconciliation in full rather than leaving the winner to be inferred from the code.
+- **The zero-Invoice clause is a new rule**, decided with the Product Owner, not a reading of an
+  existing one. Such a Project is completable only through the override.
+- **The override reaches the invoice precondition and nothing else.** `Project.Complete()`'s
+  `Active`-only invariant lives inside the aggregate and no request field can reach it, so an
+  `OnHold` or already-`Completed` Project is refused regardless of `forceOverride`.
+- **An override with nothing to override is a 400**, thrown as FluentValidation's own
+  `ValidationException` so both of the endpoint's 400s share one field-keyed body, and **no audit
+  entry is written** for the refused attempt.
+- **A reason without `forceOverride` is also a 400**, never silently dropped.
+- **Every successful completion is audited** (`ProjectCompleted` against the Project); `details`
+  carries the override reason and is `null` otherwise.
+- **The AuditLog row is the reason's only storage.** No `Projects` column, no migration.
+
+### Why
+
+- **§4.3 over §3.4 because a `Draft` Invoice is money the company still intends to collect.**
+  Closing a Project over one produces a bill nobody will ever chase, and the dashboard would show
+  the Project settled while its own balance read still counted the draft toward `alreadyInvoiced`
+  (Slice 3 excludes `Void` and nothing else). §3.4's narrower wording would have made those two
+  screens disagree.
+- **§4.3 over Sequence §10 because BR-9 makes `Void` a settled outcome, not an unpaid one.** A
+  voided Invoice is explicitly excluded from remaining-balance math (§3.3); blocking on it would
+  make voiding an Invoice permanently un-completable work.
+- **The zero-Invoice clause exists because vacuous truth is not consent.** The likeliest way to
+  reach it is forgetting to invoice at all, and a guard whose entire purpose is "do not close over
+  unbilled work" should not be silent in exactly that case. It is not made impossible — the
+  override is there, and it costs one typed sentence.
+- **The 400 for an empty override protects the audit trail, which is the whole point of requiring a
+  reason.** Accepting it would write "override: customer waived the final instalment" against a
+  Project that was fully paid — a false justification, permanently, in the one record FR-8.6 exists
+  to produce.
+- **No `Projects.CompletionOverrideReason` column, deliberately, and this is the uncomfortable
+  half of the decision.** `ERD.md` defines none, and §4.3 assigns the reason to the AuditLog — so
+  following the documents means accepting **D50's best-effort semantics**: `AuditService` swallows
+  its own failures, so a failed audit write loses the reason silently while the Project stays
+  completed. This is close to the FR-6.3 rejection-reason problem, which was resolved *against*
+  AuditLog storage — the difference is that no document assigned FR-6.3's reason anywhere, while a
+  document assigns this one here. **Recorded as a known limitation in `NEXT_STEPS.md`, not solved
+  by inventing schema.** Revisit trigger: any requirement that reads an override reason back, or
+  any audit of completed Projects for compliance.
+
+### Alternatives rejected
+
+- **Following §3.4 (only `Sent`/`Overdue` block).** See above — it lets a Project close over an
+  unsent bill and puts the completion screen at odds with the balance read.
+- **Following Sequence §10 literally (`Void` blocks).** Contradicts BR-9 and §3.3, and makes a
+  voided Invoice a permanent obstacle.
+- **Letting a zero-Invoice Project complete normally.** Vacuous truth, in the one case the guard
+  most needs to speak up.
+- **Accepting a pointless override silently.** Puts a false reason in the permanent record.
+- **A `Projects.CompletionOverrideReason` column + migration #9.** Durable, but it invents schema no
+  document defines, on a table `ERD.md` specifies exactly. Recorded as the alternative to reach for
+  if the D50 limitation ever bites.
+- **Letting the override bypass the `Active` guard.** FR-8.6 is about Invoices; nothing suggests an
+  override should reopen a closed Project or skip `Resume`.
+- **Re-checking `Project.Status` in the handler before calling `Complete()`.** CLAUDE.md §6 forbids
+  it, and it would create a second place for the `Active`-only rule to drift.
+- **`ArgumentException` for the empty-override 400.** Maps to 400 (D59) but produces a different
+  body shape from the validator's own 400 on the same endpoint, for the same class of caller error.
+- **A new Application exception type for it.** CLAUDE.md §17 adds one when a real scenario needs a
+  *distinct* status; this one needs 400, which two existing types already produce.
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1304,3 +1396,17 @@ Read literally, **BR-9 requires uniqueness and non-reuse — not gaplessness.** 
 | An explicit transaction in `CreateInvoiceCommandHandler` | Phase 8 Slice 3 | One insert is already atomic under EF Core's implicit transaction; D48's amendment exists for genuine multi-save identity problems, not for symmetry |
 | An `IOwnershipValidator` call on Invoice creation or the balance read | Phase 8 Slice 3 | `PermissionMatrix.md` §5 marks them `F` and `R` respectively, never `S` — an ownership check would be a semantic error (CLAUDE.md §16) |
 | A `GET /api/v1/invoices/{id}` invented so 201 could carry a `Location` | Phase 8 Slice 3 | No document defines an invoice read endpoint; `POST /leads/{id}/inspections` already returns 201 without one |
+| Following StateMachine §3.4's narrower guard (only `Sent`/`Overdue` block) | D67 / Phase 8 Slice 6 | Lets a Project close over an unsent `Draft` — money still intended for collection — and puts the completion screen at odds with the balance read, which counts `Draft` toward `alreadyInvoiced` |
+| Following Sequence §10 literally, so a `Void` Invoice blocks completion | D67 / Phase 8 Slice 6 | Contradicts BR-9 and StateMachine §3.3, which make `Void` a settled outcome excluded from balance math; voiding would become permanently un-completable work |
+| Letting a Project with no Invoices at all complete normally | D67 / Phase 8 Slice 6 | "All Invoices are Paid or Void" is vacuously true over an empty set, so the guard would stay silent in the one case it most needs to speak — forgetting to invoice. Reachable through the override instead |
+| Accepting `forceOverride` when nothing is blocking | D67 / Phase 8 Slice 6 | Writes a false justification permanently into the one record FR-8.6 exists to produce. Refused with 400, and no audit entry at all |
+| Accepting a reason without `forceOverride` and ignoring it | D67 / Phase 8 Slice 6 | The same accept-and-discard pattern Phase 6 refused for the FR-6.3 rejection reason — a caller would believe they had recorded something that went nowhere |
+| Letting the override bypass `Project.Complete()`'s `Active`-only guard | D67 / Phase 8 Slice 6 | FR-8.6 is about Invoices; nothing suggests an override should reopen a `Completed` Project or skip `Resume` on an `OnHold` one |
+| Re-checking `Project.Status` in `CompleteProjectCommandHandler` | D67 / Phase 8 Slice 6 | CLAUDE.md §6 forbids a handler duplicating an aggregate's state check, and it would create a second place for the `Active`-only rule to drift |
+| A `Projects.CompletionOverrideReason` column and migration #9 | D67 / Phase 8 Slice 6 | Invents schema on a table `ERD.md` specifies exactly, when §4.3 already assigns the reason to the AuditLog. The D50 best-effort consequence is recorded as a known limitation instead — and this is the alternative to reach for if it ever bites |
+| `ArgumentException` for the empty-override 400 | D67 / Phase 8 Slice 6 | Maps to 400 (D59) but yields a different body shape from the validator's own 400 on the same endpoint, for the same class of caller error |
+| A new Application exception type for the empty-override case | D67 / Phase 8 Slice 6 | CLAUDE.md §17 adds one when a scenario needs a *distinct* status; this needs 400, which two existing types already produce |
+| Loading every Invoice of a Project to evaluate the completion guard | Phase 8 Slice 6 | The handler needs one boolean, not five aggregates with their `Payments` graphs; CLAUDE.md §4 wants the repository to answer the business question, and it does so with two indexed existence probes |
+| A second SQL `SUM` for `alreadyInvoiced` on the Project detail read | Phase 8 Slice 6 | The invoice rows are already fetched and carry the same `GrossAmount`; a third round trip would recompute what is in hand, and would hit the value-converted-`Money`-inside-an-aggregate constraint the balance read documents |
+| Hiding `Void` Invoices from the Project detail list | Phase 8 Slice 6 | BR-9 keeps a voided Invoice as a numbered, visible record; a list that dropped one would make the gap in the numbering look like a deleted document. Excluded from the figures only |
+| Leaving the Project detail invoice list unordered | Phase 8 Slice 6 | Two identical requests could present rows in different orders; `IssueDate` alone is not unique, so the primary key is the tiebreaker (the same reasoning CLAUDE.md §22 applies to paged reads) |

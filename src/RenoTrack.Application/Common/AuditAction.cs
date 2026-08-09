@@ -58,6 +58,28 @@ public enum AuditAction
     ProjectCreated,
 
     /// <summary>
+    /// A Project was marked <c>Completed</c> (FR-7.3, FR-8.6, Phase 8 Slice 6). Logged against the
+    /// <c>Project</c> — StateMachine.md §4.3's own side-effect column says the Lead is already
+    /// <c>Won</c> and needs no further change, so nothing else's state moves.
+    ///
+    /// <para>
+    /// <b>Every successful completion is logged, not only an override.</b> §4.3 names an AuditLog
+    /// entry on its override row alone, but SRS FR-12.1 requires "status changes" generally and
+    /// CLAUDE.md §10 classes a terminal workflow transition as a business milestone. On the normal
+    /// path <c>details</c> is <see langword="null"/>; on the override path it carries the Admin's
+    /// reason, which FR-8.6 makes mandatory and §4.3 requires to be recorded here.
+    /// </para>
+    /// <para>
+    /// <b>The AuditLog row is the override reason's only home</b> (Phase 8 Slice 6, decision K-7):
+    /// <c>ERD.md</c>'s <c>PROJECT</c> defines no column for it and none was invented. That inherits
+    /// D50's best-effort semantics — a failed audit write is swallowed — so the reason is not a
+    /// guaranteed business record. Recorded as a known limitation in <c>NEXT_STEPS.md</c> rather
+    /// than papered over.
+    /// </para>
+    /// </summary>
+    ProjectCompleted,
+
+    /// <summary>
     /// An Invoice was created against a Project (FR-8.1, Phase 8 Slice 3). Logged against the
     /// <c>Invoice</c>, not the Project: unlike Angebot creation — which drives
     /// <c>Lead.MarkAngebotInProgress()</c> and is therefore a Lead-level milestone — this drives no

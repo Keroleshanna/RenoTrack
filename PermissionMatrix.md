@@ -68,13 +68,13 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Action | Admin | Inspector | Notes |
 |---|---|---|---|
 | Convert Angebot to Project | F | — | Admin-only (FR-7.1) |
-| View Project detail | F | R | Inspector can view (e.g. to see the outcome of a Lead they worked), but not act on it |
+| View Project detail | F | R | Inspector can view (e.g. to see the outcome of a Lead they worked), but not act on it. **Clarified in Phase 8 Slice 6:** this grant covers the Project's **Invoice list** too (FR-7.4 puts "all associated Invoices in one place" on this page, and Wireframe E1 renders them as part of it), so an Inspector reading a Project sees its Invoices. Read-only and **unscoped**, exactly like the financial-summary row below, and — like it — conferring **no** Invoice-management permission: every Invoice action below stays Admin-only, and one API test asserts both halves together so they cannot drift apart |
 | View Project financial summary (Agreed / Invoiced / Remaining) | F | R | *Added in Phase 8 Slice 3.* This row previously did not exist, while `GET /api/v1/projects/{id}/invoice-balance` (Sequence Diagram §8, BR-3) and Wireframe E1's "Agreed Total / Invoiced / Remaining" line both assumed a permission. Resolved as **Project read data**, matching "View Project detail" directly above — read-only and **unscoped**, so no ownership check applies. It also keeps the standalone balance endpoint consistent with the Inspector-readable Project detail that will carry the same figures under FR-7.4. **This grants no Invoice-management permission of any kind:** every row below stays Admin-only |
 | Create Invoice | F | — | Admin-only (FR-8.1) |
 | Send Invoice | F | — | Admin-only |
 | Mark Invoice Paid | F | — | Admin-only (FR-8.4) |
 | Void an Invoice | F | — | Admin-only, requires a reason (StateMachine.md §3) |
-| Mark Project Completed (incl. override) | F | — | Admin-only, override requires a reason (FR-8.6) |
+| Mark Project Completed (incl. override) | F | — | Admin-only, override requires a reason (FR-8.6). *Built in Phase 8 Slice 6 as `POST /api/v1/projects/{id}/complete`.* The override bypasses the Invoice precondition only — never the Project's own `Active`-only state guard (StateMachine.md §4.4) |
 | Put Project On Hold / Resume | F | — | Admin-only |
 
 ---

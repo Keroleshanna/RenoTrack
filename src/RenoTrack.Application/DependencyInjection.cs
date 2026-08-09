@@ -28,6 +28,7 @@ using RenoTrack.Application.Invoices.Commands.SendInvoice;
 using RenoTrack.Application.Invoices.Commands.VoidInvoice;
 using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
 using RenoTrack.Application.Invoices.Dtos;
+using RenoTrack.Application.Projects.Commands.CompleteProject;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
 using RenoTrack.Application.Projects.Queries.GetProjectInvoiceBalance;
@@ -148,6 +149,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<SearchCatalogItemsQuery>, SearchCatalogItemsQueryValidator>();
 
         services.AddScoped<IValidator<ConvertAngebotToProjectCommand>, ConvertAngebotToProjectCommandValidator>();
+        services.AddScoped<IValidator<CompleteProjectCommand>, CompleteProjectCommandValidator>();
         services.AddScoped<IValidator<GetProjectByIdQuery>, GetProjectByIdQueryValidator>();
         services.AddScoped<IValidator<GetProjectInvoiceBalanceQuery>, GetProjectInvoiceBalanceQueryValidator>();
 
@@ -193,6 +195,9 @@ public static class DependencyInjection
 
         // FR-7.1 / BR-2 — the only path by which a Project may come into existence.
         services.AddScoped<ICommandHandler<ConvertAngebotToProjectCommand, ProjectDto>, ConvertAngebotToProjectCommandHandler>();
+
+        // FR-7.3 / FR-8.6 — the Project's terminal transition, with the invoice guard and override.
+        services.AddScoped<ICommandHandler<CompleteProjectCommand, ProjectDto>, CompleteProjectCommandHandler>();
 
         // FR-8.1 — the only path by which an Invoice may come into existence.
         services.AddScoped<ICommandHandler<CreateInvoiceCommand, InvoiceDto>, CreateInvoiceCommandHandler>();

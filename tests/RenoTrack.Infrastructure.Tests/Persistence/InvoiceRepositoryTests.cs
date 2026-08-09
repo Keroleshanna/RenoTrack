@@ -147,4 +147,108 @@ public sealed class InvoiceRepositoryTests(RenoTrackDbContextFixture fixture)
         await using var readContext = fixture.CreateContext();
         Assert.Empty(readContext.Invoices.Where(i => i.ProjectId == projectId));
     }
+
+    // ---- The completion blocking predicate (Phase 8 Slice 6) ----------------
+
+    private async Task AddInvoiceAsync(int projectId, InvoiceStatus status, int adminId)
+    {
+        var invoice = NewInvoice(projectId);
+
+        switch (status)
+        {
+            case InvoiceStatus.Draft:
+                break;
+            case InvoiceStatus.Sent:
+                invoice.Send();
+                break;
+            case InvoiceStatus.Overdue:
+                invoice.Send();
+                invoice.MarkOverdue(invoice.DueDate.AddDays(1));
+                break;
+            case InvoiceStatus.Paid:
+                invoice.Send();
+                invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, adminId);
+                break;
+            case InvoiceStatus.Void:
+                invoice.Void("Superseded.");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(status));
+        }
+
+        await using var context = fixture.CreateContext();
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+    }
+
+    private async Task<bool> IsBlockedAsync(int projectId)
+    {
+        await using var context = fixture.CreateContext();
+        return await new InvoiceRepository(context)
+            .HasCompletionBlockingInvoicesForProjectAsync(projectId, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// I-2's clause, proved against real rows: "all Invoices are Paid or Void" is vacuously true
+    /// over an empty set, so without this the never-invoiced Project would report itself settled.
+    /// </summary>
+    [Fact]
+    public async Task AProjectWithNoInvoicesIsBlocked()
+    {
+        var (projectId, _) = await SeedProjectAsync();
+
+        Assert.True(await IsBlockedAsync(projectId));
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Draft)]
+    [InlineData(InvoiceStatus.Sent)]
+    [InlineData(InvoiceStatus.Overdue)]
+    public async Task AnUnsettledInvoiceBlocks(InvoiceStatus status)
+    {
+        var (projectId, adminId) = await SeedProjectAsync();
+        await AddInvoiceAsync(projectId, status, adminId);
+
+        Assert.True(await IsBlockedAsync(projectId));
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Paid)]
+    [InlineData(InvoiceStatus.Void)]
+    public async Task ASettledInvoiceDoesNotBlock(InvoiceStatus status)
+    {
+        var (projectId, adminId) = await SeedProjectAsync();
+        await AddInvoiceAsync(projectId, status, adminId);
+
+        Assert.False(await IsBlockedAsync(projectId));
+    }
+
+    /// <summary>One unsettled Invoice among many settled ones is still a block.</summary>
+    [Fact]
+    public async Task OneUnsettledInvoiceAmongSettledOnesStillBlocks()
+    {
+        var (projectId, adminId) = await SeedProjectAsync();
+        await AddInvoiceAsync(projectId, InvoiceStatus.Paid, adminId);
+        await AddInvoiceAsync(projectId, InvoiceStatus.Void, adminId);
+        await AddInvoiceAsync(projectId, InvoiceStatus.Draft, adminId);
+
+        Assert.True(await IsBlockedAsync(projectId));
+    }
+
+    /// <summary>
+    /// The predicate is per Project. A neighbouring Project's unsettled Invoice must not block this
+    /// one — the <c>WHERE</c> is what makes that true, and it is exactly what a missing filter
+    /// would break.
+    /// </summary>
+    [Fact]
+    public async Task AnotherProjectsUnsettledInvoiceDoesNotBlockThisOne()
+    {
+        var (mine, adminId) = await SeedProjectAsync();
+        var (theirs, _) = await SeedProjectAsync();
+        await AddInvoiceAsync(mine, InvoiceStatus.Paid, adminId);
+        await AddInvoiceAsync(theirs, InvoiceStatus.Draft, adminId);
+
+        Assert.False(await IsBlockedAsync(mine));
+        Assert.True(await IsBlockedAsync(theirs));
+    }
 }

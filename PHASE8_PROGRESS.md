@@ -14,7 +14,7 @@ a slice of its own.
 | 3 | Create Invoice + remaining balance + numbering + VAT allocation | ✅ done |
 | 4 | Send Invoice + public token read | ✅ done |
 | 5 | Mark Paid + Void | ✅ done |
-| 6 | Complete Project + FR-7.4 Project detail invoice information | ⬜ not started |
+| 6 | Complete Project + FR-7.4 Project detail invoice information | ✅ done |
 | 7 | Overdue capability + Phase 8 completion gate | ⬜ not started |
 
 ---
@@ -684,3 +684,187 @@ and `ERD.md` needed no change** — every rule implemented here was already stat
   215 Infrastructure, 320 Api). Slice 5 added **54** — 35 Application, 19 Api. Domain and
   Infrastructure unchanged, correctly: both transitions and the `Payments` schema already existed.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations.
+
+---
+
+## Slice 6 — Complete Project + FR-7.4 Project detail invoice information
+
+**Scope:** the Project's terminal transition with its invoice guard and FR-8.6 override, plus
+FR-7.4's Invoice portion on the Project detail read. No overdue, no `InvoiceLine`, no PutOnHold /
+Resume, no schema change, no migration, no notification, no Domain change.
+
+### Scope reconstructed from the documents, before any code
+
+| Question | Answer, and where it comes from |
+|---|---|
+| Operations | **Complete a Project**, and **serve FR-7.4's Invoice portion**. FR-7.3, FR-8.6, StateMachine §4.3/§5, Sequence §10, Wireframe E1 |
+| Endpoints | `POST /api/v1/projects/{id}/complete` (Admin `F`, PermissionMatrix §5) and the existing `GET /api/v1/projects/{id}`, extended |
+| Transition | `Active → Completed`, terminal. **Already in `Project.Complete()` since Phase 7**, so this slice adds **no Domain code** |
+| Ownership | **None.** Completion is `F`; the detail read is `F`/`R` — read-only but unscoped |
+| Audit | `ProjectCompleted` → target `Project`, after the commit. New `AuditAction` value |
+| Notification | **None.** FR-9.1 covers sending; FR-9.2's three triggers exclude this; Sequence §10 draws no mail participant |
+| Transaction | One `SaveChangesAsync`. **No explicit transaction** — one status change on one aggregate |
+| Schema / migration | **None.** Eight migrations, unchanged |
+
+### The design review found four unanswered questions and one three-way contradiction
+
+All five were put to the Product Owner **before any code**, and none was reconciled silently. The
+full record is **D67**; the reconciliation lives in `StateMachine.md` §4.4.
+
+1. **Which Invoice statuses block completion was contradicted three ways** — `StateMachine.md`
+   §4.3 ("all `Paid` or `Void`", so a `Draft` blocks), §3.4 ("any in `Sent` or `Overdue`", so a
+   `Draft` does not) — *four sections apart in the same file* — and Sequence §10 ("any invoice not
+   Paid", so a `Void` blocks, contradicting both). **Decided: §4.3.** `Draft`/`Sent`/`Overdue`
+   block; `Paid`/`Void` do not.
+2. **A Project with zero Invoices was undefined** — "all are `Paid` or `Void`" is vacuously true
+   over an empty set. **Decided: blocked**, completable only through the override. A new rule, not
+   a reading of an old one.
+3. **`forceOverride` when nothing blocks was undefined.** **Decided: 400, and no audit entry** —
+   an override must override something.
+4. **Whether a non-override completion is audited was undefined** (§4.3 names an AuditLog entry on
+   its override row only). **Decided: audit every successful completion**, `details` null on the
+   normal path.
+5. **The override reason has no column.** **Decided: AuditLog only** — follow the documents, record
+   D50's best-effort consequence as a known limitation, invent no schema.
+
+### Design points worth not rediscovering
+
+- **The blocking predicate has two clauses, and it is declared in the Application layer.**
+  `IInvoiceRepository.HasCompletionBlockingInvoicesForProjectAsync`'s doc comment is where the rule
+  is stated; Infrastructure answers it with two indexed existence probes. Putting the rule in the
+  interface keeps an Application decision out of the persistence layer while still letting the
+  repository answer one named business question (CLAUDE.md §4).
+- **Two guards, two layers, never merged.** `Project.Complete()` owns `Active`-only; the handler
+  owns the invoice precondition. **The override reaches the second and never the first** — pinned
+  by a test for both `OnHold` and `Completed`.
+- **The handler never checks `Project.Status`** (CLAUDE.md §6). The `Active` rule has exactly one
+  home.
+- **The empty-override 400 uses FluentValidation's own `ValidationException`**, so both of the
+  endpoint's 400s produce one field-keyed body. `ArgumentException` would have given the same
+  status with a different shape for the same class of caller error.
+- **A reason without an override is refused, not dropped** — the accept-and-discard pattern Phase 6
+  refused for FR-6.3.
+- **`AlreadyInvoiced` on the detail read is summed from the rows already fetched**, not by a second
+  SQL `SUM`. The list is needed anyway and carries the same `GrossAmount`; a third round trip would
+  also meet the value-converted-`Money`-inside-an-aggregate constraint Slice 3 hit. **An
+  Infrastructure test asserts the detail read and the balance endpoint report identical figures**,
+  so the deliberate duplication FR-7.4's "in one place" requires cannot drift.
+- **Voided Invoices stay in the list and leave the arithmetic.** Two independent failure modes, two
+  independent tests.
+- **The list is ordered `IssueDate` then `Id`.** No document specifies an order; an unordered list
+  read can present rows differently between identical requests, and `IssueDate` is not unique.
+- **A completed Project can no longer be invoiced**, because StateMachine §5's existing guard in
+  `CreateInvoiceCommand` requires `Active`/`OnHold`. Slice 3 and Slice 6 wrote those guards without
+  reference to each other; an API test drives the whole path to prove they meet correctly.
+
+### One consequence of the approved guard ordering, recorded rather than hidden
+
+The approved order evaluates the invoice predicate **before** `project.Complete()`. For an `Active`
+Project this is invisible. For a Project that is **not** `Active`, it means the invoice-derived
+refusal is reported first:
+
+| Project state | Invoices | `forceOverride` | Result |
+|---|---|---|---|
+| `OnHold` / `Completed` | blocking | no | **409**, invoice wording (not "not Active") |
+| `OnHold` / `Completed` | blocking | yes + reason | 409, `Project.Complete()`'s own state message |
+| `OnHold` / `Completed` | all settled | no | 409, `Project.Complete()`'s own state message |
+| `OnHold` / `Completed` | all settled | yes + reason | **400** "nothing to override" |
+
+Every one of these refuses, and no override ever completes a non-`Active` Project — the stated
+requirement holds. What differs from a strict reading of "must fail because of its own Domain
+state" is *which* refusal is reported in rows 1 and 4. Both are edge cases on paused or already
+terminal Projects. Flagged for a decision rather than quietly changed; moving the empty-override
+check to after `project.Complete()` would align all four rows at the cost of mutating the aggregate
+in memory before rejecting.
+
+### Tests added (69)
+
+**Domain (0)** — correctly: `Project.Complete()` and its exhaustive state-machine coverage have
+existed since Phase 7 Slice 1, and this slice adds no Domain code.
+
+**Application (32)** — `CompleteProjectCommandHandlerTests` (30): both settled statuses and a mixed
+set; one save with no transaction; all three unsettled statuses blocking; the two named
+reconciliation tests (a `Draft` blocks *though §3.4 would not*, a `Void` does not *though Sequence
+§10 would*); the zero-Invoice clause; isolation from another Project's Invoices; the override from
+every blocked state; the empty-override 400 auditing nothing; three bad-reason cases and the mirror
+rule; both non-`Active` states refusing under an override; both audit shapes; no audit after a
+failed commit; not-found before any Invoice is read; and two reflection pins (no
+`IOwnershipValidator`, no `IEmailSender`). `GetProjectByIdQueryHandlerTests` gained 2 — the invoice
+portion passing through untouched, and the `ProjectInvoiceDto` property pin.
+
+**Infrastructure (15)** — `ProjectQueriesTests` (7) against real LocalDB: the empty case, E1's
+worked example, `Void` in the list but out of the figures, agreement with the balance endpoint, a
+negative remainder, the `IssueDate`-then-`Id` ordering (with two same-day rows making the tiebreaker
+load-bearing), and isolation between Projects. `InvoiceRepositoryTests` (8): the zero-Invoice
+clause, all three blocking statuses, both settling statuses, one unsettled among settled, and
+per-Project isolation in both directions.
+
+**Api (22)** — `ProjectEndpointsTests` grew by 18 (the updated raw-JSON property pin, the invoice-row
+pin, the list plus figures agreeing with the balance endpoint, `Void` visible but excluded, the
+Inspector seeing the list while still being refused invoice creation, the happy path with the row
+really reaching the database, the explicit-`false` body, both 409s, the zero-Invoice 409, the
+override happy path, the reason reaching `AuditLogs`, the empty-override 400 leaving no row, three
+bad-reason 400s, the mirror-rule 400, the double-completion 409, the Inspector 403 with an
+empty-body assertion, unauthenticated 401, unknown 404, and the completed-Project-cannot-be-invoiced
+crossover), plus 4 discovered automatically by the reflection-driven `DependencyInjectionTests`.
+
+### Adversarial verification
+
+Each defect introduced, the suite run, the file restored and confirmed **byte-identical** by `diff`.
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | Zero-Invoice clause removed from the repository | **2 failures** across Infrastructure and Api — `AProjectWithNoInvoicesIsBlocked`, `Completing_a_project_with_no_invoices_at_all_is_a_conflict` |
+| 2 | Guard set changed to §3.4's (a `Draft` stops blocking) | **13 failures** across all three layers, including both named reconciliation tests |
+| 3 | The empty-override 400 removed | **2 failures** — `AnOverrideWithNothingToOverrideIsRejectedAndAuditsNothing` and its Api counterpart |
+| 4 | `Void` allowed to count toward `AlreadyInvoiced` on the detail read | **3 failures** — the two Infrastructure tests (including the balance-agreement test) and the Api one |
+| 5 | Audit moved before `SaveChangesAsync` | **1 failure** — `AFailedCommitAuditsNothing` |
+
+Two findings worth keeping.
+
+**1. Experiment 2 revealed the guard-ordering consequence empirically, not by inspection.** Making a
+`Draft` non-blocking caused `NoOverrideCanCompleteAProjectThatIsNotActive` to fail for **both**
+`OnHold` and `Completed` — because with nothing blocking, the empty-override 400 fires before
+`project.Complete()` can refuse. That is precisely the divergence recorded in the table above, and
+it surfaced as a failing test rather than as a paragraph someone might not have written.
+
+**2. `git checkout` is the wrong tool for restoring an adversarial edit to an uncommitted file.**
+Restoring experiment 1 that way reverted the file to `HEAD`, silently deleting the entire new
+repository method along with the injected defect. The build caught it immediately, but the lesson
+generalises: within an unfinished slice, copy the file aside first and restore from that copy —
+`git checkout` restores the last commit, not the last good state.
+
+### Documentation updated in this slice
+
+- **`StateMachine.md`** — §4.3's two rows rewritten with the real guards; **new §4.4** recording the
+  three-way reconciliation, the zero-Invoice rule, the override's exact reach, the empty-override
+  refusal and the reason's storage; §3.4's contradicting invariant corrected; §4.2's diagram label
+  fixed from "all invoices Paid" to "Paid/Void".
+- **`Sequence Diagram.md` §10** — a correction note: its `alt Any invoice not Paid` reads as though
+  `Void` blocks; it does not. The note also records the two steps the diagram omits (the audit on
+  every completion, and the empty-override 400).
+- **`Architecture.md` §5.2** — the missing `POST /api/v1/projects/{id}/complete` row, with its full
+  contract; the `GET /api/v1/projects/{id}` row updated for FR-7.4 now being served in full.
+- **`PermissionMatrix.md` §5** — "View Project detail" clarified to cover the Invoice list, and
+  "Mark Project Completed" annotated with the endpoint and the override's limits.
+- **`ARCHITECTURE_DECISIONS.md`** — **D67** added; fourteen rows added to the rejected-decisions
+  table.
+- **`PROJECT_STATE.md` / `NEXT_STEPS.md` / `HANDOFF_PROMPT.md`** and this file.
+- **`ERD.md` and `BusinessRules.md` deliberately unchanged.** No schema moved, and no new `BR-n` was
+  minted: the two new rules are state-transition rules, which `BusinessRules.md`'s own "How to add a
+  new rule" routes to `StateMachine.md`. Promoting them to a numbered BR remains available if the
+  Product Owner wants them cited from elsewhere.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- `dotnet test RenoTrack.slnx` → **1,313 passing, 0 failing** (332 Domain, 409 Application,
+  230 Infrastructure, 342 Api). Slice 6 added **69** — 0 Domain, 32 Application, 15 Infrastructure,
+  22 Api.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations; this
+  slice adds no schema.
+- **Environment note:** Smart App Control blocked `RenoTrack.Application.dll`,
+  `RenoTrack.Infrastructure.Tests.dll` and `RenoTrack.Api.dll` intermittently during this slice
+  (`FileLoadException 0x800711C7`), in Debug *and* initially in Release. It cleared on retry, and
+  every figure above comes from a genuine Release run of the whole suite. Smart App Control was not
+  modified, weakened or worked around.

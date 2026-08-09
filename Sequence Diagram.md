@@ -494,6 +494,15 @@ sequenceDiagram
 ## 10. Project Completion
 **Covers:** FR-7.3, FR-8.6
 
+> **Corrected in Phase 8 Slice 6.** The `alt Any invoice not Paid` branch below reads as though a
+> `Void` Invoice would block completion, which contradicts both `StateMachine.md` §4.3 (`Paid` **or
+> `Void`**) and §3.4. The implemented guard is §4.3's, reconciled in `StateMachine.md` §4.4:
+> **`Draft`, `Sent` and `Overdue` block; `Paid` and `Void` do not**, and a Project with **no
+> Invoices at all** is also blocked. Read the `alt` below as "any invoice unsettled". Two further
+> points this diagram does not show: an `AuditLog` step follows every successful completion (not
+> only the override), and `forceOverride` supplied when nothing is blocking is refused with 400
+> rather than completing silently.
+
 ```mermaid
 sequenceDiagram
     actor AD as Admin

@@ -17,10 +17,10 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - origin/main: 697292b ("Merge pull request #13 from Keroleshanna/feature/phase-7-angebot-to-project").
 - PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6) and #13 (Phase 7) are MERGED.
 - Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b.
-  **Phase 8 Slices 1–5 of 7 are COMPLETE.** Nothing has been pushed; no PR exists.
+  **Phase 8 Slices 1–6 of 7 are COMPLETE.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 1,244 passing, 0 failing — 332 Domain, 377 Application, 215 Infrastructure, 320 Api.
-  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54.)
+- Tests: 1,313 passing, 0 failing — 332 Domain, 409 Application, 230 Infrastructure, 342 Api.
+  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +69.)
 - Migrations: 8 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments); has-pending-model-changes
   reports none.
@@ -28,7 +28,7 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
 
-YOUR TASK: CONTINUE PHASE 8 AT SLICE 6.
+YOUR TASK: CONTINUE PHASE 8 AT SLICE 7.
 
 Phase 8 per PROJECT_ROADMAP.md is "API: Invoices, Splitting, Payment Tracking, Project Completion".
 PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions.
@@ -38,8 +38,8 @@ PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved 
   Slice 3 — Create Invoice + balance + numbering + VAT split ... DONE
   Slice 4 — Send Invoice + public token read ............... DONE
   Slice 5 — Mark Paid + Void .............................. DONE
-  Slice 6 — Complete Project + FR-7.4 invoice information .. next
-  Slice 7 — Overdue capability + Phase 8 completion gate
+  Slice 6 — Complete Project + FR-7.4 invoice information .. DONE
+  Slice 7 — Overdue capability + Phase 8 completion gate ... next
 
 PHASE 8 DECISIONS THAT MUST NOT BE SILENTLY REOPENED (full list in PHASE8_PROGRESS.md)
 
@@ -61,12 +61,26 @@ PHASE 8 DECISIONS THAT MUST NOT BE SILENTLY REOPENED (full list in PHASE8_PROGRE
 - A VOID REASON IS REQUIRED from every source state including Draft; StateMachine §3.3's blank
   guard cell was a documentation omission and is reconciled.
 - THERE IS NO Invoice.SentAt — ERD defines no such column, and a test asserts its absence.
-- PutOnHold/Resume remain assigned to NO phase. Phase 8 does not claim them.
+- PutOnHold/Resume remain assigned to NO phase. Phase 8 does not claim them. Note the consequence
+  Slice 6 surfaced: Project.Complete() refuses anything but Active, so shipping on-hold without
+  resume would leave an OnHold Project neither resumable nor completable.
+- THE PROJECT COMPLETION GUARD HAS TWO CLAUSES (D67, StateMachine §4.4). A Project is blocked when
+  it has NO Invoices at all, OR at least one Invoice is Draft/Sent/Overdue. Paid and Void never
+  block. The status clause settled a three-way contradiction — StateMachine §4.3 vs §3.4 vs
+  Sequence §10 — in favour of §4.3, and §3.4 and §10 were corrected. The zero-Invoice clause is a
+  rule no document stated. Do not simplify either one away.
+- THE FR-8.6 OVERRIDE bypasses the invoice precondition and NOTHING else — no value of
+  forceOverride completes a non-Active Project. forceOverride with nothing to override is a 400
+  with NO audit entry; a reason without forceOverride is also a 400, never silently dropped.
+- THE OVERRIDE REASON LIVES ONLY IN AuditLog.Details, which is best-effort by D50, so it can be
+  lost silently while the Project stays completed. Known limitation, accepted deliberately; no
+  Projects column and no migration #9 were added.
 
 PHASE 7 DECISIONS THAT MUST NOT BE UNDONE
 
 - Project.Complete() enforces only Project's own state invariant, and only from Active (StateMachine
-  §4.2 draws no OnHold → Completed edge). The invoice precondition belongs to Phase 8's handler.
+  §4.2 draws no OnHold → Completed edge). The invoice precondition lives in Phase 8 Slice 6's
+  CompleteProjectCommandHandler, and no override reaches the Active guard.
 - Project.AgreedTotal has no mutator. ERD.md's snapshot wording is structural, not a convention.
 - The explicit transaction boundary (D48's amendment) exists only on the create-new-Customer path.
   Do not add EnableRetryOnFailure to UseSqlServer without revisiting every BeginTransactionAsync
@@ -123,6 +137,13 @@ BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
    path. Use that workaround. DO NOT disable or weaken Smart App Control — it is a machine
    security setting and not yours to change; if the workaround ever stops working, tell the user
    and let them decide.
+
+   IT GOT WORSE IN PHASE 8 SLICE 6, AND THE FIX IS ALSO SIMPLER THAN IT LOOKS. It blocked
+   RenoTrack.Application.dll in Debug (taking down Application.Tests) and, on the first attempt,
+   RenoTrack.Infrastructure.Tests.dll and RenoTrack.Api.dll in RELEASE too — so Release is a
+   mitigation, not a guarantee. Plain RETRY cleared it every time: the same Release command that
+   reported a catastrophic failure passed on the next invocation with no rebuild. Retry before
+   concluding anything, and never report a phase verified on a partial run.
 
 PHASE 6 LESSONS AND DECISIONS THAT MUST NOT BE UNDONE
 
@@ -205,6 +226,6 @@ WORKING RULES — NOT OPTIONAL
 - Report unexpected findings rather than designing around them silently.
 - Report only final verified figures in a closeout; do not state a count and then correct it.
 
-CONFIRM STEP 1, THEN CONTINUE PHASE 8 AT SLICE 2 — DESIGN REVIEW AND EXPLICIT APPROVAL FIRST,
+CONFIRM STEP 1, THEN CONTINUE PHASE 8 AT SLICE 7 — DESIGN REVIEW AND EXPLICIT APPROVAL FIRST,
 NEVER IMPLEMENTATION FIRST.
 ```

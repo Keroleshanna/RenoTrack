@@ -145,7 +145,7 @@ stateDiagram-v2
 ### 3.4 Invariants
 - Invoice numbers are never reused, even for `Void` invoices (**BR-9**). *(Corrected in Phase 8 Slice 1: §3.1 and this line both cited **BR-5**, which is the mandatory §14 UStG field list. Non-reuse of invoice numbers is BR-9. `BusinessRules.md` itself was correct throughout; only these two citations were wrong.)*
 - **A reason is required for every void, from every source state**, including `Draft`. `PermissionMatrix.md` §5 states this without qualification ("Admin-only, requires a reason"); §3.3's `Draft → Void` row previously left its guard cell blank while the `Sent`/`Overdue` row said "Admin provides a reason". *(Reconciled in Phase 8 Slice 1: treated as an omission in this table rather than an exemption, and enforced by `Invoice.Void(reason)` in the Domain.)*
-- A Project cannot move to `Completed` while any of its Invoices are in `Sent` or `Overdue` (see Project state machine §4), unless the Admin explicitly overrides with a reason (FR-8.6).
+- A Project cannot move to `Completed` while any of its Invoices are in `Draft`, `Sent` or `Overdue`, nor while it has no Invoices at all (see Project state machine §4.3 and §4.4), unless the Admin explicitly overrides with a reason (FR-8.6). *(Corrected in Phase 8 Slice 6: this line previously named only `Sent` and `Overdue`, which contradicted §4.3's own guard over a `Draft` Invoice. §4.4 records the full reconciliation, including Sequence Diagram §10's third, separate wording.)*
 
 ---
 
@@ -166,7 +166,7 @@ stateDiagram-v2
     [*] --> Active
     Active --> OnHold : PutOnHold (Admin)
     OnHold --> Active : Resume (Admin)
-    Active --> Completed : Complete (Admin) [all invoices Paid, or override]
+    Active --> Completed : Complete (Admin) [all invoices Paid/Void, or override]
     Completed --> [*]
 ```
 
@@ -177,8 +177,38 @@ stateDiagram-v2
 | `[*]` | `ConvertAngebotToProject` | Angebot.Status == `CustomerApproved` | `Active` | Customer created/linked; Project created with AgreedTotal |
 | `Active` | `PutOnHold` | — | `OnHold` | Reason optional/free text |
 | `OnHold` | `Resume` | — | `Active` | — |
-| `Active` | `Complete` | All Invoices.Status == `Paid` (or `Void`) | `Completed` | Lead already `Won`; no further change needed there |
-| `Active` | `Complete` (override) | Admin supplies `forceOverride=true` + reason | `Completed` | AuditLog entry explicitly records the override and reason |
+| `Active` | `Complete` | The Project has **at least one** Invoice **and** every one of them is `Paid` or `Void` | `Completed` | `CompletedAt` set; AuditLog entry (`ProjectCompleted`, no details); Lead already `Won`, no further change needed there |
+| `Active` | `Complete` (override) | Admin supplies `forceOverride=true` + a non-blank reason, **and a blocking condition actually exists** | `Completed` | `CompletedAt` set; AuditLog entry explicitly records the override and reason |
+
+### 4.4 Completion guard — reconciliation and clarifications
+
+*Recorded in Phase 8 Slice 6, when `CompleteProjectCommand` was built. Two of these correct this
+document; none of them changes a decision made elsewhere.*
+
+- **Which Invoice statuses block completion was contradicted three ways, and is now settled as
+  §4.3's row above.** This table's guard read "All Invoices.Status == `Paid` (or `Void`)", which
+  blocks a `Draft`; **§3.4's invariant** read "while any of its Invoices are in `Sent` or
+  `Overdue`", which does not; and **Sequence Diagram §10's** `alt Any invoice not Paid` would have
+  blocked on a `Void`, contradicting both. **Resolved in favour of §4.3:** `Draft`, `Sent` and
+  `Overdue` all block; `Paid` and `Void` do not. §3.4 has been corrected to match and Sequence
+  Diagram §10 carries a correction note. The choice was put to the Product Owner explicitly rather
+  than reconciled silently — a `Draft` Invoice is money the company still intends to collect, and
+  a Project closed over one is a bill nobody will chase.
+- **A Project with no Invoices at all is blocked, and this is a new rule rather than a reading of an
+  old one.** "All Invoices are `Paid` or `Void`" is vacuously true over an empty set, so the guard
+  as previously worded would have let a Project that was never invoiced close silently, while SRS
+  FR-7.3 ("once its final invoice has been paid") presupposes one exists. Such a Project is
+  completable only through the FR-8.6 override, with a reason.
+- **The override reaches the invoice precondition and nothing else.** No value of `forceOverride`
+  completes a Project that is not `Active`: §4.2 draws no `OnHold → Completed` edge, and that guard
+  lives inside the `Project` aggregate where no request field can reach it.
+- **`forceOverride` supplied when nothing is blocking is refused (400).** An override must override
+  something, and no AuditLog entry is written for the refused attempt — a recorded override reason
+  against a Project that had nothing to override would be a false justification in the permanent
+  record.
+- **The override reason has no column of its own.** `ERD.md`'s `PROJECT` defines none and none was
+  added, so the AuditLog entry is its only home — which inherits D50's best-effort semantics.
+  Recorded as a known limitation in `NEXT_STEPS.md`, deliberately not solved by inventing schema.
 
 ---
 
