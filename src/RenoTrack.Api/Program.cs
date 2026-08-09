@@ -5,6 +5,7 @@ using RenoTrack.Api.OpenApi;
 using RenoTrack.Api.RateLimiting;
 using RenoTrack.Application;
 using RenoTrack.Infrastructure;
+using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using Scalar.AspNetCore;
@@ -58,6 +59,16 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+
+// Email readiness (Phase 9 Slice 1, S1-3). A no-op outside Production; in Production it refuses to
+// start unless Email:Enabled is explicitly true, so a host cannot serve normally while silently
+// delivering none of FR-9.1/FR-9.2's notifications. Deliberately before the database step: it reads
+// nothing and touches nothing, so a configuration mistake is reported without first waiting on a
+// database connection that may itself be slow to fail.
+using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<EmailConfigurationVerifier>().Verify();
+}
 
 // Database readiness (D63). In Production this only *verifies* — migration history matches this
 // build, required roles exist — and never writes, so the runtime login needs no DDL permission;
