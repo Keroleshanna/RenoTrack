@@ -23,7 +23,9 @@ using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
+using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
+using RenoTrack.Application.Invoices.Commands.VoidInvoice;
 using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
 using RenoTrack.Application.Invoices.Dtos;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
@@ -151,6 +153,8 @@ public static class DependencyInjection
 
         services.AddScoped<IValidator<CreateInvoiceCommand>, CreateInvoiceCommandValidator>();
         services.AddScoped<IValidator<SendInvoiceCommand>, SendInvoiceCommandValidator>();
+        services.AddScoped<IValidator<RecordPaymentCommand>, RecordPaymentCommandValidator>();
+        services.AddScoped<IValidator<VoidInvoiceCommand>, VoidInvoiceCommandValidator>();
         services.AddScoped<IValidator<GetPublicInvoiceByTokenQuery>, GetPublicInvoiceByTokenQueryValidator>();
     }
 
@@ -193,6 +197,8 @@ public static class DependencyInjection
         // FR-8.1 — the only path by which an Invoice may come into existence.
         services.AddScoped<ICommandHandler<CreateInvoiceCommand, InvoiceDto>, CreateInvoiceCommandHandler>();
         services.AddScoped<ICommandHandler<SendInvoiceCommand, InvoiceDto>, SendInvoiceCommandHandler>();
+        services.AddScoped<ICommandHandler<RecordPaymentCommand, InvoiceDto>, RecordPaymentCommandHandler>();
+        services.AddScoped<ICommandHandler<VoidInvoiceCommand, InvoiceDto>, VoidInvoiceCommandHandler>();
     }
 
     /// <summary>

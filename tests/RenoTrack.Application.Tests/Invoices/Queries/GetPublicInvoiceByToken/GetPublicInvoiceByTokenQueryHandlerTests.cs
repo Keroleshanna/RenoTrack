@@ -170,12 +170,13 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
 
     /// <summary>
     /// The public DTO is a separate hierarchy, and what it withholds is the point: no internal ids,
-    /// no issue date, no status, no void reason, no payments. Pinned by property name so a field
-    /// added for the Dashboard cannot appear on the one endpoint any holder of a forwarded email
-    /// can reach.
+    /// no issue date, no void reason, no payments. <c>Status</c> is the one field added beyond
+    /// Wireframe A4, by explicit decision in Slice 5 — pinned here so it is deliberate, and so a
+    /// field added for the Dashboard cannot appear on the one endpoint any holder of a forwarded
+    /// email can reach.
     /// </summary>
     [Fact]
-    public void ThePublicDtoExposesOnlyWhatWireframeA4Renders()
+    public void ThePublicDtoExposesOnlyTheAgreedCustomerFacingFields()
     {
         var properties = typeof(PublicInvoiceDto)
             .GetProperties()
@@ -190,8 +191,112 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
                 nameof(PublicInvoiceDto.GrossAmount),
                 nameof(PublicInvoiceDto.InvoiceNumber),
                 nameof(PublicInvoiceDto.NetAmount),
+                nameof(PublicInvoiceDto.Status),
                 nameof(PublicInvoiceDto.VatAmount),
             ],
             properties);
+    }
+
+    /// <summary>
+    /// The public status is a dedicated enum, never <see cref="InvoiceStatus"/> — so the internal
+    /// workflow can gain a state without it becoming part of a customer-facing contract.
+    /// </summary>
+    [Fact]
+    public void ThePublicStatusIsADedicatedEnumWithExactlyThreeValues()
+    {
+        Assert.Equal(
+            typeof(PublicInvoiceStatus),
+            typeof(PublicInvoiceDto).GetProperty(nameof(PublicInvoiceDto.Status))!.PropertyType);
+
+        Assert.Equal(
+            [
+                nameof(PublicInvoiceStatus.Open),
+                nameof(PublicInvoiceStatus.Paid),
+                nameof(PublicInvoiceStatus.Void),
+            ],
+            Enum.GetNames<PublicInvoiceStatus>().OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    // ---- Public status mapping (Slice 5) --------------------------------
+
+    /// <summary>
+    /// <c>Draft</c>, <c>Sent</c> and <c>Overdue</c> all collapse to <c>Open</c>: the customer is told
+    /// the invoice is outstanding, never which internal stage it sits at. Exposing an overdue state
+    /// would be a dunning decision no document makes.
+    /// </summary>
+    [Fact]
+    public async Task ASentInvoiceReadsAsOpen()
+    {
+        SeedSentInvoice();
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.Equal(PublicInvoiceStatus.Open, result.Status);
+    }
+
+    [Fact]
+    public async Task AnOverdueInvoiceStillReadsAsOpen()
+    {
+        var invoice = SeedSentInvoice();
+        invoice.MarkOverdue(invoice.DueDate.AddDays(1));
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.Equal(PublicInvoiceStatus.Open, result.Status);
+    }
+
+    /// <summary>
+    /// The link stays readable after payment — it is not invalidated — and now says so, rather than
+    /// continuing to present a settled bill as outstanding.
+    /// </summary>
+    [Fact]
+    public async Task APaidInvoiceRemainsReadableAndReadsAsPaid()
+    {
+        var invoice = SeedSentInvoice();
+        invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, recordedByAdminId: 2);
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.Equal(PublicInvoiceStatus.Paid, result.Status);
+        Assert.Equal("RE-2026-00017", result.InvoiceNumber);
+    }
+
+    /// <summary>
+    /// The reason this field exists at all: without it a voided invoice would go on rendering as an
+    /// ordinary payable bill. The link is **not** invalidated — no document says a void revokes it.
+    /// </summary>
+    [Fact]
+    public async Task AVoidedInvoiceRemainsReadableAndReadsAsVoid()
+    {
+        var invoice = SeedSentInvoice();
+        invoice.Void("Issued against the wrong Project.");
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.Equal(PublicInvoiceStatus.Void, result.Status);
+    }
+
+    /// <summary>
+    /// The void *reason* is staff-authored text about why the company cancelled a bill. The customer
+    /// is told that it was cancelled, never the internal wording — so it appears nowhere on this
+    /// surface.
+    /// </summary>
+    [Fact]
+    public async Task AVoidedInvoiceNeverExposesItsReason()
+    {
+        var invoice = SeedSentInvoice();
+        invoice.Void("Customer disputed the scope; renegotiating.");
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.DoesNotContain(
+            "renegotiating",
+            System.Text.Json.JsonSerializer.Serialize(result),
+            StringComparison.OrdinalIgnoreCase);
     }
 }

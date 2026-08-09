@@ -73,4 +73,18 @@ public enum AuditAction
     /// sending an Invoice changes no other aggregate's state at all.
     /// </summary>
     InvoiceSent,
+
+    /// <summary>
+    /// The Admin manually confirmed payment (FR-8.4, Phase 8 Slice 5). Logged against the
+    /// <c>Invoice</c>; the method and date go in <c>details</c>, while the authoritative record is
+    /// the <c>Payment</c> child row itself.
+    /// </summary>
+    InvoicePaid,
+
+    /// <summary>
+    /// The Invoice was cancelled (PermissionMatrix.md §5, Phase 8 Slice 5). Logged against the
+    /// <c>Invoice</c> **with the reason in <c>details</c>**, which StateMachine.md §3.3 requires
+    /// explicitly ("AuditLog entry with reason") on top of storing it on the invoice row itself.
+    /// </summary>
+    InvoiceVoided,
 }

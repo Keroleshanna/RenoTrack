@@ -425,8 +425,9 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
     /// <summary>
     /// The public payload is a separate hierarchy from InvoiceDto, and what it withholds is the
-    /// point — no internal ids, no issue date, no status, no void reason, no payments. Asserted
-    /// against raw JSON so a typed read cannot ignore an added field.
+    /// point — no internal ids, no issue date, no void reason, no payments. `status` is the one
+    /// field beyond Wireframe A4, added by explicit decision in Slice 5. Asserted against raw JSON
+    /// so a typed read cannot ignore an added field.
     /// </summary>
     [Fact]
     public async Task The_public_payload_exposes_only_the_customer_facing_fields()
@@ -437,8 +438,11 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         var body = await anonymous.GetFromJsonAsync<JsonElement>($"/api/v1/public/invoices/{token}");
 
         Assert.Equal(
-            ["customerName", "dueDate", "grossAmount", "invoiceNumber", "netAmount", "vatAmount"],
+            ["customerName", "dueDate", "grossAmount", "invoiceNumber", "netAmount", "status", "vatAmount"],
             body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+
+        // Serialized by name, and as the public vocabulary — never the internal InvoiceStatus.
+        Assert.Equal("Open", body.GetProperty("status").GetString());
     }
 
     [Fact]
@@ -509,6 +513,303 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         Assert.NotNull(typeof(RenoTrack.Api.Controllers.PublicController)
             .GetCustomAttributes(typeof(Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute), inherit: false)
             .SingleOrDefault());
+    }
+
+    // ---- Mark paid (Slice 5) -----------------------------------------------
+
+    [Fact]
+    public async Task Admin_can_mark_a_sent_invoice_paid()
+    {
+        var (invoiceId, _) = await SentInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Paid", body.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// The Payment row must really exist, carry the Invoice's own gross, and name the Admin who
+    /// recorded it — the whole point of FR-8.4's manual confirmation.
+    /// </summary>
+    [Fact]
+    public async Task Marking_paid_records_a_payment_for_the_full_gross()
+    {
+        var (invoiceId, _) = await SentInvoiceAsync();
+        var adminId = await factory.GetUserIdAsync(RenoTrackApiFactory.AdminEmail);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), method = "Cash" });
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var invoice = await context.Invoices.Include(i => i.Payments).SingleAsync(i => i.Id == invoiceId);
+
+        var payment = Assert.Single(invoice.Payments);
+        Assert.Equal(invoice.GrossAmount, payment.Amount);
+        Assert.Equal(PaymentMethod.Cash, payment.Method);
+        Assert.Equal(adminId, payment.RecordedByAdminId);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+    }
+
+    /// <summary>
+    /// A duplicate confirmation is impossible rather than discouraged — `Paid` is terminal, so the
+    /// second attempt is a 409 and no second Payment row can ever exist.
+    /// </summary>
+    [Fact]
+    public async Task Marking_an_already_paid_invoice_is_a_conflict_and_adds_no_second_payment()
+    {
+        var (invoiceId, _) = await SentInvoiceAsync();
+        using var admin = await AdminClientAsync();
+        var body = new { paidAt = DateTime.UtcNow, method = "BankTransfer" };
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/mark-paid", body)).StatusCode);
+
+        var second = await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/mark-paid", body);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var invoice = await context.Invoices.Include(i => i.Payments).SingleAsync(i => i.Id == invoiceId);
+        Assert.Single(invoice.Payments);
+    }
+
+    /// <summary>StateMachine §3.3 draws MarkPaid only from Sent and Overdue — a Draft cannot be paid.</summary>
+    [Fact]
+    public async Task Marking_a_draft_invoice_paid_is_a_conflict()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_inspector_cannot_mark_an_invoice_paid()
+    {
+        var (invoiceId, _) = await SentInvoiceAsync();
+        using var inspector = await InspectorClientAsync();
+
+        var response = await inspector.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// Marking paid does not move the balance: a Sent invoice already counted toward
+    /// `alreadyInvoiced`, and only Void is ever excluded (StateMachine §3.3).
+    /// </summary>
+    [Fact]
+    public async Task Marking_paid_does_not_change_the_project_balance()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var created = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+        var invoiceId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+        await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+
+        var before = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/projects/{projectId}/invoice-balance");
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        var after = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/projects/{projectId}/invoice-balance");
+
+        Assert.Equal(
+            before.GetProperty("alreadyInvoiced").GetDecimal(),
+            after.GetProperty("alreadyInvoiced").GetDecimal());
+        Assert.Equal(
+            before.GetProperty("remaining").GetDecimal(),
+            after.GetProperty("remaining").GetDecimal());
+    }
+
+    // ---- Void (Slice 5) ----------------------------------------------------
+
+    [Fact]
+    public async Task Admin_can_void_an_invoice_with_a_reason()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/void",
+            new { reason = "Issued against the wrong Project." });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Void", body.GetProperty("status").GetString());
+        Assert.Equal("Issued against the wrong Project.", body.GetProperty("voidReason").GetString());
+    }
+
+    /// <summary>
+    /// BR-9: the row and its number survive a void. Nothing anywhere deletes an Invoice, and the
+    /// number can never be reused.
+    /// </summary>
+    [Fact]
+    public async Task A_voided_invoice_keeps_its_row_and_its_number()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        string number;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+            number = (await context.Invoices.SingleAsync(i => i.Id == invoiceId)).InvoiceNumber;
+        }
+
+        await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/void", new { reason = "Duplicate." });
+
+        using var readScope = factory.Services.CreateScope();
+        var readContext = readScope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var invoice = await readContext.Invoices.SingleAsync(i => i.Id == invoiceId);
+
+        Assert.Equal(InvoiceStatus.Void, invoice.Status);
+        Assert.Equal(number, invoice.InvoiceNumber);
+    }
+
+    /// <summary>
+    /// StateMachine §3.3: a voided invoice is "excluded from 'remaining balance' math going
+    /// forward" — the one balance-affecting transition in this slice.
+    /// </summary>
+    [Fact]
+    public async Task Voiding_removes_the_invoice_from_the_remaining_balance()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var created = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+        var invoiceId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        var before = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/projects/{projectId}/invoice-balance");
+        Assert.Equal(100.00m, before.GetProperty("alreadyInvoiced").GetDecimal());
+
+        await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/void", new { reason = "Wrong amount." });
+
+        var after = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/projects/{projectId}/invoice-balance");
+        Assert.Equal(0m, after.GetProperty("alreadyInvoiced").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Voiding_without_a_reason_is_a_bad_request()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/void", new { reason = "" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Voiding_a_paid_invoice_is_a_conflict()
+    {
+        var (invoiceId, _) = await SentInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        var response = await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/void", new { reason = "Too late." });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_inspector_cannot_void_an_invoice()
+    {
+        var invoiceId = await DraftInvoiceAsync();
+        using var inspector = await InspectorClientAsync();
+
+        var response = await inspector.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/void", new { reason = "Nope." });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    // ---- Public status after Paid / Void (Slice 5 decision) -----------------
+
+    /// <summary>
+    /// The token link stays readable after payment and now says "Paid" instead of continuing to
+    /// present a settled bill as outstanding.
+    /// </summary>
+    [Fact]
+    public async Task A_paid_invoice_still_resolves_publicly_and_reports_paid()
+    {
+        var (invoiceId, token) = await SentInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "BankTransfer" });
+
+        using var anonymous = factory.CreateClient();
+        var response = await anonymous.GetAsync($"/api/v1/public/invoices/{token}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Paid", body.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// The reason this field exists: without it a voided invoice would go on rendering as an
+    /// ordinary payable bill. The link is **not** invalidated — 200, not 404 or 410.
+    /// </summary>
+    [Fact]
+    public async Task A_voided_invoice_still_resolves_publicly_and_reports_void()
+    {
+        var (invoiceId, token) = await SentInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync($"/api/v1/invoices/{invoiceId}/void", new { reason = "Cancelled by agreement." });
+
+        using var anonymous = factory.CreateClient();
+        var response = await anonymous.GetAsync($"/api/v1/public/invoices/{token}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Void", body.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// The void reason is staff-authored text about why the company cancelled a bill — the customer
+    /// learns that it was cancelled, never the internal wording.
+    /// </summary>
+    [Fact]
+    public async Task The_public_view_never_exposes_the_void_reason()
+    {
+        var (invoiceId, token) = await SentInvoiceAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/void",
+            new { reason = "Customer disputed the scope; renegotiating." });
+
+        using var anonymous = factory.CreateClient();
+        var body = await (await anonymous.GetAsync($"/api/v1/public/invoices/{token}")).Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("renegotiating", body, StringComparison.OrdinalIgnoreCase);
     }
 
     // ---- Seeding -----------------------------------------------------------

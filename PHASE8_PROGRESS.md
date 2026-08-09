@@ -13,7 +13,7 @@ a slice of its own.
 | 2 | Infrastructure: schema + migration #8 `AddInvoicesAndPayments` | ✅ done |
 | 3 | Create Invoice + remaining balance + numbering + VAT allocation | ✅ done |
 | 4 | Send Invoice + public token read | ✅ done |
-| 5 | Mark Paid + Void | ⬜ not started |
+| 5 | Mark Paid + Void | ✅ done |
 | 6 | Complete Project + FR-7.4 Project detail invoice information | ⬜ not started |
 | 7 | Overdue capability + Phase 8 completion gate | ⬜ not started |
 
@@ -554,3 +554,133 @@ implements was already stated correctly in them.
   Domain unchanged, correctly: the transition it uses already existed.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations; this
   slice adds no schema.
+
+---
+
+## Slice 5 — Mark Paid + Void
+
+**Scope:** the two remaining Admin-driven Invoice transitions, plus the public-status decision they
+made unavoidable. No overdue, no project completion, no `InvoiceLine`, no schema change, no PDF, no
+notifications.
+
+### Scope reconstructed from the documents, before any code
+
+| Question | Answer, and where it comes from |
+|---|---|
+| Operations | **Mark Paid and Void.** Architecture §5.2, PermissionMatrix §5, Sequence §9's second half |
+| Transitions | `Sent`/`Overdue` → `Paid` (guard "—"); `Draft`/`Sent`/`Overdue` → `Void` (guard: a reason). StateMachine §3.3 — **both already in the Domain since Slice 1**, so this slice adds no Domain code |
+| Endpoints | `POST /api/v1/invoices/{id}/mark-paid` and `POST /api/v1/invoices/{id}/void`, both Admin `F` |
+| Ownership | **None** — both `F`, no Inspector operation exists in this slice at all |
+| Payment | Created by `Invoice.MarkPaid`; `Amount` always the Invoice's gross; `paidAt`/`method` from the body; `RecordedByAdminId` from the token |
+| Partial payment | Impossible — no amount parameter exists anywhere on the path |
+| Duplicate payment | Impossible — `Paid` is terminal, so a second confirmation is a 409 |
+| Transactions | One `SaveChangesAsync` each. **No explicit transaction** — mark-paid's two changes are two changes to *one* aggregate |
+| Audit | `InvoicePaid` and `InvoiceVoided`, both against `Invoice`, both after the commit. Void's `details` carries the reason, which §3.3 requires explicitly |
+| Notifications | **None.** FR-9.1 covers sending; FR-9.2's three triggers include neither; §9's mark-paid segment draws no mail step |
+| Schema / migration | **None** |
+
+### The decision this slice needed, and the answer
+
+Slice 4 flagged that `PublicInvoiceDto` carried no status, and that the question became real the
+moment `Paid` and `Void` were reachable. The documents do not decide it — Wireframe A4 renders no
+status and PermissionMatrix §7 grants only "read-only". Put to the user with three options; **option
+(b) approved**:
+
+- A dedicated **`PublicInvoiceStatus`** enum — `Open` / `Paid` / `Void` — never the internal
+  `InvoiceStatus`, matching the shape `PublicAngebotDecision` already established.
+- `Draft`, `Sent` and `Overdue` all map to `Open`. The customer knows their own due date; exposing a
+  dunning state is a decision no document makes.
+- **The token link is not invalidated by `Paid` or `Void`** — no 404, no 410. It stays readable and
+  now says what happened.
+- Nothing else added. In particular **`VoidReason` stays internal**: the customer is told *that* the
+  invoice was cancelled, never the staff wording behind it.
+
+Without this field a voided invoice would have gone on rendering as an ordinary payable bill, and a
+paid one would still have shown a due date as though outstanding.
+
+### Design points worth not rediscovering
+
+- **Mark-paid's two writes are one aggregate.** The status change and the new `Payment` child are
+  tracked together, so a single `SaveChangesAsync` is genuinely atomic — D48's explicit boundary
+  would add a lock scope for nothing.
+- **Duplicate payment is structurally impossible**, not merely rejected: `MarkPaid` guards
+  `Sent`/`Overdue` and `Paid` is terminal. A test asserts the second attempt leaves the Payment count
+  at one.
+- **The void reason is stored twice, and both are required by documents.** `Invoice.VoidReason` is
+  the business data; §3.3's side-effect column additionally specifies an "AuditLog entry **with
+  reason**". The audit row records who cancelled it and why *at that moment*; the invoice row records
+  what the document now carries.
+- **Voiding needs no balance code.** §3.3's "excluded from remaining balance math going forward" was
+  already satisfied by Slice 3's query filter — an API test drives the whole path and watches
+  `alreadyInvoiced` fall to zero.
+- **Marking paid moves the balance by nothing**, and a test pins that too. §3.3's "Project balance
+  recalculated" is imprecise rather than wrong: no balance is stored, and a `Sent` invoice already
+  counted. `StateMachine.md` was left unedited — the wording describes an effect that is simply
+  vacuous here, not a rule the code contradicts.
+- **Neither handler takes an `IEmailSender`**, pinned by reflection, so a notification cannot be
+  added without a visible signature change to review against FR-9.1/FR-9.2.
+
+### Two findings from the adversarial run worth keeping
+
+**1. Removing the void-reason *validator* rule is invisible at the API layer.** The Application test
+caught it immediately (a `ValidationException` became an `ArgumentException`), but
+`Voiding_without_a_reason_is_a_bad_request` **still passed** — because D59 maps both
+`ValidationException` and `ArgumentException` to **400**, so the HTTP status is identical either way.
+That is defence in depth working as intended, and it is also the same lesson Phase 4 Slice 9 recorded
+about role-gate versus ownership 403s: **a status-code assertion cannot tell you which layer
+rejected a request.** The layer is pinned by the Application test, and only there.
+
+**2. A mangled adversarial edit produced 18 build errors and a stale test run that looked like a
+result.** The rerun after fixing the edit gave the real answer. Worth stating plainly: an adversarial
+experiment that does not compile proves nothing, and `--no-build` will happily re-run the previous
+binary. Check the build before believing the run.
+
+### Tests added (54)
+
+**Application (35)** — `RecordPaymentCommandHandlerTests` (15): both source states, exactly one
+Payment with the supplied date and method, the amount always the gross, one save with no transaction,
+the audit target, all four rejections, the duplicate-payment proof, and three reflection pins (no
+ownership validator, no email sender, no amount anywhere on the command).
+`VoidInvoiceCommandHandlerTests` (14): all three voidable states, the number and row surviving (BR-9),
+one save, the audit entry carrying the reason, both terminal-state refusals, blank-reason rejection,
+no-residue, and two reflection pins. `GetPublicInvoiceByTokenQueryHandlerTests` grew by 6 — the
+updated property pin, the dedicated-enum pin, and the four mapping cases (`Sent`→`Open`,
+`Overdue`→`Open`, `Paid`→`Paid` and still readable, `Void`→`Void` and still readable), plus the
+reason-never-exposed assertion.
+
+**Api (19)** — `InvoiceEndpointsTests` grew by 15 (mark-paid happy path, the Payment row really
+landing with the right amount/method/admin, the duplicate 409 adding no second row, a Draft refused,
+the Inspector gate, the balance *not* moving on payment; void happy path, the row and number
+surviving, the balance *falling* on void, blank-reason 400, paid-invoice 409, the Inspector gate; and
+three public-surface tests — Paid and Void both still resolving 200 with the right status, and the
+void reason never appearing in the body), plus 4 discovered by `DependencyInjectionTests`.
+
+### Adversarial verification
+
+| # | Defect introduced | Result |
+|---|---|---|
+| 1 | `Void` dropped from the public status mapping (a voided invoice would read `Open`) | **1 failure** — `AVoidedInvoiceRemainsReadableAndReadsAsVoid` |
+| 2 | Audit written *before* the commit in `RecordPaymentCommandHandler` | **1 failure** — `ThePaymentIsAuditedAgainstTheInvoice` (two entries where one was expected) |
+| 3 | `Reason` `NotEmpty` rule removed from the validator | **2 failures** in Application — and, notably, **none at the API layer** (see finding 1 above) |
+| 4 | Void reason dropped from the audit `details` | **1 failure** — `TheVoidIsAuditedAgainstTheInvoiceWithTheReason` |
+| 5 | `VoidReason` added to `PublicInvoiceDto` | **4 failures** across Application and Api — both property pins and both reason-never-exposed tests |
+
+Experiment 5 is the one worth keeping: the leak fails at two layers and in two different ways (a
+structural property pin and a content assertion), so removing either test alone would not silently
+open the hole.
+
+### Documentation updated in this slice
+
+`Architecture.md` §5.2 (the `mark-paid` row filled in with its real contract; a **new `void` row**,
+which the table had never carried despite PermissionMatrix §5 granting the action; and the
+public-invoice row updated for the new `status` field), `PROJECT_STATE.md`, `NEXT_STEPS.md`,
+`HANDOFF_PROMPT.md`, and this file. **`PermissionMatrix.md`, `StateMachine.md`, `BusinessRules.md`
+and `ERD.md` needed no change** — every rule implemented here was already stated correctly in them.
+
+### Verification
+
+- `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors**.
+- `dotnet test RenoTrack.slnx` → **1,244 passing, 0 failing** (332 Domain, 377 Application,
+  215 Infrastructure, 320 Api). Slice 5 added **54** — 35 Application, 19 Api. Domain and
+  Infrastructure unchanged, correctly: both transitions and the `Payments` schema already existed.
+- `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations.

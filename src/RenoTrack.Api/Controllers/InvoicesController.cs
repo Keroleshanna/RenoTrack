@@ -5,7 +5,9 @@ using RenoTrack.Api.Invoices.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
+using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
+using RenoTrack.Application.Invoices.Commands.VoidInvoice;
 using RenoTrack.Application.Invoices.Dtos;
 
 namespace RenoTrack.Api.Controllers;
@@ -32,8 +34,11 @@ namespace RenoTrack.Api.Controllers;
 /// by resource beats cohesion by URL prefix.
 /// </para>
 /// <para>
-/// <b>There is deliberately no <c>mark-paid</c>, <c>void</c> or read endpoint yet.</b> The Domain
-/// carries both remaining transitions (StateMachine.md §3.3); they arrive in Slice 5.
+/// <b>There is deliberately no read endpoint.</b> No document defines
+/// <c>GET /api/v1/invoices/{id}</c>, which is why creation returns 201 without a <c>Location</c>.
+/// The one remaining Invoice transition, <c>Sent → Overdue</c>, exists in the Domain but has no
+/// endpoint by explicit decision — nothing schedules it, and inventing a trigger for it was
+/// rejected (Slice 7 records the gap).
 /// </para>
 /// </remarks>
 [ApiController]
@@ -41,7 +46,9 @@ namespace RenoTrack.Api.Controllers;
 [Authorize(Roles = Roles.Admin)]
 public sealed class InvoicesController(
     ICommandHandler<CreateInvoiceCommand, InvoiceDto> createInvoiceHandler,
-    ICommandHandler<SendInvoiceCommand, InvoiceDto> sendInvoiceHandler) : ControllerBase
+    ICommandHandler<SendInvoiceCommand, InvoiceDto> sendInvoiceHandler,
+    ICommandHandler<RecordPaymentCommand, InvoiceDto> recordPaymentHandler,
+    ICommandHandler<VoidInvoiceCommand, InvoiceDto> voidInvoiceHandler) : ControllerBase
 {
     /// <summary>
     /// Creates one Invoice against a Project, splitting the entered gross across the originating
@@ -115,6 +122,85 @@ public sealed class InvoicesController(
     {
         var invoice = await sendInvoiceHandler.HandleAsync(
             new SendInvoiceCommand(id, SentByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(invoice);
+    }
+
+    /// <summary>
+    /// Records the Admin's manual confirmation that an Invoice was paid (SRS FR-8.4, Sequence
+    /// Diagram §9, Wireframe E3). Admin only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Body is <c>{ paidAt, method }</c> — **no amount**. Phase 8 records full payment only, so the
+    /// <c>Payment</c> always carries the Invoice's own gross; FR-8.4, §9 and E3 all offer no amount
+    /// to supply. The recording Admin comes from the token (D61).
+    /// </para>
+    /// <para>
+    /// 409 when the Invoice is not <c>Sent</c> or <c>Overdue</c> — which is also what makes a
+    /// duplicate confirmation impossible rather than merely discouraged, since <c>Paid</c> is
+    /// terminal (StateMachine.md §3.2).
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/mark-paid")]
+    [ProducesResponseType<InvoiceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> MarkPaid(
+        int id,
+        RecordPaymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await recordPaymentHandler.HandleAsync(
+            new RecordPaymentCommand(
+                InvoiceId: id,
+                PaidAt: request.PaidAt,
+                Method: request.Method,
+                RecordedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(invoice);
+    }
+
+    /// <summary>
+    /// Cancels an Invoice (PermissionMatrix.md §5, StateMachine.md §3.3). Admin only, and a reason
+    /// is always required.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>BR-9: the row and its number survive.</b> This is a status change, never a delete — no
+    /// code path anywhere in this project removes an Invoice, and the number can never be reused.
+    /// </para>
+    /// <para>
+    /// 409 when the Invoice is already <c>Paid</c> or <c>Void</c> (both terminal). 400 when no
+    /// reason is supplied — required from every source state including <c>Draft</c>, which is the
+    /// reconciliation Slice 1 made to §3.3's blank guard cell.
+    /// </para>
+    /// <para>
+    /// A voided Invoice leaves the "remaining balance" math immediately (§3.3), with no work here:
+    /// the balance query already excludes <c>Void</c>. Its token link stays readable and now reports
+    /// <c>Void</c> to the customer.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/void")]
+    [ProducesResponseType<InvoiceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Void(
+        int id,
+        VoidInvoiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await voidInvoiceHandler.HandleAsync(
+            new VoidInvoiceCommand(
+                InvoiceId: id,
+                Reason: request.Reason,
+                VoidedByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(invoice);

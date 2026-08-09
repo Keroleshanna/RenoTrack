@@ -1,6 +1,35 @@
 using RenoTrack.Domain.Entities;
+using RenoTrack.Domain.Enums;
 
 namespace RenoTrack.Application.Invoices.Dtos;
+
+/// <summary>
+/// What the customer is told about their own invoice, and nothing more.
+///
+/// <para>
+/// A dedicated public type, never <see cref="InvoiceStatus"/> — the same choice
+/// <c>PublicAngebotDecision</c> makes, for the same reason: the public contract stays independent of
+/// the internal workflow, so a future internal state cannot accidentally become part of the API a
+/// customer's browser depends on.
+/// </para>
+/// <para>
+/// <b><c>Draft</c>, <c>Sent</c> and <c>Overdue</c> all collapse to <see cref="Open"/>.</b> The
+/// customer already knows their own due date, and exposing a dunning state is a decision no document
+/// makes — so the public surface distinguishes only the three outcomes that change what the page
+/// should say: still outstanding, settled, or cancelled.
+/// </para>
+/// </summary>
+public enum PublicInvoiceStatus
+{
+    /// <summary>Still presented as an outstanding invoice.</summary>
+    Open,
+
+    /// <summary>Payment has been recorded.</summary>
+    Paid,
+
+    /// <summary>Cancelled — the invoice is no longer payable (BR-9: voided, never deleted).</summary>
+    Void,
+}
 
 /// <summary>
 /// The Invoice as an unauthenticated token-link holder may see it (SRS FR-8.3, Wireframe A4).
@@ -13,9 +42,18 @@ namespace RenoTrack.Application.Invoices.Dtos;
 /// </para>
 /// <para>
 /// <b>What is absent is absent on purpose.</b> The internal <c>Id</c> and <c>ProjectId</c>, the
-/// <c>IssueDate</c>, the <c>Status</c>, <c>VoidReason</c> and every Payment detail are all withheld:
-/// Wireframe A4 renders none of them, and the default on this surface is to expose nothing without a
-/// documented customer-facing use.
+/// <c>IssueDate</c>, <c>VoidReason</c> and every Payment detail are all withheld: Wireframe A4
+/// renders none of them, and the default on this surface is to expose nothing without a documented
+/// customer-facing use. <c>VoidReason</c> in particular is staff-authored text about why the company
+/// cancelled a bill — the customer is told *that* it was cancelled, never the internal wording.
+/// </para>
+/// <para>
+/// <b><see cref="Status"/> is the one field added beyond A4, deliberately and by explicit
+/// decision.</b> A4 draws no status, but once <c>Paid</c> and <c>Void</c> became reachable the
+/// absence stopped being neutral: a voided invoice would have gone on rendering as an ordinary
+/// payable bill, and a paid one would still have shown a due date as though outstanding. It is a
+/// <see cref="PublicInvoiceStatus"/>, never the internal enum — the same shape
+/// <c>PublicAngebotDto</c> uses for the customer's decision.
 /// </para>
 /// <para>
 /// <b>Two things A4 shows that are not here, both recorded rather than invented:</b>
@@ -41,6 +79,7 @@ namespace RenoTrack.Application.Invoices.Dtos;
 public sealed record PublicInvoiceDto(
     string InvoiceNumber,
     string CustomerName,
+    PublicInvoiceStatus Status,
     decimal NetAmount,
     decimal VatAmount,
     decimal GrossAmount,
@@ -56,8 +95,22 @@ public static class PublicInvoiceMappingExtensions
     public static PublicInvoiceDto ToPublicDto(this Invoice invoice, string customerName) => new(
         invoice.InvoiceNumber,
         customerName,
+        ToPublicStatus(invoice.Status),
         invoice.NetAmount.Amount,
         invoice.VatAmount.Amount,
         invoice.GrossAmount.Amount,
         invoice.DueDate);
+
+    /// <summary>
+    /// <c>Draft</c>, <c>Sent</c> and <c>Overdue</c> all mean "still outstanding" to the customer.
+    /// Written as an explicit default rather than an exhaustive switch so that a future internal
+    /// state cannot leak onto this surface by being forgotten here — the same defensive shape
+    /// <c>PublicAngebotMappingExtensions.ToPublicDecision</c> uses.
+    /// </summary>
+    private static PublicInvoiceStatus ToPublicStatus(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.Paid => PublicInvoiceStatus.Paid,
+        InvoiceStatus.Void => PublicInvoiceStatus.Void,
+        _ => PublicInvoiceStatus.Open,
+    };
 }
