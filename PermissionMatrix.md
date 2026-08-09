@@ -113,3 +113,18 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | View Audit Log | F | — | Admin-only company-wide visibility; an Inspector's own actions still appear inside the Leads/Angebote they can already see (§1–3 above), just not as a separate global log screen |
 
 > **Note on OQ-1:** This matrix assumes Admin can manage Inspector accounts in-app (simpler for the client than asking a developer for DB access every time they hire someone) — flag if a one-time manual setup is preferred instead, and this row will be removed from v1 scope.
+
+---
+
+## 9. Notification Delivery (Operational — Phase 9)
+
+| Action | Admin | Inspector | Notes |
+|---|---|---|---|
+| View failed/pending notifications | F | — | Company-level operational visibility. Required because a committed business operation stays successful when its email fails (`ARCHITECTURE_DECISIONS.md` D69), and **two of the six senders are anonymous public endpoints** where no Admin is present to be told anything at the time |
+| Retry a notification | F | — | Re-sends **only** the notification, reconstructed from persisted business data — it never re-executes the underlying business operation (D70). Manual, synchronous, no automatic retry |
+
+**No ownership validation applies to either action** — both are `F`, so per `Architecture.md` §7.3 and `CLAUDE.md` §16 they are role-based only and no `IOwnershipValidator` call belongs in their handlers. That absence is correct, not an inconsistency to reconcile with the `S`-marked rows above.
+
+**Inspector has no access to either action**, deliberately, even though an Inspector is the *recipient* of one of the six notifications ("changes requested"). Receiving a notification and administering the delivery system are different concerns.
+
+> **Note on notification recipients:** who *receives* Admin notifications is **not** derived from this matrix. Recipients are a configured, deployment-supplied list, deliberately independent of the Identity Admin role (`ARCHITECTURE_DECISIONS.md` D71) — holding the Admin role does not subscribe an account to operational mail, and appearing on the recipient list confers no dashboard permission.
