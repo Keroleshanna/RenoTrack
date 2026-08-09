@@ -1,6 +1,7 @@
 # PHASE8_PROGRESS.md — API: Invoices, Splitting, Payment Tracking, Project Completion
 
-**Branch:** `feature/phase-8-invoices-payments-project-completion`, off `main` at `697292b` (PR #13, the Phase 7 merge).
+**Branch:** `feature/phase-8-invoices-payments-project-completion`, off `main` at `697292b` (PR #13, the Phase 7 merge), tip `4218fcc`.
+**Status:** **merged to `main` as PR #14, merge commit `0c12948`.**
 **Roadmap entry:** `PROJECT_ROADMAP.md` Phase 8. **PR title:** `Phase 8: API — Invoice splitting, payment tracking, project completion guard`.
 
 Seven implementation slices. Documentation is written in the slice that makes each decision real, not
@@ -1042,8 +1043,11 @@ every box was checked against the repository, not from memory.
 - [x] `CLAUDE.md` unmodified; no approved decision reopened
 - [x] Build (Debug **and** Release) 0 Warnings / 0 Errors; full Release suite green with all four
       projects executing; no model drift; 8 migrations
-- [ ] **Publication** — push, PR, merge. **Deliberately not done.** "Phase 8 complete" means the
-      branch is publishable-complete; publication is a separate, explicitly-authorised action
+- [x] **Publication** — push, PR, merge. **Done, as a separate, explicitly-authorised action after
+      the checklist above was closed.** Merged as **PR #14**, merge commit **`0c12948`**, from branch
+      tip `4218fcc`; the merge added no content (`git diff 4218fcc..0c12948` is empty). "Phase 8
+      complete" still means the branch was publishable-complete before this box was ticked — nothing
+      above was done during publication
 
 ### Verification
 
@@ -1053,3 +1057,5 @@ every box was checked against the repository, not from memory.
   production code.
 - `dotnet ef migrations has-pending-model-changes` → no pending changes. **Eight** migrations.
 - Working tree clean; `CLAUDE.md` unchanged (`git diff` empty for it).
+- **All figures above are the pre-merge local run on branch tip `4218fcc`. They have not been
+  re-verified after the PR #14 merge, and the merge introduced no content that could change them.**
