@@ -7,23 +7,29 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system — public
 website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
-project and not a fresh start. **Phases 0–7 are complete and merged to `main`; Phase 8 is COMPLETE
-on its branch but not yet published.** A prior conversation ended for context reasons and persisted
+project and not a fresh start. **Phases 0–8 are complete and merged to `main`; Phase 8 was published
+as PR #14 and is merged.** A prior conversation ended for context reasons and persisted
 everything into the repository, so you depend on the files, not on any chat history. Do not treat
 anything below as optional reading.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: 697292b ("Merge pull request #13 from Keroleshanna/feature/phase-7-angebot-to-project").
-- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6) and #13 (Phase 7) are MERGED.
-- Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b.
-  **ALL SEVEN PHASE 8 SLICES ARE COMPLETE and the completion gate is closed.** Nothing has been
-  pushed; no PR exists. The branch is publishable-complete; publication is a separate action
-  requiring explicit permission.
+- origin/main: 0c12948 ("Merge pull request #14 from
+  Keroleshanna/feature/phase-8-invoices-payments-project-completion"), merged 2026-08-09.
+- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6), #13 (Phase 7) and
+  #14 (Phase 8) are MERGED.
+- Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b, tip 4218fcc.
+  **ALL SEVEN PHASE 8 SLICES ARE COMPLETE, the completion gate is closed, and publication is done.**
+  The branch has been pushed and merged into main via PR #14; the merge commit added no content
+  (git diff 4218fcc..0c12948 is empty). The branch still exists and has not been deleted.
+- PHASE 9 HAS NOT STARTED. No feature/phase-9-* branch exists, no Phase 9 code exists (the only
+  IEmailSender implementation is still LoggingNoOpEmailSender), and no PHASE9_PROGRESS.md exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
 - Tests: 1,324 passing, 0 failing — 332 Domain, 419 Application, 230 Infrastructure, 343 Api.
   (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +80, 7 +0 — Slice 7
   added no production code, by decision.)
+  **This is the last locally-verified figure, taken on the branch at 4218fcc before the merge; it
+  has NOT been re-verified since. Re-run the suite yourself before relying on it.**
 - Migrations: 8 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments); has-pending-model-changes
   reports none.
@@ -31,7 +37,8 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
   describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
 
-YOUR TASK: PHASE 8 IS COMPLETE. THE NEXT DELIVERABLE IS PHASE 9 (Email Service Integration).
+YOUR TASK: PHASE 8 IS COMPLETE AND MERGED (PR #14). THE NEXT DELIVERABLE IS PHASE 9 (Email Service
+Integration), WHICH HAS NOT STARTED.
 
 Phase 9 per PROJECT_ROADMAP.md is "Email Service Integration (real, not placeholder)" — replacing
 LoggingNoOpEmailSender with a real implementation plus the German templates FR-9.3 requires.
