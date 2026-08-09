@@ -49,8 +49,14 @@ public sealed class FakeCustomerRepository : ICustomerRepository
     {
         AssignId(customer, _nextId++);
         _byLeadId[customer.LeadId] = customer;
+        _byId[customer.Id] = customer;
         return customer;
     }
+
+    private readonly Dictionary<int, Customer> _byId = [];
+
+    public Task<Customer?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+        Task.FromResult(_byId.GetValueOrDefault(id));
 
     private static void AssignId(Customer customer, int id) =>
         typeof(Customer).GetProperty(nameof(Customer.Id))!.SetValue(customer, id);

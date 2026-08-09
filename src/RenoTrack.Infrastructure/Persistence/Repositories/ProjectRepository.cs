@@ -22,4 +22,13 @@ public sealed class ProjectRepository(RenoTrackDbContext dbContext) : IProjectRe
 
     public async Task<bool> ExistsForAngebotAsync(int angebotId, CancellationToken cancellationToken) =>
         await dbContext.Projects.AnyAsync(p => p.AngebotId == angebotId, cancellationToken);
+
+    /// <summary>
+    /// <c>FindAsync</c>, not <c>FirstOrDefaultAsync</c> — Project has no navigation properties, so
+    /// there is nothing to <c>Include</c> and no reason to bypass the identity-map lookup. The
+    /// tracked result is what a future command that loads-then-mutates a Project will rely on,
+    /// since no <c>UpdateAsync</c> exists anywhere in this project.
+    /// </summary>
+    public async Task<Project?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+        await dbContext.Projects.FindAsync([id], cancellationToken);
 }

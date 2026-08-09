@@ -8,7 +8,7 @@ using RenoTrack.Infrastructure.Persistence.Entities;
 namespace RenoTrack.Infrastructure.Persistence;
 
 /// <summary>
-/// One DbSet per aggregate root only — AngebotSection/AngebotItem/InspectionPhoto have no
+/// One DbSet per aggregate root only — AngebotSection/AngebotItem/InspectionPhoto/Payment have no
 /// DbSet of their own, reachable only through their aggregate root's navigation, matching
 /// CLAUDE.md §2's "aggregate roots are the only public entry point" rule extended to how the
 /// persistence layer is queried. AuditLogs/NumberSequences are the first DbSets with no
@@ -28,6 +28,7 @@ public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> opti
     public DbSet<TokenLink> TokenLinks => Set<TokenLink>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();

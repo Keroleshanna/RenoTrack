@@ -45,5 +45,22 @@ public sealed record Money
     /// </summary>
     public static Money operator +(Money a, Money b) => new(a.Amount + b.Amount);
 
+    /// <summary>
+    /// The exact mirror of <see cref="op_Addition"/>: subtracting one already-rounded Money from
+    /// another cannot produce fractional precision either, so no rounding step is applied here.
+    /// Introduced in Phase 8 for BR-3's remaining-balance figure (Project.AgreedTotal minus the
+    /// gross of every non-Void Invoice, Sequence Diagram §8).
+    ///
+    /// <para>
+    /// <b>A negative result is legal and load-bearing.</b> BR-3 says the system "warns (does not
+    /// hard-block)" when invoices do not sum to the agreed total, so over-invoicing is a state the
+    /// system must be able to represent and display — a remaining balance of −€250.00 is the
+    /// warning. Clamping at zero here would silently hide exactly the data-entry mistake BR-3
+    /// exists to surface. Money has never forbidden negative amounts; where a negative is
+    /// meaningless, the aggregate says so itself (<c>Project.Create</c>, <c>Invoice.Create</c>).
+    /// </para>
+    /// </summary>
+    public static Money operator -(Money a, Money b) => new(a.Amount - b.Amount);
+
     public static Money Sum(IEnumerable<Money> values) => values.Aggregate(Zero, (acc, m) => acc + m);
 }

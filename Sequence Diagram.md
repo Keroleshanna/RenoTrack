@@ -403,6 +403,11 @@ sequenceDiagram
 ## 8. Creating & Splitting Invoices
 **Covers:** FR-8.1, FR-8.2
 
+> **Corrected in the Phase 8 completion sweep.** The balance query is named
+> `GetProjectInvoiceBalanceQuery`; this diagram, `BusinessRules.md` BR-3 and `PROJECT_ROADMAP.md`
+> all called it `GetRemainingInvoiceBalanceQuery`, which was never built under that name. The
+> shipped class name is authoritative and nothing about the behaviour changed.
+
 ```mermaid
 sequenceDiagram
     actor AD as Admin
@@ -415,7 +420,7 @@ sequenceDiagram
 
     AD->>DASH: Open Project, click "Add Invoice"
     DASH->>API: GET /api/v1/projects/{id}/invoice-balance
-    API->>APP: Send(GetRemainingInvoiceBalanceQuery)
+    API->>APP: Send(GetProjectInvoiceBalanceQuery)
     APP->>REPO: remaining = Project.AgreedTotal - SUM(existing Invoices.GrossAmount)
     APP-->>API: { agreedTotal, alreadyInvoiced, remaining }
     API-->>DASH: 200 OK
@@ -440,6 +445,18 @@ sequenceDiagram
 
 ## 9. Sending an Invoice & Recording Payment
 **Covers:** FR-8.3, FR-8.4
+
+> **Reconciliation note, added in the Phase 8 completion sweep.** The `IPdfGenerator` participant
+> and its `GenerateAsync` step below are **deferred design intent, not implemented behaviour**.
+> Phase 8 decision **G-4** rejected a PDF generator outright — not even a placeholder abstraction —
+> and `PROJECT_ROADMAP.md` **Phase 14** owns PDF generation. `SendInvoiceCommandHandler` issues the
+> token link and emails it; **no PDF is generated and none is attached.** FR-8.3 offers "token link,
+> by email as a PDF, or both", and the link alone satisfies it. Two further gaps the diagram
+> implies but does not provide: **bank details** on the customer's page (G-5 — no document defines
+> where the company's IBAN/BIC live) and A4's "Download PDF". Both are recorded, neither is built.
+> The mark-paid segment is accurate as drawn, except that the `Payment` is created *by*
+> `Invoice.MarkPaid` inside the aggregate rather than added independently, and Phase 8 records
+> **full payment only** — the `Payment` always carries the Invoice's own gross.
 
 ```mermaid
 sequenceDiagram
@@ -493,6 +510,15 @@ sequenceDiagram
 
 ## 10. Project Completion
 **Covers:** FR-7.3, FR-8.6
+
+> **Corrected in Phase 8 Slice 6.** The `alt Any invoice not Paid` branch below reads as though a
+> `Void` Invoice would block completion, which contradicts both `StateMachine.md` §4.3 (`Paid` **or
+> `Void`**) and §3.4. The implemented guard is §4.3's, reconciled in `StateMachine.md` §4.4:
+> **`Draft`, `Sent` and `Overdue` block; `Paid` and `Void` do not**, and a Project with **no
+> Invoices at all** is also blocked. Read the `alt` below as "any invoice unsettled". Two further
+> points this diagram does not show: an `AuditLog` step follows every successful completion (not
+> only the override), and `forceOverride` supplied when nothing is blocking is refused with 400
+> rather than completing silently.
 
 ```mermaid
 sequenceDiagram
@@ -562,6 +588,23 @@ sequenceDiagram
 
 ## 12. Token Validation Detail (Cross-cutting)
 **Covers:** Architecture §7.2 (referenced by Diagrams 6 and 9)
+
+> **Corrected in the Phase 8 completion sweep.** `ValidateTokenLinkHandler` — drawn below as a
+> participant and formerly cited by `BusinessRules.md` BR-4 as BR-4's enforcer — **was never built,
+> and is not required.** The checks are inlined in each of the three handlers that need them:
+> `GetPublicAngebotByTokenQueryHandler`, `GetPublicInvoiceByTokenQueryHandler` and
+> `RecordAngebotDecisionCommandHandler`. Read this diagram as *the checks each handler performs*,
+> not as a shared component. **Do not create the handler**: the three call sites want different
+> outcomes, so a shared abstraction would need a flag argument to express BR-4's asymmetry, and
+> `CLAUDE.md` §4/§9's stance is against abstractions built for symmetry. This is a documentation
+> correction, **not** a recorded implementation gap.
+>
+> **BR-4's asymmetry, precisely:** the `UsedAt` check applies to *decision-type actions only*.
+> `RecordAngebotDecisionCommandHandler` refuses an already-used link (409) and consumes the link in
+> the same transaction as the decision. Both read endpoints deliberately skip the check, because
+> BR-4 states outright that "viewing (read-only) remains allowed". **An Invoice link is never
+> consumed at all** — `PermissionMatrix.md` §7 grants the customer viewing only, so no Invoice
+> decision action exists.
 
 ```mermaid
 sequenceDiagram

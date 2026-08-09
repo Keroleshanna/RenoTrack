@@ -24,4 +24,11 @@ public sealed class CustomerRepository(RenoTrackDbContext dbContext) : ICustomer
 
     public async Task<Customer?> FindByLeadIdAsync(int leadId, CancellationToken cancellationToken) =>
         await dbContext.Customers.SingleOrDefaultAsync(c => c.LeadId == leadId, cancellationToken);
+
+    /// <summary>
+    /// <c>FindAsync</c> — a primary-key lookup with nothing to <c>Include</c>, matching
+    /// <c>LeadRepository</c> and <c>ProjectRepository</c>.
+    /// </summary>
+    public async Task<Customer?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+        await dbContext.Customers.FindAsync([id], cancellationToken);
 }

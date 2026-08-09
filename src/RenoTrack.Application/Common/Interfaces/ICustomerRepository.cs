@@ -22,4 +22,12 @@ public interface ICustomerRepository
     /// </para>
     /// </summary>
     Task<Customer?> FindByLeadIdAsync(int leadId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads a Customer by its own id. Added in Phase 8 Slice 4: <c>SendInvoiceCommand</c> reaches
+    /// the recipient through <c>Invoice → Project → Customer</c>, which is an id lookup, not the
+    /// Lead-based resolution <see cref="FindByLeadIdAsync"/> exists for. Adding it here does not
+    /// widen that method's deliberate narrowness — there is still no find-by-email or fuzzy match.
+    /// </summary>
+    Task<Customer?> GetByIdAsync(int id, CancellationToken cancellationToken);
 }

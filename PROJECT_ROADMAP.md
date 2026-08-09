@@ -180,15 +180,15 @@
 **الهدف:** إنشاء/تقسيم الفواتير على المشروع، إرسالها عبر نفس آلية التوكن، تسجيل الدفع يدويًا، وإغلاق المشروع.
 **لماذا الآن:** آخر حلقة في دورة العمل التجارية الكاملة من SRS §5 flowchart. تعتمد مباشرة على Project (Phase 7) وتعيد استخدام نفس منطق حساب الـ VAT من Phase 1 (Architecture §6.1: "This same calculation is reused for Invoices") ونفس آلية التوكن من Phase 6.
 **ما الذي سنبنيه:**
-- `InvoicesController`: رصيد متبقٍ (`GetRemainingInvoiceBalanceQuery`، BR-3 تحذير لا حظر)، إنشاء، إرسال (PDF placeholder — التوليد الفعلي في Phase 11)، `mark-paid`, `void` (مع سبب، BR-9).
+- `InvoicesController`: رصيد متبقٍ (`GetProjectInvoiceBalanceQuery`، BR-3 تحذير لا حظر)، إنشاء، إرسال (بدون PDF — التوليد الفعلي في **Phase 14**)، `mark-paid`, `void` (مع سبب، BR-9).
 - `Payment` entity، بتصميم متوافق مسبقًا مع بوابة دفع مستقبلية دون تغيير Schema (FR-8.5 — القيد الوحيد الذي طلبه الـ Product Owner صراحة أن نبنيه بمرونة زائدة عمدًا).
 - `CompleteProjectCommand` مع الحارس (كل الفواتير Paid أو Void) ومسار الـ Override بسبب إلزامي (FR-8.6).
-- Scheduled check بسيط لتحويل الفواتير المتأخرة إلى `Overdue` (StateMachine §3.3).
+- انتقال `Sent → Overdue` كقدرة في الـ Domain (`Invoice.MarkOverdue(asOf)`، StateMachine §3.3) مع فهرس `(Status, DueDate)` في المخطط. **صُحِّح في الـ completion sweep الخاص بـ Phase 8:** كان هذا السطر يَعِد بـ "Scheduled check"، وهو ما رفضه قرار **G-3** صراحةً — لا Admin endpoint، ولا `BackgroundService`، ولا اشتقاق وقت القراءة. **القدرة التجارية موجودة ومختبَرة؛ التنفيذ التلقائي المجدوَل ثغرة معروفة ومسجَّلة**، مؤجَّلة حتى يُتَّخذ قرار صريح باستراتيجية استضافة المهام المجدولة. لا تُخترَع آلية استضافة لجعل هذا السطر يبدو مكتملًا.
 **ما الذي سيكون Working بعد انتهائها:** دورة العمل التجارية الكاملة تعمل من طرف لطرف عبر API فقط: Lead → Inspection → Angebot → Review → Send → Won → Project → Invoices → Paid → Completed.
 **Git Branch:** `feature/phase-8-invoices-payments-project-completion`
 **Pull Request:** `Phase 8: API — Invoice splitting, payment tracking, project completion guard`
 **المتطلبات السابقة:** Phase 7.
-**تبني عليه المراحل القادمة:** Phase 11 (PDF الفعلي للفواتير).
+**تبني عليه المراحل القادمة:** **Phase 14** (PDF الفعلي للفواتير — صُحِّح في الـ completion sweep الخاص بـ Phase 8: كان مكتوبًا "Phase 11"، وهي مرحلة الـ Angebot Builder UI؛ توليد الـ PDF مِلك **Phase 14**، وهو ما تقوله `Architecture.md` و`ERD.md` و`PHASE8_PROGRESS.md` أصلًا)، وPhase 12 (واجهة إدارة المشاريع والفواتير).
 
 ---
 

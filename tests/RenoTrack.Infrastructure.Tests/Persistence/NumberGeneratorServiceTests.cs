@@ -82,5 +82,74 @@ public sealed class NumberGeneratorServiceTests(RenoTrackDbContextFixture fixtur
     /// sharing one LocalDB database (the "Infrastructure Database" collection runs serially,
     /// but distinct years keep assertions independent and easy to reason about regardless).
     /// </summary>
+    // ---- Invoice numbers (Phase 8 Slice 3) ------------------------------
+
+    [Fact]
+    public async Task NextInvoiceNumberAsync_ForANewYear_ReturnsSequenceOne()
+    {
+        var year = UniqueYear();
+        await using var context = fixture.CreateContext();
+        var service = new NumberGeneratorService(context);
+
+        var number = await service.NextInvoiceNumberAsync(year, CancellationToken.None);
+
+        Assert.Equal($"RE-{year}-00001", number);
+    }
+
+    [Fact]
+    public async Task NextInvoiceNumberAsync_CalledTwiceSequentially_Increments()
+    {
+        var year = UniqueYear();
+        await using var context = fixture.CreateContext();
+        var service = new NumberGeneratorService(context);
+
+        var first = await service.NextInvoiceNumberAsync(year, CancellationToken.None);
+        var second = await service.NextInvoiceNumberAsync(year, CancellationToken.None);
+
+        Assert.Equal($"RE-{year}-00001", first);
+        Assert.Equal($"RE-{year}-00002", second);
+    }
+
+    /// <summary>
+    /// Invoice and Angebot numbering share the machinery but not the counter — ERD.md keys
+    /// NumberSequences on (SequenceType, Year), so the same year must start both at 1 independently.
+    /// A shared counter would make invoice numbering skip whenever an Angebot was created.
+    /// </summary>
+    [Fact]
+    public async Task InvoiceAndAngebotSequencesAreIndependentWithinTheSameYear()
+    {
+        var year = UniqueYear();
+        await using var context = fixture.CreateContext();
+        var service = new NumberGeneratorService(context);
+
+        var angebot = await service.NextAngebotNumberAsync(year, CancellationToken.None);
+        var invoice = await service.NextInvoiceNumberAsync(year, CancellationToken.None);
+        var secondAngebot = await service.NextAngebotNumberAsync(year, CancellationToken.None);
+
+        Assert.Equal($"ANG-{year}-00001", angebot);
+        Assert.Equal($"RE-{year}-00001", invoice);
+        Assert.Equal($"ANG-{year}-00002", secondAngebot);
+    }
+
+    /// <summary>
+    /// BR-9 — an invoice number is never reused — is only as good as this holds under concurrency.
+    /// Each caller gets its own DbContext (a DbContext is not thread-safe), so this exercises SQL
+    /// Server row locking rather than C# sequencing, exactly as the Angebot equivalent does.
+    /// </summary>
+    [Fact]
+    public async Task NextInvoiceNumberAsync_UnderParallelLoad_NeverRepeatsANumber()
+    {
+        var year = UniqueYear();
+        const int callers = 50;
+
+        var numbers = await Task.WhenAll(Enumerable.Range(0, callers).Select(async _ =>
+        {
+            await using var context = fixture.CreateContext();
+            return await new NumberGeneratorService(context).NextInvoiceNumberAsync(year, CancellationToken.None);
+        }));
+
+        Assert.Equal(callers, numbers.Distinct().Count());
+    }
+
     private static int UniqueYear() => Random.Shared.Next(100_000, 999_999);
 }

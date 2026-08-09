@@ -463,6 +463,58 @@ namespace RenoTrack.Infrastructure.Persistence.Migrations
                     b.ToTable("InspectionPhotos", (string)null);
                 });
 
+            modelBuilder.Entity("RenoTrack.Domain.Entities.Invoice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("GrossAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("IssueDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("NetAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("VatAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceNumber")
+                        .IsUnique();
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("Status", "DueDate");
+
+                    b.ToTable("Invoices", (string)null);
+                });
+
             modelBuilder.Entity("RenoTrack.Domain.Entities.Lead", b =>
                 {
                     b.Property<int>("Id")
@@ -517,6 +569,40 @@ namespace RenoTrack.Infrastructure.Persistence.Migrations
                     b.HasIndex("Status", "AssignedInspectorId");
 
                     b.ToTable("Leads", (string)null);
+                });
+
+            modelBuilder.Entity("RenoTrack.Domain.Entities.Payment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("InvoiceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("PaidAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("RecordedByAdminId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("RecordedByAdminId");
+
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("RenoTrack.Domain.Entities.Project", b =>
@@ -936,12 +1022,36 @@ namespace RenoTrack.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("RenoTrack.Domain.Entities.Invoice", b =>
+                {
+                    b.HasOne("RenoTrack.Domain.Entities.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("RenoTrack.Domain.Entities.Lead", b =>
                 {
                     b.HasOne("RenoTrack.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("AssignedInspectorId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("RenoTrack.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("RenoTrack.Domain.Entities.Invoice", null)
+                        .WithMany("Payments")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RenoTrack.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("RecordedByAdminId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("RenoTrack.Domain.Entities.Project", b =>
@@ -981,6 +1091,11 @@ namespace RenoTrack.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("RenoTrack.Domain.Entities.Inspection", b =>
                 {
                     b.Navigation("Photos");
+                });
+
+            modelBuilder.Entity("RenoTrack.Domain.Entities.Invoice", b =>
+                {
+                    b.Navigation("Payments");
                 });
 #pragma warning restore 612, 618
         }

@@ -106,10 +106,20 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 - Pagination on list endpoints (`?page=`, `?pageSize=`), filtering by status/date/assignee where relevant (per SRS FR-2.4).
 - CQRS-lite in the Application layer: one Command or Query class per use case, handled by a single handler — keeps each business operation isolated and testable (this is the same pattern used successfully on the previous project, and is proven to keep controllers thin).
 
-### 5.2 Representative Endpoints
+### 5.2 API Endpoint Inventory
+
+> **Authoritative and exhaustive.** Every endpoint the API exposes has a row here, and a row is
+> added in the same commit that adds the endpoint. *(Retitled during the Phase 8 completion sweep:
+> this section read "Representative Endpoints" while every slice from Phase 4 onward treated it as
+> the inventory and logged missing rows as defects. The heading now matches the practice, and the
+> table was reconciled against all 8 controllers and their 38 actions — the three rows that were
+> missing are marked below.)* A row may cover sibling routes that share a contract; it may never
+> omit one.
 
 | Resource | Endpoint | Notes |
 |---|---|---|
+| Auth | `POST /api/v1/auth/login` | Anonymous. Email + password → access token + refresh token (SRS FR-10.1). **Row added in the Phase 8 completion sweep** — built in Phase 4 Slice 4 and never listed here. Every failure mode returns an identical 401 so login cannot become an account-enumeration oracle; FR-10.3's lockout is wired explicitly (D60). Deliberately outside the CQRS pipeline — no Application command exists or should |
+| Auth | `POST /api/v1/auth/refresh` | Anonymous. Exchanges a refresh token for a new pair. **Row added in the Phase 8 completion sweep.** Tokens are persisted as SHA-256 hashes only, rotated on every use, and presenting an already-revoked token revokes the whole chain for that user (D60) |
 | Leads | `POST /api/v1/leads` | Public — used by the website contact form |
 | Leads | `GET /api/v1/leads`, `GET /api/v1/leads/{id}` | Dashboard, Admin/Inspector (scoped) |
 | Inspections | `POST /api/v1/leads/{leadId}/inspections` | Admin schedules |
@@ -127,13 +137,18 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Angebote | `POST /api/v1/angebote/{id}/duplicate` | Inspector duplicates a whole Angebot onto another Lead (SRS FR-4.11). Source restricted to their own; target Lead ownership and the one-active-Angebot rule both apply. Section-level duplication is deferred until a real caller needs it |
 | Angebote | `POST /api/v1/angebote/{id}/submit-for-review` | Inspector → Admin |
 | Angebote | `POST /api/v1/angebote/{id}/approve`, `/request-changes`, `/send` | Admin |
+| Angebote | `GET /api/v1/angebote/{id}/review-comments` | The internal review history, oldest first. Admin `F`, Inspector `R` (`PermissionMatrix.md` §4 "View review comment history" — both roles read, only Admin writes). **Row added in the Phase 8 completion sweep** — built in Phase 5 Slice 2 and never listed here |
 | Angebot decision (public) | `GET /api/v1/public/angebote/{token}` | Token-link view, no auth. **Built in Phase 6.** Returns a dedicated public DTO — never the internal `AngebotDetailDto` — carrying only what Wireframe A3 renders; internal ids, staff ids, `CatalogItemId` and timestamps are deliberately absent. Readable **after** a decision (BR-4). 404 for unknown *or* non-Angebot tokens, indistinguishably; 410 for expiry |
 | Angebot decision (public) | `POST /api/v1/public/angebote/{token}/decision` | Lead approves/rejects. **Built in Phase 6.** Body is `{ decision }` only — **no rejection reason**, a deliberate documented gap against FR-6.3 pending its own ADR. Consumes the link, records the Angebot decision and moves the Lead to `Won`/`Lost` in one transaction (StateMachine §5). 409 if the link has already decided |
 | Projects | `POST /api/v1/angebote/{id}/convert-to-project` | Admin. **Built in Phase 7.** BR-2's guard (only a `CustomerApproved` Angebot converts) and "already converted" both surface as 409. No request body — the Angebot id comes from the route and the Admin from the token (D61). Returns 201 with a `Location` pointing at the row below |
-| Projects | `GET /api/v1/projects/{id}` | Admin `F`, Inspector `R` (`PermissionMatrix.md` §5 — read-only but **unscoped**, so no ownership check). **Added in Phase 7**; this row was missing from earlier drafts of this table even though §5 granted the permission, the same gap `GET /api/v1/inspections/{id}` still has. Serves SRS FR-7.4 apart from its **Invoice portion, which is deferred to Phase 8** — the response carries the Project, its Customer's name and the originating Lead/Inspection/Angebot ids, but no invoice list, "Invoiced" or "Remaining" |
-| Invoices | `POST /api/v1/projects/{id}/invoices` | Admin |
-| Invoices | `POST /api/v1/invoices/{id}/send`, `/mark-paid` | Admin |
-| Invoice (public) | `GET /api/v1/public/invoices/{token}` | Token-link view, no auth |
+| Projects | `GET /api/v1/projects/{id}` | Admin `F`, Inspector `R` (`PermissionMatrix.md` §5 — read-only but **unscoped**, so no ownership check). **Added in Phase 7**; this row was missing from earlier drafts of this table even though §5 granted the permission, the same gap `GET /api/v1/inspections/{id}` still has. **Serves SRS FR-7.4 in full as of Phase 8 Slice 6**, which added `alreadyInvoiced`, `remaining` and the Project's `invoices` list (id, number, gross, status, due date — Wireframe E1's columns). The two figures follow the same rule as the balance row below: `Void` excluded and nothing else, never clamped. **Voided Invoices remain in the list** (BR-9) and are absent from the arithmetic only. The whole response, invoice list included, is Inspector-readable and confers no Invoice-management permission |
+| Projects | `POST /api/v1/projects/{id}/complete` | Admin (`PermissionMatrix.md` §5 "Mark Project Completed (incl. override)"). **Built in Phase 8 Slice 6**; this row was missing even though §5 granted the action, StateMachine §4.3 defined the transition and Sequence §10 named the route. Body `{ forceOverride, reason }` is **optional** — omitting it means no override; the Admin comes from the token and the Project from the route (D61). **409** when the Project's Invoices block it (none at all, or one or more `Draft`/`Sent`/`Overdue`) and no override was given, and separately when the Project is not `Active` — `Project.Complete()` refuses that on its own and **no override reaches it**. Preconditions are evaluated before the aggregate is touched, so for a non-`Active` Project an invoice-derived refusal is reported first; every combination still refuses and none completes the Project (D67). **400** for `forceOverride` without a reason (FR-8.6), a reason without `forceOverride` (rejected, never silently dropped), and `forceOverride` when nothing is blocking. Returns 200 with `ProjectDto`. Audited as `ProjectCompleted` against the Project, the reason in `details` on the override path — **the reason's only storage**, since `ERD.md` defines no column for it |
+| Projects | `GET /api/v1/projects/{id}/invoice-balance` | Admin `F`, Inspector `R` (`PermissionMatrix.md` §5's financial-summary row — read-only and **unscoped**, so no ownership check). **Added in Phase 8 Slice 3**; this row was missing even though Sequence Diagram §8 names the route and BR-3 assigns the warning to it. Returns `{ projectId, agreedTotal, alreadyInvoiced, remaining }`. `alreadyInvoiced` excludes `Void` invoices (StateMachine §3.3) and nothing else. **`remaining` may be negative — that is BR-3's warning, never a rejection and never clamped** |
+| Invoices | `POST /api/v1/projects/{id}/invoices` | Admin. **Built in Phase 8 Slice 3.** Body is `{ grossAmount, dueDate }` only — the invoice number is reserved server-side (§8) and the Admin comes from the token (D61). The entered gross is split across the originating Angebot's VAT rates (FR-8.2). **Exceeding the agreed total is accepted** (BR-3 warns, never blocks). 409 for a `Completed` Project (StateMachine §5) and for a positive amount against an Angebot whose gross total is zero, where no VAT split can be derived. Returns 201 with **no `Location`** — no invoice read endpoint is documented |
+| Invoices | `POST /api/v1/invoices/{id}/send` | Admin. **Built in Phase 8 Slice 4.** No request body — the Invoice id comes from the route and the Admin from the token (D61); the token and its expiry are generated server-side. Moves `Draft → Sent`, issues a single-use-shaped `TokenLink` and emails the customer, all in one `SaveChangesAsync`. 409 if the Invoice is not `Draft` or its gross is zero (StateMachine §3.3). **No PDF is generated or attached** — Phase 14 owns that (G-4), and FR-8.3 is satisfied by the link |
+| Invoices | `POST /api/v1/invoices/{id}/mark-paid` | Admin. **Built in Phase 8 Slice 5.** Body is `{ paidAt, method }` — **no amount**: Phase 8 records full payment only, so the `Payment` child always carries the Invoice's own gross (FR-8.4, Sequence §9, Wireframe E3 all offer none). The recording Admin comes from the token (D61). `Sent`/`Overdue` → `Paid`; 409 otherwise, which is also what makes a duplicate confirmation impossible since `Paid` is terminal. Does **not** move the invoice balance — a `Sent` invoice already counted |
+| Invoices | `POST /api/v1/invoices/{id}/void` | Admin. **Built in Phase 8 Slice 5**; this row was missing from earlier drafts of this table even though `PermissionMatrix.md` §5 granted the action. Body is `{ reason }`, **required from every source state including `Draft`** (§5 unqualified; StateMachine §3.3 reconciled in Slice 1). `Draft`/`Sent`/`Overdue` → `Void`; 409 from `Paid`/`Void`. BR-9: the row and its number survive — this is a status change, never a delete. The invoice leaves the remaining-balance math immediately (§3.3), and its token link stays readable, now reporting `Void` |
+| Invoice (public) | `GET /api/v1/public/invoices/{token}` | Token-link view, no auth. **Built in Phase 8 Slice 4.** Returns a dedicated public DTO — never `InvoiceDto` — carrying only what Wireframe A4 renders: number, customer name, net/VAT/gross and due date. Internal ids, issue date, void reason and payments are deliberately absent. **A dedicated `status` (`Open`/`Paid`/`Void`) was added in Slice 5** — never the internal `InvoiceStatus`; `Draft`/`Sent`/`Overdue` all collapse to `Open`. `Paid` and `Void` do **not** invalidate the link. **`UsedAt` is not checked**: PermissionMatrix §7 grants viewing only, so no Invoice decision action exists and an Invoice link is never consumed. 404 for unknown *or* non-Invoice tokens, indistinguishably; 410 for expiry. **Bank details and a PDF download are absent** though A4 shows both (G-5, G-4), and A4's "VAT (19%)" label carries no percentage — an Invoice stores a VAT amount and no rate, since `InvoiceLine` is deferred |
 
 **There is deliberately no endpoint for editing a Lead's status directly.** An earlier draft of this table listed `PATCH /api/v1/leads/{id}/status` (Admin); it was removed as obsolete rather than implemented, because three other documents already say a free-standing status edit does not exist. `BusinessRules.md` BR-7: a Lead's status *"can only move forward through the defined pipeline via explicit, named actions — never silently or as a side effect."* `PermissionMatrix.md` §1: *"neither role edits status directly except via the defined transitions."* `StateMachine.md` §1.3 gives every transition a named event with its own guard. Lead status therefore changes only as a consequence of the action that causes it — `ScheduleInspection`, `CompleteInspection`, `CreateAngebot`, `SendAngebot`, and the customer's own Angebot decision.
 
@@ -154,7 +169,7 @@ Aggregate roots (each owns its child entities and is the only entry point for mo
 - **CatalogItem** (root) — independent aggregate; an AngebotItem may optionally carry a `CatalogItemId` as a traceability link only (BR-8: no live reference, since editing a Catalog item must never retroactively change a past Angebot)
 - **Customer** (root)
 - **Project** (root) — references Customer, Angebot by id.
-- **Invoice** (root) → InvoiceLine (child), Payment (child)
+- **Invoice** (root) → Payment (child); InvoiceLine (child) **is designed but deliberately not built** — see `ERD.md`'s `InvoiceLines` row for the Phase 8 deferral and its revisit trigger
 - **User** (root) — Admin/Inspector accounts
 - **TokenLink** (root) — polymorphic reference to Angebot or Invoice via `EntityType` + `EntityId`
 
@@ -210,7 +225,9 @@ Two different concerns are both loosely called "authorization" but belong in dif
 ## 8. Numbering & Sequences
 
 - **Angebot numbers:** generated as `ANG-{YYYY}-{sequence:D5}` via a small `INumberGeneratorService`, backed by a `NumberSequence` table (per-year counter). The increment is **not** performed inside the same DB transaction as the Angebot creation — `CreateAngebotCommandHandler` calls `NextAngebotNumberAsync` before the `Angebot` entity even exists in memory, so true same-transaction participation isn't achievable without restructuring that handler. Instead, uniqueness under concurrent writes is guaranteed by a single, independently-committed atomic SQL statement (`UPDATE ... OUTPUT`, a row-level exclusive lock held only for that one statement) — see `ARCHITECTURE_DECISIONS.md` D52 for the full reasoning, including why EF Core's read/track/write model cannot express this as one atomic operation. Gaps in Angebot numbering are acceptable (no `BusinessRules.md` rule forbids them, unlike Invoice numbers below).
-- **Invoice numbers:** same mechanism, its own sequence, formatted per the company's preferred convention (e.g. `RE-{YYYY}-{sequence:D5}`) — sequential numbering is a legal requirement for German invoices (SRS BR-5), so this must never skip or reuse numbers, even if an Invoice is later voided (void, don't delete).
+- **Invoice numbers:** same mechanism, its own sequence row (`NumberSequences` is keyed on `(SequenceType, Year)`, so `Angebot` and `Invoice` counters are independent), formatted `RE-{YYYY}-{sequence:D5}`. Built in Phase 8 Slice 3 as a second method on the existing `INumberGeneratorService` — not a second mechanism.
+  - **What is guaranteed:** numbers are **unique** and are **never reused**, including when an Invoice is later voided (BR-9 — void, don't delete; the row and its number are retained).
+  - **What is _not_ guaranteed: gaplessness.** *Corrected in Phase 8 Slice 3.* This entry previously read "must never skip or reuse numbers", which the implementation cannot deliver: the increment commits independently of the caller's unit of work (D52), so a failure between reserving a number and committing the Invoice leaves that number unused. `CreateInvoiceCommandHandler` narrows the window by reserving last — after every guard that can be evaluated first — but cannot close it. See **D66** for the full reasoning and the rejected alternatives. The earlier wording also attributed the requirement to BR-5; BR-5 is the mandatory §14 UStG *field list*, and BR-9 is the numbering rule. **No claim is made here about what German law requires** — if legal gaplessness is confirmed as a requirement, it needs its own design.
 
 ---
 
@@ -305,7 +322,16 @@ Passwords have **no default and are never compiled in**. The recommended source 
 
 ---
 
-## 14. Build Roadmap (Suggested Phases)
+## 14. Build Roadmap — Indicative Grouping Only (NOT the phase numbering)
+
+> **`PROJECT_ROADMAP.md` is the canonical source for phase numbering and ownership** (settled during
+> the Phase 8 completion sweep). The table below is the original architectural sketch of *what
+> groups together*, written before the roadmap existed, and its numbers **do not correspond** to the
+> real phases — its "6" is roughly the real Phases 7–8, its "11" is the real Phase 14, its "12" is
+> the real Phase 15. It is kept as a record of the intended sequencing of concerns; **cite
+> `PROJECT_ROADMAP.md`, never this table, for which phase owns what.** Neither list is renumbered:
+> the roadmap is authoritative and the historical phases are already built and merged under their
+> own numbers.
 
 Kept intentionally small and sequential, so each phase is a shippable, demoable increment:
 
