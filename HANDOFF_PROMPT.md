@@ -19,8 +19,8 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
 - Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b.
   **Phase 8 Slices 1–6 of 7 are COMPLETE.** Nothing has been pushed; no PR exists.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 1,313 passing, 0 failing — 332 Domain, 409 Application, 230 Infrastructure, 342 Api.
-  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +69.)
+- Tests: 1,322 passing, 0 failing — 332 Domain, 417 Application, 230 Infrastructure, 343 Api.
+  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +78.)
 - Migrations: 8 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
   AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments); has-pending-model-changes
   reports none.
@@ -72,6 +72,12 @@ PHASE 8 DECISIONS THAT MUST NOT BE SILENTLY REOPENED (full list in PHASE8_PROGRE
 - THE FR-8.6 OVERRIDE bypasses the invoice precondition and NOTHING else — no value of
   forceOverride completes a non-Active Project. forceOverride with nothing to override is a 400
   with NO audit entry; a reason without forceOverride is also a 400, never silently dropped.
+- GUARD ORDER IS LOAD-BEARING AND TESTED: load → Project.Complete() → invoice predicate → 409/400 →
+  save → audit. Complete() IS the Active check (a handler-level Status check breaks CLAUDE.md §6;
+  a CanComplete() probe breaks §2), so a non-Active Project always reports its own state and its
+  Invoices are never read. The aggregate is mutated in memory before the predicate runs, which is
+  safe only because every refusal throws before SaveChanges — DO NOT insert anything that commits
+  or audits between Complete() and the refusals, since IAuditService shares the request DbContext.
 - THE OVERRIDE REASON LIVES ONLY IN AuditLog.Details, which is best-effort by D50, so it can be
   lost silently while the Project stays completed. Known limitation, accepted deliberately; no
   Projects column and no migration #9 were added.

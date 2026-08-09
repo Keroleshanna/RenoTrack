@@ -22,6 +22,15 @@ namespace RenoTrack.Application.Projects.Commands.CompleteProject;
 /// value of <c>ForceOverride</c> can complete a Project that is not <c>Active</c>.
 /// </para>
 /// <para>
+/// <b>The Project's own state guard runs first, and the ordering is load-bearing.</b>
+/// <c>Complete()</c> is invoked before the invoice predicate is evaluated, so an <c>OnHold</c> or
+/// already-<c>Completed</c> Project is refused for <i>its own state</i> in every combination of
+/// invoice statuses and <c>ForceOverride</c> — never with an invoice-derived message, and never
+/// with the "nothing to override" 400. An earlier draft evaluated the predicate first, which made
+/// a settled-invoice <c>Completed</c> Project report 400 instead of 409; four tests now pin all
+/// four combinations so it cannot drift back.
+/// </para>
+/// <para>
 /// <b>The blocking predicate</b> (Phase 8 Slice 6, decisions K-1 and I-2) is stated on
 /// <see cref="IInvoiceRepository.HasCompletionBlockingInvoicesForProjectAsync"/>: no Invoices at
 /// all, or at least one <c>Draft</c>/<c>Sent</c>/<c>Overdue</c>. It resolves a contradiction
@@ -52,9 +61,10 @@ namespace RenoTrack.Application.Projects.Commands.CompleteProject;
 /// visible signature change to review against FR-9.1/FR-9.2.
 /// </para>
 /// <para>
-/// <b>Known race, stated rather than solved:</b> the predicate is read, then the aggregate is
-/// mutated. An Invoice created or sent concurrently in between would not be seen. No document
-/// requires locking here, and inventing one would be policy rather than implementation.
+/// <b>Known race, stated rather than solved:</b> the predicate is read before the commit, so an
+/// Invoice created or sent concurrently between the read and <c>SaveChangesAsync</c> would not be
+/// seen. No document requires locking here, and inventing one would be policy rather than
+/// implementation.
 /// </para>
 /// </summary>
 public sealed class CompleteProjectCommandHandler(
@@ -70,6 +80,22 @@ public sealed class CompleteProjectCommandHandler(
 
         var project = await projectRepository.GetByIdAsync(command.ProjectId, cancellationToken)
             ?? throw new NotFoundException(nameof(Project), command.ProjectId);
+
+        // The Project's own state guard runs FIRST, and it runs by invoking the transition rather
+        // than by inspecting `Status` here — a handler must never re-check an aggregate's state
+        // field (CLAUDE.md §6), and a `CanComplete()` probe added just so this layer could look is
+        // exactly what §2 forbids. So `Complete()` *is* step "verify the Project is Active": an
+        // OnHold or already-Completed Project throws here, before any Invoice is consulted, and no
+        // value of ForceOverride can reach past it.
+        //
+        // The aggregate is mutated in memory before the invoice precondition is evaluated below,
+        // and that is safe rather than merely tolerable: every refusal path throws, so
+        // `SaveChangesAsync` is never reached and the request-scoped DbContext is disposed with the
+        // change discarded. The same shape `CompleteInspectionCommandHandler` has carried since
+        // Phase 4 Slice 9 — safety from scope lifetime, not from a guard. Nothing may be inserted
+        // between here and the refusals that commits or audits; `IAuditService` in particular
+        // shares this DbContext, so an audit call placed here would flush this mutation.
+        project.Complete();
 
         var blocked = await invoiceRepository.HasCompletionBlockingInvoicesForProjectAsync(
             command.ProjectId, cancellationToken);
@@ -93,10 +119,6 @@ public sealed class CompleteProjectCommandHandler(
                     $"Project {project.Id} has no blocking Invoices, so there is nothing to override.")
             ]);
         }
-
-        // Self-guard: Active only. Not re-checked above — the aggregate is the authority on its own
-        // state, and the override has no power over it.
-        project.Complete();
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

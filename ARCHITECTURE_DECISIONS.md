@@ -1221,6 +1221,12 @@ invoiced close silently. FR-7.3's "once its final invoice has been paid" presupp
 - **The override reaches the invoice precondition and nothing else.** `Project.Complete()`'s
   `Active`-only invariant lives inside the aggregate and no request field can reach it, so an
   `OnHold` or already-`Completed` Project is refused regardless of `forceOverride`.
+- **The Project's own state guard is evaluated first, and it is evaluated by calling
+  `Project.Complete()` rather than by inspecting `Status`.** A handler-level
+  `if (project.Status != Active)` is forbidden by CLAUDE.md §6, and a `CanComplete()` probe added so
+  Application could look is what §2 forbids — so invoking the transition *is* the check. A
+  non-`Active` Project is therefore refused for its own state in all four combinations of invoice
+  state and `forceOverride`, and its Invoices are never read.
 - **An override with nothing to override is a 400**, thrown as FluentValidation's own
   `ValidationException` so both of the endpoint's 400s share one field-keyed body, and **no audit
   entry is written** for the refused attempt.
@@ -1272,7 +1278,13 @@ invoiced close silently. FR-7.3's "once its final invoice has been paid" presupp
 - **Letting the override bypass the `Active` guard.** FR-8.6 is about Invoices; nothing suggests an
   override should reopen a closed Project or skip `Resume`.
 - **Re-checking `Project.Status` in the handler before calling `Complete()`.** CLAUDE.md §6 forbids
-  it, and it would create a second place for the `Active`-only rule to drift.
+  it, and it would create a second place for the `Active`-only rule to drift. The requirement that
+  the state guard run *first* is met by calling `Complete()` first instead.
+- **Evaluating the invoice predicate before `Complete()` (the first draft's order).** It let a
+  non-`Active` Project be refused for the wrong reason — an invoice-worded 409 when Invoices were
+  blocking, and a 400 "nothing to override" when they were settled, for a Project whose real
+  problem was that it was already closed. Reversed; eight enumerated cells plus a "no Invoice is
+  read" call-counter assertion now hold the order in place.
 - **`ArgumentException` for the empty-override 400.** Maps to 400 (D59) but produces a different
   body shape from the validator's own 400 on the same endpoint, for the same class of caller error.
 - **A new Application exception type for it.** CLAUDE.md §17 adds one when a real scenario needs a

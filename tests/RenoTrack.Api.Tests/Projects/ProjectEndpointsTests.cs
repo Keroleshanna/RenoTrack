@@ -552,6 +552,34 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
     }
 
     /// <summary>
+    /// The Project's own state guard runs before the invoice predicate, so an already-`Completed`
+    /// Project whose Invoices are all settled reports **409** for its own state — not the 400 an
+    /// earlier draft produced by evaluating "is there anything to override?" first. This is the
+    /// exact cell that ordering change fixed, over HTTP.
+    /// </summary>
+    [Fact]
+    public async Task An_override_on_a_completed_project_with_settled_invoices_is_a_conflict_not_a_bad_request()
+    {
+        var projectId = await ConvertedProjectAsync();
+        var invoiceId = await CreateInvoiceAsync(projectId, gross: 100.00m);
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
+        await admin.PostAsJsonAsync(
+            $"/api/v1/invoices/{invoiceId}/mark-paid",
+            new { paidAt = DateTime.UtcNow, method = "Cash" });
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await admin.PostAsync($"/api/v1/projects/{projectId}/complete", content: null)).StatusCode);
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete",
+            new { forceOverride = true, reason = "Trying again." });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    /// <summary>
     /// `PermissionMatrix.md` §5 marks completion Admin <c>F</c> / Inspector <c>—</c>. The body is
     /// asserted empty because an authorization-middleware rejection carries none while a
     /// <c>ForbiddenException</c> yields ProblemDetails — without that, this test could not tell a

@@ -201,7 +201,10 @@ document; none of them changes a decision made elsewhere.*
   completable only through the FR-8.6 override, with a reason.
 - **The override reaches the invoice precondition and nothing else.** No value of `forceOverride`
   completes a Project that is not `Active`: §4.2 draws no `OnHold → Completed` edge, and that guard
-  lives inside the `Project` aggregate where no request field can reach it.
+  lives inside the `Project` aggregate where no request field can reach it. **The Project's own
+  state guard is evaluated first**, so a non-`Active` Project is always refused for its own state —
+  never with an invoice-derived message, and never with the "nothing to override" 400 below. Its
+  Invoices are not even read.
 - **`forceOverride` supplied when nothing is blocking is refused (400).** An override must override
   something, and no AuditLog entry is written for the refused attempt — a recorded override reason
   against a Project that had nothing to override would be a false justification in the permanent
