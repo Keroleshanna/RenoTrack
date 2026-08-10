@@ -27,9 +27,12 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
     private readonly List<string> _commands = [];
     private readonly Lock _sync = new();
 
-    public InProcessSmtpServer(bool advertiseAuthentication = false)
+    private int _sessionCount;
+
+    public InProcessSmtpServer(bool advertiseAuthentication = false, bool failEveryMessage = false)
     {
         AdvertisesAuthentication = advertiseAuthentication;
+        FailsEveryMessage = failEveryMessage;
         _listener = new TcpListener(IPAddress.Loopback, port: 0);
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -39,6 +42,16 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
     public int Port { get; }
 
     public bool AdvertisesAuthentication { get; }
+
+    /// <summary>
+    /// Rejects the message with a permanent 5xx after DATA, so a delivery failure can be produced
+    /// without closing the port — which is what makes "was this retried?" observable via
+    /// <see cref="SessionCount"/>.
+    /// </summary>
+    public bool FailsEveryMessage { get; }
+
+    /// <summary>Accepted connections. One send must produce exactly one, since Slice 2 has no retry.</summary>
+    public int SessionCount => Volatile.Read(ref _sessionCount);
 
     /// <summary>Raw DATA payloads received, in arrival order.</summary>
     public IReadOnlyList<string> Messages
@@ -70,6 +83,8 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
             {
                 return;
             }
+
+            Interlocked.Increment(ref _sessionCount);
 
             using (client)
             {
@@ -137,6 +152,12 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
                 while (await reader.ReadLineAsync(cancellationToken) is { } dataLine && dataLine != ".")
                 {
                     payload.AppendLine(dataLine);
+                }
+
+                if (FailsEveryMessage)
+                {
+                    await writer.WriteLineAsync("550 5.7.1 Rejected by policy");
+                    continue;
                 }
 
                 lock (_sync)

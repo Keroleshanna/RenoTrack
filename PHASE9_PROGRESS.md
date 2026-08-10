@@ -160,6 +160,26 @@ Consequently:
 
 **Sequencing note.** Between Slice 1 and Slice 2 there is a window in which a host with `Email:Enabled=true` can turn a committed business operation into a 500, because the handlers still `await` the sender uncaught until Slice 2 adds the catch. This is intended — Slice 1 must not pre-empt Slice 2's change, or Slice 2's adversarial test has nothing to remove. **Do not enable delivery in any environment until Slice 2 has landed.**
 
+### Slice 2 — approved decisions and implementation record (2026-08-09)
+
+**S2-1 — the failure boundary lives inside `SmtpEmailSender` (Option A), following D50.** The six handlers are untouched, no Application-level wrapper or decorator was introduced, and `IEmailSender`'s contract is unchanged. D50's `AuditService` already establishes this exact shape for the system's other best-effort side effect: catch, log at `Warning` with the exception attached, never rethrow.
+
+**S2-2 — the guarded region covers the *complete* delivery operation**: Inspector recipient resolution, message construction/template formatting, **and** SMTP transport. Message construction is therefore *deferred into* the boundary (`Func<CancellationToken, Task<MimeMessage>>`) rather than built at the call site — otherwise a `MailboxAddress` parse of a malformed stored address, and the Inspector lookup, would sit outside the `try` and still reach a handler that has already committed. Adversarial experiment 2 confirms this is load-bearing.
+
+**S2-3 — log level is `Warning`**, matching D50 and `LoggingNoOpEmailSender`. No `Error`-level logging was introduced.
+
+**S2-4 — `OperationCanceledException` is swallowed like any other delivery failure.** Cancellation still cancels the SMTP operation (nothing is delivered), but it does not escape: the business operation has already committed, so reporting a cancelled notification as a failed request would misdescribe what happened. D50's `catch (Exception)` already has this property.
+
+**S2-5 — accepted limitation: a failing logger is not guarded.** An exception thrown by `ILogger` itself would escape the boundary. **This exposure is identical to D50's and is accepted deliberately** rather than wrapped in a nested `try`, which would make the one place that reports problems the one place that hides them. Recorded here rather than left implicit.
+
+**S2-6 — three Slice 1 tests were intentionally inverted, not fixed.** `A_refused_connection_propagates_rather_than_being_swallowed`, `Cancellation_is_observed` and `A_missing_inspector_address_fails_rather_than_skipping_silently` asserted propagation, which was *correct* under Slice 1's semantics and is *wrong* under Slice 2's. They now assert swallow-and-log. Not Slice 1 defects.
+
+**S2-7 — transaction ordering was verified and left untouched.** All six handlers already do `business mutation → SaveChangesAsync → audit → notification`, confirmed line-by-line (`CreateLead` 31/33/45, `SubmitAngebotForReview` 39/41/49, `RequestAngebotChanges` 41/43/51, `SendAngebot` 69/75/85, `SendInvoice` 77/83/93, `RecordAngebotDecision` 100/104/112). **No handler sends before its commit; nothing needed correcting.**
+
+**Slice 2 test scope.** Infrastructure: refused connection swallowed+logged; cancellation observed and does not escape; missing Inspector address swallowed+logged; malformed recipient address swallowed+logged; all six notification types swallow a transport failure; the failure log identifies notification + business record; the failure log contains no token, URL, recipient address, SMTP credentials or body; successful delivery produces no `Warning`; a failure is attempted exactly once (no retry, observed via the listener's session count). Application: a handler does not catch notification failures itself; the business work is already committed when the notification fails; `FakeEmailSender` still never throws. A new test-only `ThrowingEmailSender` was added rather than changing `FakeEmailSender`'s established behaviour, and **real SMTP was not enabled in any Development test configuration**.
+
+**Adversarial verification — nine experiments, every one produced observable failures**, then every file was restored byte-identically: catch rethrows (8 failures) · construction moved outside the boundary (2) · null-Inspector guard removed (1) · token logged (2) · recipient address logged (3) · `Warning`→`Information` (6) · retry introduced (1) · notification moved before `SaveChanges` (2) · handler swallows the failure itself (2). Two earlier attempts produced compile errors and were re-run in a form that compiles — a build failure silently leaves the *previous* binary in place, so a "pass" against it proves nothing.
+
 ### The Slice 2/3 boundary — RESOLVED (approved 2026-08-09, formerly 3a/3b)
 
 The open question was whether the failure-handling slice's "lifecycle preparation" meant introducing a status type or delivery-record abstraction ahead of the table that stores it. **Resolved as option (i): it does not.**

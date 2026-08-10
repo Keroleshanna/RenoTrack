@@ -14,13 +14,17 @@ namespace RenoTrack.Infrastructure.Email;
 /// relay are the same implementation with different configuration, which is what keeps the vendor
 /// question (OQ-3b) out of the code entirely.
 ///
-/// <para><b>Failures propagate, deliberately.</b> Slice 1 catches nothing: catch / log /
-/// never-rethrow is Slice 2's deliverable, and implementing it here would leave Slice 2's
-/// adversarial test — remove the catch, watch a committed operation turn into a 500 — with nothing
-/// to remove. Until Slice 2 lands, delivery should not be enabled in any environment.</para>
+/// <para><b>A delivery failure never fails the business operation (Phase 9 Slice 2, D69).</b> Every
+/// notification is raised <em>after</em> its handler's <c>SaveChangesAsync</c> has already committed,
+/// so by the time this class runs there is nothing left to roll back and nothing useful to tell the
+/// caller — on four of the six notifications the caller is an anonymous customer who could not act on
+/// it anyway. A failure is therefore caught here, logged at <c>Warning</c> with the original
+/// exception attached, and swallowed. This is D50's Best-Effort Audit shape applied to the second
+/// best-effort side effect in the system, not a new idea.</para>
 ///
-/// <para><b>Nothing is persisted.</b> No <c>NotificationDeliveries</c> row, no status, no retry
-/// (Slices 3 and 5).</para>
+/// <para><b>Nothing is persisted and nothing is retried.</b> No <c>NotificationDeliveries</c> row, no
+/// status, no attempt counter (Slice 3), no retry (Slice 5). Until Slice 3 lands, a failed
+/// notification exists only in the log — a known, accepted gap, not an oversight.</para>
 /// </summary>
 public sealed class SmtpEmailSender(
     EmailOptions options,
@@ -29,62 +33,111 @@ public sealed class SmtpEmailSender(
     ILogger<SmtpEmailSender> logger) : IEmailSender
 {
     public Task SendNewWebsiteLeadNotificationAsync(NewWebsiteLeadNotification notification, CancellationToken cancellationToken) =>
-        SendAsync(
-            messageFactory.CreateNewWebsiteLead(notification),
+        DeliverAsync(
+            _ => Task.FromResult(messageFactory.CreateNewWebsiteLead(notification)),
             nameof(SendNewWebsiteLeadNotificationAsync),
             $"LeadId={notification.LeadId}",
             cancellationToken);
 
     public Task SendAngebotSubmittedForReviewNotificationAsync(AngebotSubmittedForReviewNotification notification, CancellationToken cancellationToken) =>
-        SendAsync(
-            messageFactory.CreateAngebotSubmittedForReview(notification),
+        DeliverAsync(
+            _ => Task.FromResult(messageFactory.CreateAngebotSubmittedForReview(notification)),
             nameof(SendAngebotSubmittedForReviewNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}",
             cancellationToken);
 
     /// <summary>
-    /// The only notification whose recipient is a specific person. A missing address is a delivery
-    /// failure, never a silent skip (D2) — the Inspector would otherwise never learn that changes
-    /// were requested, and nothing else in the system would record that the notification was owed.
+    /// The only notification whose recipient is a specific person. Resolving that address is part of
+    /// delivering the notification, so it sits <b>inside</b> the guarded region: a missing address
+    /// (D2) is a delivery failure like any other, reported the same way rather than thrown at a
+    /// handler that has already committed its work.
     /// </summary>
-    public async Task SendAngebotChangesRequestedNotificationAsync(AngebotChangesRequestedNotification notification, CancellationToken cancellationToken)
-    {
-        var inspectorEmail = await inspectorEmailLookup.FindEmailAsync(notification.InspectorId, cancellationToken);
+    public Task SendAngebotChangesRequestedNotificationAsync(AngebotChangesRequestedNotification notification, CancellationToken cancellationToken) =>
+        DeliverAsync(
+            async token =>
+            {
+                var inspectorEmail = await inspectorEmailLookup.FindEmailAsync(notification.InspectorId, token);
 
-        if (string.IsNullOrWhiteSpace(inspectorEmail))
-        {
-            throw new InvalidOperationException(
-                $"No email address is available for Inspector {notification.InspectorId}, so the " +
-                $"'changes requested' notification for Angebot {notification.AngebotNumber} cannot be delivered.");
-        }
+                if (string.IsNullOrWhiteSpace(inspectorEmail))
+                {
+                    throw new InvalidOperationException(
+                        $"No email address is available for Inspector {notification.InspectorId}, so the " +
+                        $"'changes requested' notification for Angebot {notification.AngebotNumber} cannot be delivered.");
+                }
 
-        await SendAsync(
-            messageFactory.CreateAngebotChangesRequested(notification, inspectorEmail),
+                return messageFactory.CreateAngebotChangesRequested(notification, inspectorEmail);
+            },
             nameof(SendAngebotChangesRequestedNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}",
             cancellationToken);
-    }
 
     public Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken) =>
-        SendAsync(
-            messageFactory.CreateAngebotReady(notification),
+        DeliverAsync(
+            _ => Task.FromResult(messageFactory.CreateAngebotReady(notification)),
             nameof(SendAngebotReadyNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}",
             cancellationToken);
 
     public Task SendInvoiceReadyNotificationAsync(InvoiceReadyNotification notification, CancellationToken cancellationToken) =>
-        SendAsync(
-            messageFactory.CreateInvoiceReady(notification),
+        DeliverAsync(
+            _ => Task.FromResult(messageFactory.CreateInvoiceReady(notification)),
             nameof(SendInvoiceReadyNotificationAsync),
             $"InvoiceId={notification.InvoiceId}, InvoiceNumber={notification.InvoiceNumber}",
             cancellationToken);
 
     public Task SendAngebotDecisionNotificationAsync(AngebotDecisionNotification notification, CancellationToken cancellationToken) =>
-        SendAsync(
-            messageFactory.CreateAngebotDecision(notification),
+        DeliverAsync(
+            _ => Task.FromResult(messageFactory.CreateAngebotDecision(notification)),
             nameof(SendAngebotDecisionNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}, Approved={notification.Approved}",
             cancellationToken);
+
+    /// <summary>
+    /// The notification failure boundary. It covers the <b>complete</b> delivery operation —
+    /// recipient resolution, message construction, and transport — because all three are ways the
+    /// same notification can fail, and a caller that has already committed can act on none of them.
+    ///
+    /// <para><b>Message construction is deferred into this method rather than passed in already
+    /// built.</b> Building it at the call site would place a <c>MailboxAddress</c> parse of a stored
+    /// customer address, and the Inspector lookup, <em>outside</em> the try — so a malformed address
+    /// in the database would still reach the handler as an exception. That is precisely the class of
+    /// failure this boundary exists to absorb.</para>
+    ///
+    /// <para><b>Cancellation is swallowed too</b>, deliberately: it still cancels the SMTP operation,
+    /// but the business operation has already committed, so surfacing it as a failed request would
+    /// misreport what happened. D50's <c>catch (Exception)</c> already has this property.</para>
+    ///
+    /// <para><b>A failing logger is not guarded against</b> — an exception from
+    /// <see cref="ILogger"/> would escape this catch. That exposure is identical to D50's and is
+    /// accepted rather than papered over with a nested try, which would make the one place that
+    /// reports problems the one place that hides them.</para>
+    /// </summary>
+    private async Task DeliverAsync(
+        Func<CancellationToken, Task<MimeMessage>> buildMessage,
+        string method,
+        string details,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var message = await buildMessage(cancellationToken);
+
+            await SendAsync(message, cancellationToken);
+
+            logger.LogInformation("{Method} delivered. {Details}", method, details);
+        }
+        catch (Exception exception)
+        {
+            // The original exception is attached, not just its message: D59 established that a
+            // swallowed fault stays diagnosable only if its stack trace survives.
+            logger.LogWarning(
+                exception,
+                "{Method} could not be delivered. The business operation it notifies about has already been " +
+                "committed and is unaffected; the notification is lost and is not retried automatically. {Details}",
+                method,
+                details);
+        }
+    }
 
     /// <summary>
     /// One connection per message. MailKit's <see cref="SmtpClient"/> is not thread-safe and this
@@ -93,10 +146,10 @@ public sealed class SmtpEmailSender(
     ///
     /// <para><b>What is logged, and what must never be.</b> The notification type and a business
     /// identifier only. Never the recipient address (Lead/Customer personal data, Architecture §12),
-    /// never the token, never the composed link — <c>CLAUDE.md</c> §22, the same rule
-    /// <see cref="LoggingNoOpEmailSender"/> already follows.</para>
+    /// never the token, never the composed link, never the message body, never the SMTP credentials —
+    /// <c>CLAUDE.md</c> §22, the same rule <see cref="LoggingNoOpEmailSender"/> already follows.</para>
     /// </summary>
-    private async Task SendAsync(MimeMessage message, string method, string details, CancellationToken cancellationToken)
+    private async Task SendAsync(MimeMessage message, CancellationToken cancellationToken)
     {
         using var client = new SmtpClient();
 
@@ -112,23 +165,23 @@ public sealed class SmtpEmailSender(
             }
 
             await client.SendAsync(message, cancellationToken);
-
-            logger.LogInformation("{Method} delivered. {Details}", method, details);
         }
         finally
         {
-            // In a finally so a failed send still closes the connection, but guarded so a disconnect
-            // fault can never replace the original exception — that would hide the real cause behind
-            // a secondary symptom.
+            // In a finally so a failed send still closes the connection, but swallowed so a
+            // disconnect fault can never replace the original exception — that would hide the real
+            // cause behind a secondary symptom. Not logged here: DeliverAsync reports the failure
+            // that matters, and a second entry about the socket would only dilute it.
             if (client.IsConnected)
             {
                 try
                 {
-                    await client.DisconnectAsync(quit: true, cancellationToken);
+                    await client.DisconnectAsync(quit: true, CancellationToken.None);
                 }
-                catch (Exception exception)
+                catch (Exception)
                 {
-                    logger.LogWarning(exception, "Disconnecting from the SMTP server failed after {Method}.", method);
+                    // Nothing useful can be done about a failed disconnect: the message has either
+                    // been accepted or it has not, and the connection is discarded either way.
                 }
             }
         }
