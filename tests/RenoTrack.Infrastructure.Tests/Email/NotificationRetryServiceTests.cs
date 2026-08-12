@@ -57,20 +57,46 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
         Assert.Equal(1, stored.AttemptCount);
     }
 
+    /// <summary>
+    /// <c>Sent</c> is terminal: re-sending a delivered notification is the one duplicate this system
+    /// does not accept (S5-3).
+    /// </summary>
+    /// <remarks>
+    /// <b>The Lead is real, and that is the whole point of this test.</b> An earlier version seeded a
+    /// fabricated <c>EntityId</c>, which — once S5-10 moved staleness validation ahead of the claim —
+    /// meant the row was refused at validation ("Lead … no longer exists") <em>before</em> the
+    /// retryability rule was ever consulted. The test passed either way, so it proved nothing about
+    /// <c>Sent</c>. Found by mutation testing during the Slice 6 completion gate, not by inspection.
+    ///
+    /// <para>With a real Lead, pre-claim validation succeeds, the row reaches the compare-and-set, and
+    /// the claim is the thing that refuses it — so adding <c>Sent</c> to <c>RetryableStatuses</c>
+    /// makes this fail.</para>
+    ///
+    /// <para>The port is deliberately one nothing is listening on: a correct implementation never
+    /// reaches SMTP here, and if it ever did, the attempt would fail loudly rather than quietly
+    /// delivering a duplicate.</para>
+    /// </remarks>
     [Fact]
     public async Task A_sent_delivery_is_never_retryable()
     {
+        var lead = await SeedLeadAsync();
         var delivery = await SeedDeliveryAsync(
-            NotificationType.NewWebsiteLead, "Lead", NextEntityId(), d => d.MarkSent(DateTime.UtcNow));
+            NotificationType.NewWebsiteLead, nameof(Lead), lead.Id, d => d.MarkSent(DateTime.UtcNow));
 
         await using var context = fixture.CreateContext();
-        var service = CreateService(context, EnabledOptions(port: 25));
+        var service = CreateService(context, EnabledOptions(UnusedPort()));
 
-        await Assert.ThrowsAsync<ConflictException>(() => service.RetryAsync(delivery.Id, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<ConflictException>(
+            () => service.RetryAsync(delivery.Id, CancellationToken.None));
+
+        // The claim's own refusal, not a staleness refusal — this is what pins that the row got past
+        // validation and was stopped by the retryability rule.
+        Assert.Contains("not in a retryable state", exception.Message);
 
         var stored = await ReloadAsync(delivery.Id);
         Assert.Equal(NotificationDeliveryStatus.Sent, stored.Status);
         Assert.Equal(1, stored.AttemptCount);
+        Assert.Null(stored.FailureType);
     }
 
     /// <summary>

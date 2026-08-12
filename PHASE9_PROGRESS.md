@@ -456,7 +456,8 @@ Not decided here, and deliberately not invented:
 | 2 — Safe failure handling | **Complete** | `1d2ca22` | One failure boundary inside `SmtpEmailSender.DeliverAsync`, covering recipient resolution, message construction and SMTP transport. Catch → `LogWarning` with the original exception → never rethrow. Cancellation swallowed. No handler catches notification failures |
 | 3 — Notification persistence | **Complete** | `06f7711` | `NotificationDeliveries` + EF configuration + **migration #9**, `NotificationType`/`NotificationDeliveryStatus`, write-after-commit. Recipient stored as the complete joined set (`", "`, max 1000 chars, validated at startup against the same shared constants) — a design contradiction found and corrected during the slice, since the original 320 was a single-address limit copied onto a column that holds an Admin recipient *set* |
 | 4 — Admin visibility | **Complete** | `0198d43` | `GET /api/v1/notification-deliveries`, Admin-only. See the Slice 4 record below |
-| 5 — Manual retry | **Implemented, not yet committed** | — | `POST /api/v1/notification-deliveries/{id}/retry`. See the Slice 5 implementation record below |
+| 5 — Manual retry | **Complete** | `6bdde9d` | `POST /api/v1/notification-deliveries/{id}/retry`. See the Slice 5 implementation record below |
+| 6 — Reconciliation + completion gate | **Complete** | *(this commit)* | Cross-document audit, stale-state corrections, adversarial re-verification, and one test-only correction found by mutation testing. **No production code, schema or migration changed.** See the completion record below |
 
 ### Slice 4 — approved decisions (2026-08-12, before implementation)
 
@@ -584,3 +585,73 @@ All guards restored; 23/23 green afterwards, 0 warnings.
 **One test defect found and fixed, not a code defect:** the missing-Inspector-address case originally seeded `CreatedByInspectorId = int.MaxValue`, which violates the real `Angebote → AspNetUsers` foreign key added in Phase 3 Slice 15. Replaced with a genuine Inspector row carrying a `NULL` email — which is the actual D2 scenario, and a stronger test than the fabricated id would have been.
 
 **Documentation that becomes stale at implementation, not before.** `CLAUDE.md` §11, `ERD.md` and `NEXT_STEPS.md` currently state that `Sending` does not exist — **true today**, and to be corrected in the Slice 5 implementation commit, not now. `ARCHITECTURE_DECISIONS.md` D69/D70 stay unchanged: they are decision records, and Slice 5 implements them rather than revising them. `Architecture.md` §5.2 needs the retry endpoint row, and the open-items list above can drop its two Slice 5 questions once S5-2 and S5-4 are built.
+
+---
+
+## Slice 6 — Phase 9 completion record (2026-08-12)
+
+**Slice 6 added no production code, no schema and no migration.** It is a cross-document audit, the stale-state corrections that audit found, an adversarial re-verification of the phase's load-bearing guarantees, and **one test-only correction** the adversarial pass uncovered (below). The test count is unchanged at **1,485** — the correction strengthened an existing test rather than adding one.
+
+### What was audited, code-first
+
+Each claim was checked against the source rather than against the documentation:
+
+| Claim | Verified against |
+|---|---|
+| Slice 1 foundation | `EmailOptions`, `EmailSecurityMode`, `EmailMessageFactory` (6 template methods), `SmtpEmailSender` (6 `IEmailSender` methods), `EmailConfigurationVerifier`, `InspectorEmailLookup`, `LoggingNoOpEmailSender` all present |
+| Slice 2 single boundary | Three `catch` blocks exist in `SmtpEmailSender`; only `DeliverAsync`'s classifies a delivery outcome. The other two are the bookkeeping write and an SMTP disconnect cleanup, neither of which decides that a notification failed — the documented claim is accurate |
+| Slice 3 persistence | Migration #9 `AddNotificationDeliveries`; twelve columns as documented; migration count exactly 9 |
+| Slice 4 visibility | `GET /api/v1/notification-deliveries`, Admin-only, unchanged by Slice 5 |
+| Slice 5 retry | Existing-row retry, CAS claim, pre-claim validation, recipient re-resolution — see the adversarial table |
+| No background machinery | Repository-wide scan of `src/`: no `IHostedService`, `BackgroundService`, `AddHostedService`, `Polly`, `Outbox`, `System.Threading.Channels`, timer or scheduler |
+| No business re-execution | The retry path references no `ICommandHandler`, no `IUnitOfWork`, no aggregate mutator, and no `TokenLink.Create` |
+| `PermissionMatrix.md` §9 | Both rows present, Admin `F` / Inspector `—`, with the no-ownership note — matches `[Authorize(Roles = Roles.Admin)]` and the absence of any `IOwnershipValidator` call |
+
+### Adversarial re-verification
+
+Every mutation compiled before its test ran; where a mutation failed to compile, **no test was run**. Each file was restored with `git checkout` and confirmed **byte-identical by SHA-256** afterwards.
+
+| Guard removed | Compiled | Result |
+|---|---|---|
+| CAS `AttemptCount + 1` → `AttemptCount` | yes | 3 failures |
+| Tracked row loaded **before** the claim | yes | 1 failure — the silent-undo regression |
+| `Sent` added to `RetryableStatuses` | yes | 1 failure — and, **after the test correction below, `A_sent_delivery_is_never_retryable` now fails too**, which it did not before |
+| Pre-claim `ValidateAsync` removed (S5-10) | yes | 7 failures |
+| Slice 2 boundary disabled (`when (exception is null)`) | yes | **15 of 24** `SmtpEmailSenderTests` fail — the boundary is what keeps a delivery failure off the caller |
+| Slice 3 `Pending` insert removed | yes | 11 failures across sender and persistence tests |
+
+Two mutation attempts at the Slice 2 boundary (`throw;` and `when (false)`) were **rejected by the compiler** — unreachable code and `CS8360` respectively, both errors under solution-wide `TreatWarningsAsErrors`. No test was run for either; the third formulation compiled and was used.
+
+### Finding, and its fix: one test had become a weaker guard than its name implied
+
+`A_sent_delivery_is_never_retryable` seeded its delivery against a **fabricated** `EntityId`. Once S5-10 moved staleness validation ahead of the claim, that row was refused at validation ("Lead … no longer exists") **before** the `Sent` rule was ever consulted — so with `Sent` wrongly added to `RetryableStatuses`, the test still passed. The exclusion was genuinely enforced and `Only_one_of_two_competing_retries_claims_the_delivery` did catch its removal, but the test named after the rule no longer proved it.
+
+**Found by mutation testing during this completion gate, not by inspection** — which is the point worth keeping: the test was green, had always been green, and would have stayed green through a real regression.
+
+**Fixed in Slice 6** (test-only; no production code, schema, migration or architecture touched). The test now seeds a **real** `Lead`, so pre-claim validation succeeds, the row reaches the compare-and-set, and the claim is what refuses it. It additionally asserts the refusal message is the claim's own ("not in a retryable state") rather than a staleness reason, and that `FailureType` stays null — so the test cannot pass for the wrong reason again. The SMTP port is one nothing listens on: a correct implementation never reaches SMTP on this path.
+
+**Re-verified by mutation:** adding `Sent` to `RetryableStatuses` now makes this test fail; the source was restored and confirmed byte-identical by SHA-256.
+
+This is `CLAUDE.md` §14's rule applied to a guard rather than an assertion — a test that reveals a flaw in its own construction is fixed, not discarded.
+
+### Deliberate constraints carried out of Phase 9 — not gaps
+
+- **The customer-facing token URLs point at Website pages that do not exist yet.** `https://<public-site>/angebot/{token}` and `/invoice/{token}` are built in **Phase 13** (D4.2). Production customer-facing use of those two notifications depends on it.
+- **No real send has been performed.** Every transport assertion is against an in-process SMTP listener over a real socket. A single manual real-send remains a deployment-time step, not a code gate — there is no mailbox to send from (OQ-3b).
+- **`Recipient` is a historical fact, not a copy of aggregate data**, and a retry overwrites it with the newly resolved set. That is intended (S5-5).
+- **A permanently-invalid notification stays retryable**, and every such retry is refused with 409 as a pure no-op. Making it un-retryable would need a terminal status the locked design deliberately does not have (S5-10).
+
+### Completion gate
+
+| Check | Result |
+|---|---|
+| Debug build | 0 warnings, 0 errors |
+| Release build | 0 warnings, 0 errors |
+| Full test suite | **1,485 passing, 0 failing, 0 skipped** |
+| EF model drift | none |
+| Migration count | exactly **9** |
+| `git diff --check` | clean |
+| Unexpected files | none |
+| Phase 10 functionality | none |
+
+**Phase 9 is complete.** The branch is publishable; pushing, opening a PR and merging each require explicit permission (`CLAUDE.md` §19).
