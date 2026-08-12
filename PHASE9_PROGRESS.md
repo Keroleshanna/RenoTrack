@@ -455,7 +455,8 @@ Not decided here, and deliberately not invented:
 | 1 — Email configuration + SMTP sender + six German templates | **Complete** | `7b70fd4` | MailKit 4.17.0, `EmailOptions`, `EmailSecurityMode`, `EmailMessageFactory`, `SmtpEmailSender`, `EmailConfigurationVerifier`, `InspectorEmailLookup`, DI selection, startup readiness verification, `TokenLink:PublicBaseUrl` validation, in-process SMTP test listener. **Application unchanged** — `IEmailSender` and all six notification records untouched |
 | 2 — Safe failure handling | **Complete** | `1d2ca22` | One failure boundary inside `SmtpEmailSender.DeliverAsync`, covering recipient resolution, message construction and SMTP transport. Catch → `LogWarning` with the original exception → never rethrow. Cancellation swallowed. No handler catches notification failures |
 | 3 — Notification persistence | **Complete** | `06f7711` | `NotificationDeliveries` + EF configuration + **migration #9**, `NotificationType`/`NotificationDeliveryStatus`, write-after-commit. Recipient stored as the complete joined set (`", "`, max 1000 chars, validated at startup against the same shared constants) — a design contradiction found and corrected during the slice, since the original 320 was a single-address limit copied onto a column that holds an Admin recipient *set* |
-| 4 — Admin visibility | **Implemented, not yet committed** | — | `GET /api/v1/notification-deliveries`, Admin-only. See the Slice 4 record below |
+| 4 — Admin visibility | **Complete** | `0198d43` | `GET /api/v1/notification-deliveries`, Admin-only. See the Slice 4 record below |
+| 5 — Manual retry | **Implemented, not yet committed** | — | `POST /api/v1/notification-deliveries/{id}/retry`. See the Slice 5 implementation record below |
 
 ### Slice 4 — approved decisions (2026-08-12, before implementation)
 
@@ -475,3 +476,111 @@ Not decided here, and deliberately not invented:
 - **No `IsInEnum()` equivalent on `status`, and the absence is verified rather than assumed.** The design review expected one to be necessary, on the historical MVC behaviour of binding an undefined *numeric* value (`?status=99`) to an enum without complaint — a nonsense filter answered with a cheerful empty page instead of a 400. An `[EnumDataType]` attribute was written for it, then **deleted**: removing it adversarially left both bad shapes (`NotAStatus`, `99`) still returning 400, so on this runtime the binder refuses them unaided and the attribute was decoration. Both shapes stay pinned by `Rejects_an_invalid_status`, which asserts the **behaviour**, not the mechanism — a future runtime that loosened the binder fails that test rather than silently accepting garbage.
 - **`DependencyInjectionTests` gained an explicit resolution test.** Its reflection-driven theories discover types in the **Application** assembly only, so they cannot cover an interface declared in Infrastructure — the "forgot to register it" safety net does not extend here, and an explicit assertion replaces it.
 - **Tests: 24 new — 7 Infrastructure, 17 Api (16 endpoint cases + 1 DI resolution).** Suite total 1,430 → 1,454, none failing, none skipped. The ordering test forces three rows to share one `CreatedAt` via `ExecuteUpdateAsync`, because the tiebreaker is otherwise untestable: rows created microseconds apart would pass with or without it.
+
+---
+
+### Slice 5 — approved decisions (2026-08-12, before implementation)
+
+Approved from the read-only Slice 5 design investigation. **Not yet implemented.**
+
+**S5-1 — Infrastructure-owned retry service.** `IEmailSender` and all six notification records are **unchanged**, and no Application notification-persistence abstraction is introduced. A new Infrastructure-owned service loads the existing `NotificationDelivery`, claims it atomically, reconstructs the notification from persisted business data, resolves the current recipient, and drives the existing delivery machinery **against the existing row**. It never creates a second row, and it never re-executes the business operation.
+
+> **Why a service rather than "call `IEmailSender` again", stated plainly:** `SmtpEmailSender.DeliverAsync` unconditionally constructs a new `NotificationDelivery`, and `IEmailSender` has no parameter — and could have none, without breaking D23/D69 — representing an existing row. Calling it again would leave the original row `Failed` forever and pin `AttemptCount` at 1, contradicting both D70 and the entity's own doc comment. This was found by tracing the delivery path, not by reading the decision records.
+
+**S5-2 — Concurrency is one conditional compare-and-set, no model change.** The claim is a single `ExecuteUpdateAsync`, conditional on the current status, setting `Status = Sending`, `AttemptCount = AttemptCount + 1`, `LastAttemptAt = now`. **Only the caller whose update affects a row owns the attempt**; zero rows affected means another request claimed it first, which surfaces as **409**. Atomic at the database, bypasses the change tracker, and is still EF Core LINQ — the same shape and the same justification as `TokenService.RevokeAllForUserAsync`, so D52's narrowly-scoped raw-SQL exception does not come into play. **No `IsConcurrencyToken`, no migration, no lock, no queue, no hosted service, no worker, no Polly.**
+
+**S5-3 — Retryable statuses are `Failed`, `Pending` and `Sending`. `Sent` never is.** The lifecycle becomes:
+
+```
+Pending → Sending → Sent | Failed
+Failed  → Sending → Sent | Failed
+Pending → Sending             (stranded initial attempt)
+Sending → Sending             (stranded retry attempt)
+```
+
+`Sending` is retryable **because** there is deliberately no lease, timeout or background recovery: a process that dies mid-attempt strands a row there, and an Admin must be able to recover it by hand. Duplicate delivery is the already-accepted consequence of D69/D70. **This is manual recovery, not automatic recovery** — nothing polls, nothing schedules, nothing re-enters the path unattended.
+
+**S5-4 — `AngebotChangesRequested` reconstructs the latest review comment** for that Angebot, ordered `CreatedAt DESC, Id DESC`. **Accepted historical imprecision, recorded deliberately:** retrying an older changes-requested notification after further review cycles have occurred will send the *newest* comment, not the one the original attempt carried. No `CommentId` column, no `EntityType`/`EntityId` change, no comment text in the delivery row, no migration. **Do not silently "fix" this by adding schema** — revisit only on a real incident.
+
+**S5-5 — The recipient is always re-resolved**, never read back from the persisted `Recipient`. Configuration and user data may have changed, the retry model *is* reconstruction, and — decisively — `Recipient` is `NULL` precisely when resolution failed, which is the case retry most needs to serve. The newly resolved set is written to the existing row, consistent with `LastAttemptAt`/`AttemptCount` already meaning "the latest attempt".
+
+**S5-6 — Business-state protection: refuse, never repair.**
+- **`AngebotReady` / `InvoiceReady`:** **no new token is ever generated.** If the token link is missing, expired, or already used, the retry is **refused with 409** and an application-authored reason. Minting a fresh link would be a new business action, which D70 forbids outright.
+- **`InvoiceReady`:** additionally refused with 409 when the Invoice is now `Void` or `Paid`.
+- **Internal notifications** (`NewWebsiteLead`, `AngebotSubmittedForReview`, `AngebotChangesRequested`, `AngebotDecision`): **no invented staleness rules.** Retry operates on the current reconstructible state; a submitted-for-review notice for an Angebot since approved is stale but harmless, and no business rule says otherwise.
+
+**S5-7 — `POST /api/v1/notification-deliveries/{id}/retry`.** Admin only, no request body (id from the route, Admin from the token per D61), no ownership validation (§9 is `F`, so per §16 an `IOwnershipValidator` call would be a semantic error). **404** unknown id; **409** for `Sent`, for a lost claim race, and for every S5-6 refusal; **200** with the updated delivery representation once the attempt reaches its terminal state. RFC 7807 throughout, per the existing `ProblemDetails` contract.
+
+**S5-9 — With `Email:Enabled = false`, retry is refused with 409, not 503.** The delivery record exists and retry is a valid operation in principle; what forbids it is the application's own configuration, which is a state conflict rather than a transient outage. **The retry refusal contract is therefore uniform — every refusal is 409:** email disabled, already `Sent`, a non-retryable state, a claim lost to another Admin, an expired or already-used token, and a `Void`/`Paid` Invoice.
+
+**S5-8 — TokenLink lookup is deterministic, never `SingleAsync`.** Ordered `CreatedAt DESC, Id DESC`, taking the first. In practice at most one link exists per entity — `Angebot.Send()` guards `ApprovedInternally`, `Invoice.Send()` guards `Draft` — but **no database constraint enforces that**, and `SingleAsync` would turn a violated assumption into an unmapped 500. No uniqueness migration is added.
+
+#### Slice 5 — pre-implementation consistency check (2026-08-12)
+
+Checked across `NotificationDeliveryStatus`, `NotificationDelivery`, D69/D70, `ERD.md`, `PermissionMatrix.md`, the Slice 3 decisions, Slice 4's endpoint and query, the current `SmtpEmailSender`, the retry endpoint design, and the existing tests.
+
+**Verified clean — none of the seven prohibited consequences is introduced:**
+
+- **No automatic recovery, background processing, retry loop, queue or lease.** Every state change originates in one Admin HTTP request; `Sending → Sending` is reachable only by a human issuing a second request, and nothing re-enters the path unattended.
+- **No migration.** `Sending` is a new member on a string-converted column (`HasConversion<string>().HasMaxLength(50)` — comfortably wider than the value), so the EF model is unchanged and `has-pending-model-changes` stays clean. Confirmed against `NotificationDeliveryConfiguration`.
+- **No second delivery row.** The claim updates in place; no code path on the retry side inserts.
+- **`NotificationDelivery` needs no new mutator for the claim** — `ExecuteUpdateAsync` writes `Status`/`AttemptCount`/`LastAttemptAt` at the database. `MarkSent`/`MarkFailed` remain correct terminal transitions, and neither touches `AttemptCount`, so the claim's increment survives.
+- **Slice 4 absorbs `Sending` with no change.** `?status=` binds the enum by name, so `?status=Sending` starts working automatically; the default (no filter) already returns every status; `Rejects_an_invalid_status` uses `NotAStatus` and `99`, neither of which a fourth member makes valid.
+- **`PermissionMatrix.md` §9 already grants "Retry a notification — Admin `F`, Inspector `—`"** with the no-ownership note. No permission change is required.
+- **The Slice 2 failure boundary is preserved:** the retry path must fail the same way — logged with the original exception, terminal state persisted, never escaping as a 500. `A_failure_is_not_retried` stays valid because it pins the *automatic* path; manual retry is a separate, human-initiated entry point.
+
+**Three implementation items, all now resolved by approved decisions.**
+
+1. **Registration under `Email:Enabled = false` — resolved.** `SmtpEmailSender`, `EmailMessageFactory` and `InspectorEmailLookup` are registered **only when email is enabled**; otherwise `LoggingNoOpEmailSender` resolves and none of the delivery machinery exists in the container. **Both test projects and every non-production host run in that state** — `appsettings.json` ships `Enabled: false`. A retry service registered only when enabled would make `NotificationDeliveriesController` unconstructable and **break Slice 4's `GET` endpoint and `ValidateOnBuild` together**. **The retry abstraction is therefore registered unconditionally**, and the service itself reads `Email:Enabled` and refuses with S5-9's 409 before any SMTP work. **No fake or second sender is introduced** — `EmailOptions` is already registered unconditionally as a singleton *before* the `Enabled` branch, so the guard needs nothing new. The `IEmailSender` selection itself is untouched, exactly as Slice 1 established.
+2. **Reaching the delivery machinery — resolved: minimal internal entry point.** The Slice 2 `DeliverAsync` **remains the single failure boundary**; an `internal` retry entry point on `SmtpEmailSender` accepts the existing row, and `SmtpEmailSender` is registered as a concrete type **only in the enabled branch**, purely so the retry service can reach it. No dispatcher extraction, no broad refactor, `IEmailSender`'s six public methods and all six notification records unchanged. Because the concrete registration exists only when enabled, the unconditionally-registered retry service resolves it **after** its own enabled-guard has proven it is there — the narrow, fixed, named-type resolution `CLAUDE.md` §21 sanctions, not an open-ended service locator.
+3. **Claim-before-load ordering — resolved and must be tested.** The flow is fixed: validate access → **claim atomically** → *then* load the row → reconstruct → re-resolve the recipient → deliver on the existing row → persist `Sent`/`Failed`. `ExecuteUpdateAsync` bypasses the change tracker, so an entity loaded *before* the claim holds a stale `Status`/`AttemptCount`, and a later `SaveChangesAsync` would write the stale count back, **silently undoing the increment**. Same class of hazard as D55 and the `AuditService` scoping bug. **A behavioural test must prove the claim's increment survives the terminal update** — a comment is not sufficient.
+
+#### Slice 5 — locked scope (confirmed 2026-08-12)
+
+Present in the design: Infrastructure-owned retry service; existing-row retry; CAS claim; `Sending`; retryable `Failed`/`Pending`/`Sending`; non-retryable `Sent`; manual recovery of a stranded `Sending`; latest review comment; recipient re-resolution; token and Invoice staleness protection; `POST /api/v1/notification-deliveries/{id}/retry`; Admin-only authorization; uniform 409 conflict contract.
+
+Absent from the design, deliberately and verifiably: no new migration; no second delivery row; no automatic recovery; no queue; no hosted service; no background worker; no Polly; no Application notification-persistence abstraction.
+
+**S5-10 — staleness is validated *before* the claim; a refused retry mutates nothing (approved 2026-08-12, resolving an implementation gap).**
+
+The first Slice 5 implementation claimed the row, then discovered staleness, then marked the row `Failed` and returned 409. **That was not covered by S5-1 … S5-9, and it was wrong on four counts** — found by review, not by a failing test:
+
+1. **It gave `Failed` a second meaning.** `MarkFailed` is documented as *"the attempt ended without delivery"*; a refusal is an attempt that never happened.
+2. **It broke S3-2.** `FailureMessage` is restricted to three application-authored category messages (`Preparation` / `Transport` / `Cancelled`) — *"two failure columns, three categories, full stop."* Free-form refusal text was a fourth kind.
+3. **It broke S3-4.** `FailureType` is *the exception type name* of an exception that actually ended a delivery attempt. `nameof(ConflictException)` named an exception thrown afterwards to the HTTP caller, which never participated in a delivery.
+4. **It made a permanently-invalid notification permanently retryable.** S5-3 makes `Failed` retryable, so an expired token or a `Void` Invoice became a row an Admin could retry forever, incrementing `AttemptCount` on every refusal, with no possible success.
+
+**The resolution — Option A.** `NotificationRetryExecutor.ValidateAsync` performs the staleness checks **read-only, before the compare-and-set claim**. A refusal therefore leaves the row untouched: no `Status`, no `AttemptCount`, no `LastAttemptAt`, no `FailureType`, no `FailureMessage`, no `Recipient`, no `SentAt`. `Failed` keeps its single approved meaning, S3-2 and S3-4 stand unchanged, and no new status was invented.
+
+**This does not violate S5-2's "claim first, then load".** That rule exists to stop a *tracked* entity loaded before the claim from writing a stale `AttemptCount` back. The pre-claim read is an `AsNoTracking` projection of two columns (`NotificationType`, `EntityId`) — nothing tracked, nothing saved. The entity itself is still loaded only after a successful claim, and the regression test proving it still passes.
+
+**Rejected alternatives**, recorded so they are not revisited by accident: leaving a refused row `Sending` (the row would claim an attempt was in flight when none was, and would still be retryable); adding a terminal `Refused`/`Undeliverable` status (a new lifecycle state, and the locked design deliberately has none); releasing the claim by restoring the prior status (a second write, and a window where the row is briefly `Sending` for no reason); and ratifying the original behaviour by amending S3-2/S3-4 (which would have widened the failure taxonomy this project spent Slice 3 narrowing).
+
+**Consequence, stated plainly:** a permanently-invalid notification can still be retried repeatedly, and each attempt is refused with 409 — but every one of those refusals is a pure no-op. Nothing accumulates and nothing is corrupted. Making such a row *un*-retryable would need the terminal status rejected above; that is a live option if a real incident ever justifies it.
+
+#### Slice 5 — implementation record (2026-08-12)
+
+Built exactly to S5-1 … S5-9. `IEmailSender`, the six notification records and every handler are unchanged; no Application file was touched; **no migration** (drift verified clean).
+
+- **`DeliverAsync` gained an optional existing row rather than a sibling.** `internal RetryAsync` forwards into it, so the Slice 2 `try`/`catch` remains literally the single failure boundary and retry inherits its semantics because it *is* that code, not because two paths were kept in step by hand. The retry path never calls `Add`.
+- **Two halves, split exactly where the container splits.** `INotificationRetryService` is registered **unconditionally** (it holds the `Email:Enabled` guard and the CAS claim); `NotificationRetryExecutor` and the concrete `SmtpEmailSender` are registered **only when email is enabled**, and the service resolves the executor from `IServiceProvider` *after* its guard has proven it exists — the narrow, fixed, named-type resolution `CLAUDE.md` §21 sanctions. No fake sender was introduced.
+- **A staleness refusal mutates nothing at all (S5-10).** `ValidateAsync` runs read-only before the claim and *returns* a reason rather than throwing; the service turns it into a 409 without touching the row. After the claim there is deliberately **no second refusal path**: business state that changed since validation surfaces inside the Slice 2 boundary as an ordinary preparation failure, carrying the approved category message and the real exception type — so no code path can invent a failure category or a synthetic `FailureType`.
+- **Every read used to rebuild a message happens *inside* the delivery boundary.** That is load-bearing rather than tidy: a reconstruction read that threw outside the boundary would escape as an unmapped 500 instead of being recorded on the row.
+- **`AttemptCount` is incremented from the column** (`d => d.AttemptCount + 1`), never from a value read earlier — correct under concurrency rather than merely usually correct.
+- **A successful retry is unreachable from `Api.Tests`** because that host runs with email disabled, and it is *not* faked to make it reachable. Delivery outcomes are proven for real over a socket in `NotificationRetryServiceTests`; `Api.Tests` owns what the API layer adds (routing, the role gate, 404, ProblemDetails).
+- **Tests: 31 new — 23 Infrastructure, 8 Api.** Suite total 1,454 → 1,485, none failing, none skipped.
+
+**Adversarial verification — each load-bearing guard removed, rebuilt, and re-run:**
+
+| Guard removed | Result |
+|---|---|
+| `AttemptCount + 1` → `AttemptCount` | **3 failures**, including the concurrency and no-loop tests |
+| Row loaded **before** the claim | **1 failure** — `The_claims_attempt_count_increment_survives_the_terminal_update`, reproducing the exact silent-undo regression S5-2's ordering exists to prevent |
+| `Sent` added to `RetryableStatuses` | **2 failures**, including a second delivery of an already-sent notification |
+| Pre-claim `ValidateAsync` call removed (S5-10) | **7 failures** — every staleness refusal plus the permanent-staleness regression, which is exactly the defect Option A was chosen to remove |
+
+All guards restored; 23/23 green afterwards, 0 warnings.
+
+**One test defect found and fixed, not a code defect:** the missing-Inspector-address case originally seeded `CreatedByInspectorId = int.MaxValue`, which violates the real `Angebote → AspNetUsers` foreign key added in Phase 3 Slice 15. Replaced with a genuine Inspector row carrying a `NULL` email — which is the actual D2 scenario, and a stronger test than the fabricated id would have been.
+
+**Documentation that becomes stale at implementation, not before.** `CLAUDE.md` §11, `ERD.md` and `NEXT_STEPS.md` currently state that `Sending` does not exist — **true today**, and to be corrected in the Slice 5 implementation commit, not now. `ARCHITECTURE_DECISIONS.md` D69/D70 stay unchanged: they are decision records, and Slice 5 implements them rather than revising them. `Architecture.md` §5.2 needs the retry endpoint row, and the open-items list above can drop its two Slice 5 questions once S5-2 and S5-4 are built.

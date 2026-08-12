@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Application.Common;
+using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.Persistence.Entities;
 using RenoTrack.Infrastructure.Persistence.Queries;
 
@@ -48,7 +49,8 @@ namespace RenoTrack.Api.Controllers;
 // LeadsController.RequestingInspectorId() exists to guard against does not arise here.
 [Authorize(Roles = Roles.Admin)]
 public sealed class NotificationDeliveriesController(
-    INotificationDeliveryQueries notificationDeliveryQueries) : ControllerBase
+    INotificationDeliveryQueries notificationDeliveryQueries,
+    INotificationRetryService notificationRetryService) : ControllerBase
 {
     /// <summary>
     /// Lists notification deliveries, newest first, optionally filtered by status.
@@ -91,5 +93,42 @@ public sealed class NotificationDeliveriesController(
         var result = await notificationDeliveryQueries.GetPagedAsync(status, page, pageSize, cancellationToken);
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Re-sends one notification (`PermissionMatrix.md` §9, D70). Phase 9 Slice 5.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Retries the notification, never the business operation.</b> The message is rebuilt from
+    /// currently persisted data and sent; no decision is re-recorded, no Angebot is re-sent as a
+    /// business action, and no token is minted. That is structural rather than careful — the retry
+    /// path has no access to a command handler at all.
+    /// </para>
+    /// <para>
+    /// <b>No request body, deliberately.</b> The delivery comes from the route and the Admin from
+    /// the token (D61); there is nothing a caller could legitimately supply, and accepting anything
+    /// would invite them to influence what gets sent.
+    /// </para>
+    /// <para>
+    /// <b>Every refusal is 409</b> (S5-9): already <c>Sent</c>, a claim lost to another Admin, an
+    /// expired or already-used token link, a <c>Void</c>/<c>Paid</c> Invoice, and email being
+    /// switched off for the deployment. They differ in the <c>detail</c> message, never in status —
+    /// each names a state conflict, and one uniform code is what makes the contract predictable.
+    /// A <b>delivery</b> failure is not a refusal: the notification stays committed-and-failed, the
+    /// row records it, and this still returns 200 describing that outcome.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/retry")]
+    [ProducesResponseType<NotificationDeliveryDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Retry(int id, CancellationToken cancellationToken)
+    {
+        var delivery = await notificationRetryService.RetryAsync(id, cancellationToken);
+
+        return Ok(delivery);
     }
 }

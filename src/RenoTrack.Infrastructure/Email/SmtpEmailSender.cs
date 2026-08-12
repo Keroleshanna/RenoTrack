@@ -144,19 +144,23 @@ public sealed class SmtpEmailSender(
         Func<CancellationToken, Task<MimeMessage>> buildMessage,
         string method,
         string details,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        NotificationDelivery? existing = null)
     {
-        var delivery = new NotificationDelivery(notificationType, entityType, entityId);
+        var delivery = existing ?? new NotificationDelivery(notificationType, entityType, entityId);
         var phase = DeliveryPhase.Preparation;
         Exception? failure = null;
 
         try
         {
-            // Persisted Pending before the attempt, after the handler's own commit (D69). A crash
-            // before this line loses the record entirely — the accepted window; a crash after it
-            // leaves a Pending row, which is the honest statement that an attempt never concluded.
-            dbContext.NotificationDeliveries.Add(delivery);
-            await dbContext.SaveChangesAsync(cancellationToken);
+            if (existing is null)
+            {
+                // Persisted Pending before the attempt, after the handler's own commit (D69). A crash
+                // before this line loses the record entirely — the accepted window; a crash after it
+                // leaves a Pending row, which is the honest statement that an attempt never concluded.
+                dbContext.NotificationDeliveries.Add(delivery);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
 
             var message = await buildMessage(cancellationToken);
 
@@ -186,6 +190,43 @@ public sealed class SmtpEmailSender(
 
         await RecordOutcomeAsync(delivery, failure, phase, method, details);
     }
+
+    /// <summary>
+    /// The Slice 5 retry entry point: one more attempt against a delivery row that <b>already
+    /// exists</b> and has already been claimed (S5-1, S5-2).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Deliberately a thin forward into <see cref="DeliverAsync"/> rather than a second
+    /// delivery path.</b> That method's <c>try</c>/<c>catch</c> stays the single failure boundary
+    /// Slice 2 established — retry inherits the identical semantics (log the original exception,
+    /// swallow, persist a sanitized terminal state) because it is literally the same code, not
+    /// because two implementations were kept in step by hand.</para>
+    ///
+    /// <para><b><c>internal</c>, not public:</b> reachable from <c>NotificationRetryExecutor</c> and
+    /// the Infrastructure test project, and from nowhere else. Widening it would put a
+    /// bring-your-own-delivery-row method on the public surface, which is exactly the shape D69
+    /// keeps out of Application.</para>
+    ///
+    /// <para>The row is passed in already tracked and already incremented. This method never calls
+    /// <c>Add</c> and never inserts — <b>a retry updates the existing row or it does nothing</b>
+    /// (S5-1). The three identity arguments are read back off the row rather than re-supplied, so a
+    /// caller cannot accidentally retry one notification under another's identity.</para>
+    /// </remarks>
+    internal Task RetryAsync(
+        NotificationDelivery delivery,
+        Func<CancellationToken, Task<MimeMessage>> buildMessage,
+        string method,
+        string details,
+        CancellationToken cancellationToken) =>
+        DeliverAsync(
+            delivery.NotificationType,
+            delivery.EntityType,
+            delivery.EntityId,
+            buildMessage,
+            method,
+            details,
+            cancellationToken,
+            existing: delivery);
 
     /// <summary>
     /// Writes the terminal state. Separate from the boundary above rather than nested inside its

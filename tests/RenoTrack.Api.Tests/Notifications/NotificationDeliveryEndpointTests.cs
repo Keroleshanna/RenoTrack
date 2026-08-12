@@ -253,6 +253,101 @@ public sealed class NotificationDeliveryEndpointTests(RenoTrackApiFactory factor
         Assert.Equal(1, item.GetProperty("attemptCount").GetInt32());
     }
 
+    // ---------- POST {id}/retry ----------
+
+    /// <summary>
+    /// <b>Every</b> refusal on this endpoint is 409 (S5-9), and this host reaches the refusal by the
+    /// disabled-email route: <c>Email:Enabled</c> is false here, exactly as it is in
+    /// <c>appsettings.json</c> and on every non-production host.
+    /// </summary>
+    /// <remarks>
+    /// A successful retry is therefore unreachable from <c>Api.Tests</c> and is not faked to make it
+    /// reachable — the delivery outcomes are proven for real, over a real socket, in
+    /// <c>NotificationRetryServiceTests</c>. What this class owns is what the API layer adds: routing,
+    /// the role gate, the 404, and the ProblemDetails shape (D58).
+    /// </remarks>
+    [Fact]
+    public async Task Retry_is_refused_with_409_while_email_delivery_is_disabled()
+    {
+        var id = await SeedAsync(new NotificationDelivery(NotificationType.NewWebsiteLead, "Lead", NextEntityId()));
+        using var client = await AdminClientAsync();
+
+        var response = await client.PostAsync($"{Endpoint}/{id}/retry", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains("Email delivery is disabled", problem.GetProperty("detail").GetString());
+        Assert.True(problem.TryGetProperty("traceId", out _));
+    }
+
+    [Fact]
+    public async Task Retrying_an_unknown_delivery_returns_404()
+    {
+        using var client = await AdminClientAsync();
+
+        var response = await client.PostAsync($"{Endpoint}/999999/retry", content: null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// A <c>Sent</c> delivery is never retryable. The refusal is reached before the disabled-email
+    /// guard matters, so this pins the terminal-state rule rather than the configuration one.
+    /// </summary>
+    [Fact]
+    public async Task Retrying_a_sent_delivery_returns_409()
+    {
+        var sent = new NotificationDelivery(NotificationType.AngebotReady, "Angebot", NextEntityId());
+        sent.MarkSent(DateTime.UtcNow);
+        var id = await SeedAsync(sent);
+
+        using var client = await AdminClientAsync();
+
+        var response = await client.PostAsync($"{Endpoint}/{id}/retry", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Inspector_is_forbidden_from_retrying()
+    {
+        var id = await SeedAsync(new NotificationDelivery(NotificationType.NewWebsiteLead, "Lead", NextEntityId()));
+        using var client = await ClientAsync(RenoTrackApiFactory.InspectorEmail, RenoTrackApiFactory.InspectorPassword);
+
+        var response = await client.PostAsync($"{Endpoint}/{id}/retry", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Anonymous_cannot_retry()
+    {
+        var id = await SeedAsync(new NotificationDelivery(NotificationType.NewWebsiteLead, "Lead", NextEntityId()));
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync($"{Endpoint}/{id}/retry", content: null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Slice 4's read must keep working unchanged now that the controller has a second dependency —
+    /// the whole reason the retry service is registered unconditionally (S5-9).
+    /// </summary>
+    [Fact]
+    public async Task The_list_endpoint_still_works_with_email_delivery_disabled()
+    {
+        var id = await SeedAsync(new NotificationDelivery(NotificationType.NewWebsiteLead, "Lead", NextEntityId()));
+        using var client = await AdminClientAsync();
+
+        var body = await ReadAsync(client, $"{Endpoint}?pageSize=100");
+
+        Assert.Contains(id, Ids(body));
+    }
+
     // ---------- helpers ----------
 
     private static int NextEntityId() => Random.Shared.Next(100_000, 999_999);

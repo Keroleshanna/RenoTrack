@@ -152,6 +152,12 @@ public static class DependencyInjection
         services.AddSingleton(emailOptions);
         services.AddScoped<EmailConfigurationVerifier>();
 
+        // Registered unconditionally, unlike everything below the branch: NotificationDeliveriesController
+        // depends on it, and that controller must keep serving Slice 4's GET endpoint on the hosts where
+        // email is switched off — which is every test host and every non-production one. The service
+        // refuses with 409 when delivery is disabled rather than needing a stand-in sender (S5-9).
+        services.AddScoped<INotificationRetryService, NotificationRetryService>();
+
         if (!emailOptions.Enabled)
         {
             // The placeholder is retained rather than deleted (approved): it is what every
@@ -171,6 +177,14 @@ public static class DependencyInjection
         services.AddScoped<EmailMessageFactory>();
         services.AddScoped<InspectorEmailLookup>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
+
+        // Also registered concretely, and only here: NotificationRetryExecutor needs the internal
+        // retry entry point, which the IEmailSender abstraction neither has nor should have (D69).
+        // Both lines are AddScoped on the same concrete type, so a request that both sends and
+        // retries gets two instances — harmless, since the type holds no state between calls and
+        // its DbContext is the shared scoped one either way.
+        services.AddScoped<SmtpEmailSender>();
+        services.AddScoped<NotificationRetryExecutor>();
     }
 
     /// <summary>

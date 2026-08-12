@@ -98,12 +98,22 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(NotificationDeliveryStatus.Failed, delivery.Status);
     }
 
-    /// <summary>Slice 5 owns <c>Sending</c>; Slice 3 must not have introduced it.</summary>
+    /// <summary>
+    /// The four states the lifecycle actually has as of Slice 5 — no more, no fewer.
+    /// </summary>
+    /// <remarks>
+    /// This started life pinning <b>three</b> states, so that Slice 3 could not quietly introduce
+    /// <c>Sending</c> before the concurrency design existed to justify it. It did its job: Slice 5
+    /// adding the member is exactly what made it fail, and the assertion was updated rather than
+    /// deleted (<c>CLAUDE.md</c> §14). Its purpose is unchanged — a fifth state must not appear
+    /// without a decision behind it, and a "retry attempt timed out" state in particular would mean
+    /// the lease and background sweeper D69 rules out.
+    /// </remarks>
     [Fact]
-    public void The_status_enum_has_exactly_the_three_slice_3_states()
+    public void The_status_enum_has_exactly_the_four_slice_5_states()
     {
         Assert.Equal(
-            ["Pending", "Sent", "Failed"],
+            ["Pending", "Sent", "Failed", "Sending"],
             Enum.GetNames<NotificationDeliveryStatus>());
     }
 
