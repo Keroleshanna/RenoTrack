@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using MimeKit;
+using RenoTrack.Infrastructure.Persistence.Entities;
 
 namespace RenoTrack.Infrastructure.Email;
 
@@ -187,6 +188,38 @@ public sealed class EmailOptions
         {
             RequireAddress(AdminRecipients[index], $"{nameof(AdminRecipients)}:{index}");
         }
+
+        EnsureAdminRecipientsFitTheDeliveryRecord();
+    }
+
+    /// <summary>
+    /// An Admin notification is delivered to every configured address, and
+    /// <see cref="NotificationDelivery.Recipient"/> records that complete set. Validated here against
+    /// the <b>exact persisted representation</b> — same join, same separator — because measuring
+    /// anything else would let a configuration pass startup and then fail at the database.
+    ///
+    /// <para><b>Why this is a startup failure rather than a delivery failure.</b> The row that would
+    /// fail to insert <em>is</em> the delivery record, so there would be nothing left to write the
+    /// failure into: a successfully-sent email would be recorded forever as an unresolved
+    /// <c>Pending</c> attempt. Failing at startup, naming the key, matches how every other
+    /// configuration error in this codebase behaves. <b>Nothing is truncated</b> — a shortened address
+    /// list is a wrong answer to "who was this sent to?", not a smaller one.</para>
+    /// </summary>
+    private void EnsureAdminRecipientsFitTheDeliveryRecord()
+    {
+        var persisted = string.Join(NotificationDelivery.RecipientSeparator, AdminRecipients);
+
+        if (persisted.Length <= NotificationDelivery.MaxRecipientLength)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Configuration '{SectionName}:{nameof(AdminRecipients)}' contains {AdminRecipients.Count} addresses, " +
+            $"which are recorded together as {persisted.Length} characters — longer than the " +
+            $"{NotificationDelivery.MaxRecipientLength} the notification delivery record can hold. " +
+            "Configure fewer or shorter addresses; the list is never truncated, because a shortened " +
+            "recipient list would misreport who a notification was sent to.");
     }
 
     private static void RequireNonEmpty(string value, string key)

@@ -180,6 +180,81 @@ Consequently:
 
 **Adversarial verification — nine experiments, every one produced observable failures**, then every file was restored byte-identically: catch rethrows (8 failures) · construction moved outside the boundary (2) · null-Inspector guard removed (1) · token logged (2) · recipient address logged (3) · `Warning`→`Information` (6) · retry introduced (1) · notification moved before `SaveChanges` (2) · handler swallows the failure itself (2). Two earlier attempts produced compile errors and were re-run in a form that compiles — a build failure silently leaves the *previous* binary in place, so a "pass" against it proves nothing.
 
+### Slice 3 — approved decisions (2026-08-09, before implementation)
+
+**S3-1 — `AttemptCount` and `LastAttemptAt` are included in Slice 3, not deferred.** D69 and the committed `ERD.md` row both define this record as answering *"when it was last attempted"* and *"how many attempts have occurred"*. In Slice 3 those values are `1` and the attempt timestamp — **real historical facts about what happened, not scaffolding for Slice 5.** Deferring them would also have cost a migration #10, since a column (unlike a string-converted enum value) cannot be added for free. **They are part of the approved record itself.**
+
+**S3-2 — `FailureType` holds the exception type name; `FailureMessage` holds an application-authored, sanitized description — never raw exception text.** The design review established that MailKit surfaces the SMTP server's own reply in `SmtpCommandException.Message`, and real servers routinely echo the recipient address (`550 5.1.1 <…>: Recipient address rejected`). Persisting that would put third-party-controlled text, and PII we did not choose to place there, into the database.
+
+**Forbidden in `FailureMessage`:** `exception.ToString()`, stack traces, raw SMTP server response text, tokens, URLs, credentials, message subject or body. **The full original exception remains available through Slice 2's `Warning` log**, which already attaches it — the database records *what kind of thing went wrong*, the log records *exactly what happened*.
+
+**The smallest practical category set is three**, derived from the delivery path that actually exists rather than from a general taxonomy:
+
+| Category | When | Application-authored message |
+|---|---|---|
+| Preparation | recipient resolution or message construction failed | "The notification could not be prepared." |
+| Transport | connect, authenticate or send failed | "The mail server could not be reached or rejected the message." |
+| Cancelled | the operation was cancelled | "Delivery was cancelled before it completed." |
+
+**Why three and not more:** splitting Preparation into "recipient unavailable" and "message construction failed" adds nothing, because `FailureType` already distinguishes them for free (`InvalidOperationException` vs MimeKit's parse exception) and the log carries the rest. Splitting Transport by SMTP reply code would be exactly the large taxonomy this decision forbids. Cancellation stays separate because S2-4 already treats it as its own case and an Admin would read it differently from a rejection.
+
+**Classification is by delivery phase, not by exception type** — a local phase marker inside the single guarded region, read when the exception is caught. Type-matching would be a heuristic (`InvalidOperationException` is thrown both by the recipient guard and by the security-mode switch); the phase is exact, needs no new exception type, and keeps S2-2's one-guarded-region rule intact.
+
+**S3-3 — `Recipient` is nullable (approved 2026-08-09, after a collision found while tracing the delivery path).**
+
+Three approved instructions could not all hold: `Recipient` required, the `Pending` row inserted *before* the SMTP attempt, and preparation failures persisted. For five of the six notifications the recipient is known before any work (configured Admin list, or `RecipientEmail` on the record); for `SendAngebotChangesRequestedNotificationAsync` it is produced by `InspectorEmailLookup` **inside** the guarded region, and a null result throws there. So at insert time the address is genuinely unknown for that one path — a `NOT NULL` column would have made a recipient-resolution failure impossible to record.
+
+**Persisted meaning:**
+
+- `Recipient` holds the **actual resolved destination address** whenever one was available — including when delivery later failed.
+- `Recipient` is `NULL` **only** when delivery failed before a recipient could be resolved.
+- **No sentinel** — never `"(unresolved)"`, `"unknown"`, or any other non-address value in an address column.
+
+**Row shape for a preparation failure occurring before recipient resolution:** `Status = Failed`, `Recipient = NULL`, `AttemptCount = 1`, `LastAttemptAt` = the attempt timestamp, the `Preparation` failure category recorded per S3-2, and the original technical exception left **only** in the Slice 2 log.
+
+**Why Option 2 was rejected.** The alternative kept `Recipient` `NOT NULL` by resolving the address *before* inserting the row, which would have meant recipient-resolution failures were logged but never persisted. That inverts Slice 3's entire justification: D69 exists because a failure must stop being invisible, and D2 singled out the missing Inspector address as the failure that must never be silent. Keeping a column non-nullable at the price of making that one failure invisible was not a trade worth taking. One nullable column with a documented meaning is honest about what happened.
+
+**S3-4 — the S3-2/S3-3 wording collision over `FailureType`: RESOLVED in favour of S3-2 (approved 2026-08-09).** S3-2 assigned `FailureType` the **exception type name**; the S3-3 instruction briefly assigned it the delivery **category** instead. One column cannot hold both. **S3-2 stands unchanged:**
+
+- **`FailureType`** → the exception type name (`InvalidOperationException`, `SmtpCommandException`, …). Library- or self-authored identifiers, never third-party reply text, so this carries no PII risk.
+- **`FailureMessage`** → the application-authored sanitized operational message, selected by the approved delivery-phase category (`Preparation` / `Transport` / `Cancelled`). The category is a **classification used to choose the message**, not a persisted value of its own.
+
+**Why this reading and not the other:** S3-2's justification for three categories rather than four depends on `FailureType` carrying the exception type — that is what keeps a recipient-unavailable failure distinguishable from a message-construction failure in the database (`InvalidOperationException` vs MimeKit's parse exception). Reassigning the column to the category would have collapsed those two and reopened the three-vs-four question for no gain.
+
+**Never persisted, in either column:** raw `exception.Message`, `exception.ToString()`, stack traces, raw SMTP server responses, recipient addresses or other PII incidentally contained in third-party exception text, tokens, URLs, credentials, message subject or body. The full technical detail stays in Slice 2's `Warning` log, which already attaches the exception.
+
+**No `FailureExceptionType` column, no fourth failure column, no taxonomy expansion.** Two failure columns, three categories, full stop.
+
+### Slice 3 — implementation record (2026-08-10)
+
+**Delivered:** `NotificationDelivery` entity + `NotificationType` and `NotificationDeliveryStatus` enums (`Persistence/Entities/`), `NotificationDeliveryConfiguration`, one `DbSet`, migration **#9 `AddNotificationDeliveries`**, and the persistence integration inside `SmtpEmailSender`. **9 migrations** total; `has-pending-model-changes` reports none.
+
+**Three-way review performed before generating the migration** (`CLAUDE.md` §21): entity ↔ configuration ↔ committed `ERD.md`. All nine questions D69 fixes map to exactly one column each, with none left over. **The generated migration was inspected manually** and is additive only — one `CreateTable`, two `CreateIndex`, no FK, no unique constraint, no alteration to any existing table, `Down` drops the single table.
+
+**Delivery flow, as built:** handler commits → `Pending` row inserted (`AttemptCount = 1`, `LastAttemptAt = CreatedAt`) → message prepared → recipient recorded from the addresses actually on the message → SMTP attempt → terminal `Sent` or `Failed`. The Slice 2 boundary is unchanged and still swallows everything. The terminal write is a separate step using `CancellationToken.None`, so a cancelled request is still recorded; its own failure is swallowed and logged, leaving the row `Pending` rather than escaping.
+
+**Tests: 1,421 passing, 0 failing** (Domain 332, Application 422, Infrastructure **324**, Api 343) — **+22** over Slice 2's 1,399, all in Infrastructure. Release build 0 warnings / 0 errors.
+
+**Adversarial verification — nine experiments, every one produced observable failures**, then all three touched files were restored byte-identically (verified with `diff -q`, and no `adversarial:` residue remains): Pending-inserted-after-send (1) · failure never recorded (4) · raw `exception.Message` persisted (4) · recipient never recorded (2) · `AttemptCount = 0` (5) · `LastAttemptAt` never set (7) · `MarkSent` leaves `Pending` (5) · `Status` index removed (1) · `Invoice` recorded as `Angebot` (1). Every experiment was confirmed to **compile** before its test run, per the Slice 2 methodological note.
+
+**Two deviations found during implementation, both corrected in place, neither a design change:**
+
+1. **A stale doc comment on `SmtpEmailSender`** still claimed "nothing is persisted … until Slice 3 lands", which Slice 3 made false. Rewritten to describe what the class now does. The same applied to `SmtpEmailSenderTests`' class comment, which still described Slice 1 semantics.
+2. **A test of mine had wrong arithmetic** — `new string('a', 300) + "@example.invalid"` is 316 characters, under the 320-character column, so the over-length test passed for the wrong reason. Corrected to 336. **The production code was never at fault**; the test was.
+
+**S3-5 — `Recipient` is a recipient *set*, `nvarchar(1000)`, and `Email:AdminRecipients` is validated against the persisted representation (approved 2026-08-10).** This resolves a contradiction found after the first implementation pass.
+
+- **`Recipient` persists the complete resolved recipient set as delivered**, not necessarily a single address. Multiple addresses are joined with `", "` — the same separator the sender uses, now a single shared constant (`NotificationDelivery.RecipientSeparator`) so the value persisted, the value built, and the value measured cannot drift apart.
+- **`nvarchar(1000)` is intentional.** Three of the six notifications go to the configured Admin list, so this column was never holding one address.
+- **320 was never an approved constraint.** It appears in **no** committed document — not `ERD.md`, not `ARCHITECTURE_DECISIONS.md`, not `Architecture.md`. It came from carrying over the single-address convention used by `Leads.Email` and `Customers.Email`, which was wrong for a field representing a set. Correcting it therefore contradicts nothing that was approved.
+- **`Email:AdminRecipients` is now validated at startup against the exact persisted representation** (`NotificationDelivery.MaxRecipientLength`), naming the key and reporting the actual length.
+- **An over-limit configuration fails at startup**, not at runtime. It cannot become a `Pending` persistence failure — which matters because the row that would fail to insert *is* the delivery record, so a successfully-sent email would otherwise be recorded forever as an unresolved attempt.
+- **No truncation.** A shortened recipient list is a wrong answer to "who was this sent to?", not a smaller one.
+- **No one-row-per-recipient redesign.** That would change the record's meaning from "one notification attempt" to "one recipient attempt" and is well beyond Slice 3.
+- **Migration #9 was regenerated, not supplemented.** It had been applied nowhere, so `dotnet ef migrations remove` followed by a clean `add` was safe (`CLAUDE.md` §21). **There is no migration #10.**
+
+**Capacity, calculated exactly** (*n* addresses of length *L* joined with a two-character separator occupy `n·L + 2(n−1)`, which must be ≤ 1000): **45** addresses of 20 characters, **37** of 25, **31** of 30, **23** of 40, **19** of 50. Each figure was verified by checking that *n* fits and *n+1* does not — which caught two errors in the process: the investigation report's "24 of 40" (it is 23), and a first draft of this line claiming "18 of 50" (it is 19).
+
 ### The Slice 2/3 boundary — RESOLVED (approved 2026-08-09, formerly 3a/3b)
 
 The open question was whether the failure-handling slice's "lifecycle preparation" meant introducing a status type or delivery-record abstraction ahead of the table that stores it. **Resolved as option (i): it does not.**

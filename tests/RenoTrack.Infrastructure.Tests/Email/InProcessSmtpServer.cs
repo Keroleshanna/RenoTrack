@@ -53,6 +53,13 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
     /// <summary>Accepted connections. One send must produce exactly one, since Slice 2 has no retry.</summary>
     public int SessionCount => Volatile.Read(ref _sessionCount);
 
+    /// <summary>
+    /// Invoked once a connection has been accepted, before the session is served. Lets a test observe
+    /// the world *during* the SMTP attempt — which is the only way to prove that the Pending delivery
+    /// row was persisted before the send rather than merely alongside it.
+    /// </summary>
+    public Func<Task>? OnSessionStarted { get; set; }
+
     /// <summary>Raw DATA payloads received, in arrival order.</summary>
     public IReadOnlyList<string> Messages
     {
@@ -85,6 +92,11 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
             }
 
             Interlocked.Increment(ref _sessionCount);
+
+            if (OnSessionStarted is not null)
+            {
+                await OnSessionStarted();
+            }
 
             using (client)
             {

@@ -5,7 +5,9 @@ using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Common.Notifications;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.Identity;
+using Microsoft.EntityFrameworkCore;
 using RenoTrack.Infrastructure.Persistence;
+using RenoTrack.Infrastructure.Persistence.Entities;
 using RenoTrack.Infrastructure.Tests.Persistence;
 using RenoTrack.Infrastructure.TokenLinks;
 
@@ -16,14 +18,19 @@ namespace RenoTrack.Infrastructure.Tests.Email;
 /// <see cref="InProcessSmtpServer"/>). Uses the shared LocalDB collection because
 /// <see cref="InspectorEmailLookup"/> needs a real <see cref="RenoTrackDbContext"/>.
 ///
-/// <para><b>Slice 1 catches nothing.</b> Several tests here assert that a failure *propagates* —
-/// that is the deliverable of this slice, not an oversight. Catch / log / never-rethrow is Slice 2's,
-/// and adding it now would leave Slice 2's adversarial test with nothing to remove.</para>
+/// <para><b>Slice 2</b> added the failure boundary: nothing escapes, and every failure is logged at
+/// <c>Warning</c> with the original exception attached. <b>Slice 3</b> added the durable record: a
+/// <c>Pending</c> row is persisted before the attempt and updated to <c>Sent</c> or <c>Failed</c>,
+/// with an application-authored failure summary rather than the exception's own text.</para>
 /// </summary>
 [Collection("Infrastructure Database")]
 public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
 {
-    private static EmailOptions Options(int port, string? username = null, string? password = null) => new()
+    private static EmailOptions Options(
+        int port,
+        string? username = null,
+        string? password = null,
+        IReadOnlyList<string>? adminRecipients = null) => new()
     {
         Enabled = true,
         Host = "127.0.0.1",
@@ -33,12 +40,20 @@ public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
         Password = password,
         FromAddress = "no-reply@example.invalid",
         FromDisplayName = "Beispiel Bau GmbH",
-        AdminRecipients = ["office@example.invalid"],
+        AdminRecipients = adminRecipients ?? ["office@example.invalid"],
     };
 
-    private SmtpEmailSender CreateSender(EmailOptions options, CapturingLoggerProvider? logProvider = null)
+    /// <summary>
+    /// One <see cref="RenoTrackDbContext"/> for both the lookup and the delivery record, matching the
+    /// request-scoped context the real container supplies (S3: no <c>IDbContextFactory</c>).
+    /// </summary>
+    private SmtpEmailSender CreateSender(
+        EmailOptions options,
+        CapturingLoggerProvider? logProvider = null,
+        RenoTrackDbContext? dbContext = null)
     {
         var tokenLinkOptions = new TokenLinkOptions { LifetimeDays = 30, PublicBaseUrl = "https://www.example.invalid" };
+        var context = dbContext ?? fixture.CreateContext();
 
         var loggerFactory = LoggerFactory.Create(builder =>
         {
@@ -51,7 +66,8 @@ public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
         return new SmtpEmailSender(
             options,
             new EmailMessageFactory(options, tokenLinkOptions),
-            new InspectorEmailLookup(fixture.CreateContext()),
+            new InspectorEmailLookup(context),
+            context,
             loggerFactory.CreateLogger<SmtpEmailSender>());
     }
 
@@ -298,6 +314,261 @@ public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
         await sender.SendAngebotReadyNotificationAsync(AngebotReady, CancellationToken.None);
 
         Assert.Equal(1, server.SessionCount);
+    }
+
+    // ---- Slice 3: delivery persistence -----------------------------------------------------
+
+    /// <summary>
+    /// The approved ordering: the row is persisted <b>before</b> the SMTP attempt, not alongside it.
+    /// Observed from inside the SMTP session itself with an independent DbContext — the only way to
+    /// prove ordering rather than infer it from the end state.
+    /// </summary>
+    [Fact]
+    public async Task The_pending_row_is_persisted_before_the_smtp_attempt()
+    {
+        var angebotId = NextEntityId();
+        NotificationDeliveryStatus? statusDuringSession = null;
+
+        await using var server = new InProcessSmtpServer();
+        server.OnSessionStarted = async () =>
+        {
+            await using var observer = fixture.CreateContext();
+            statusDuringSession = (await observer.NotificationDeliveries
+                .SingleOrDefaultAsync(d => d.EntityId == angebotId))?.Status;
+        };
+
+        await CreateSender(Options(server.Port)).SendAngebotReadyNotificationAsync(
+            AngebotReadyFor(angebotId), CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.Pending, statusDuringSession);
+        Assert.Equal(NotificationDeliveryStatus.Sent, (await LoadAsync(angebotId)).Status);
+    }
+
+    [Fact]
+    public async Task A_successful_delivery_is_recorded_as_sent_with_the_recipient()
+    {
+        var angebotId = NextEntityId();
+
+        await using var server = new InProcessSmtpServer();
+        await CreateSender(Options(server.Port)).SendAngebotReadyNotificationAsync(
+            AngebotReadyFor(angebotId), CancellationToken.None);
+
+        var delivery = await LoadAsync(angebotId);
+
+        Assert.Equal(NotificationDeliveryStatus.Sent, delivery.Status);
+        Assert.Equal("klein@example.invalid", delivery.Recipient);
+        Assert.NotNull(delivery.SentAt);
+        Assert.Equal(1, delivery.AttemptCount);
+        Assert.NotNull(delivery.LastAttemptAt);
+        Assert.Null(delivery.FailureType);
+        Assert.Null(delivery.FailureMessage);
+    }
+
+    [Fact]
+    public async Task A_transport_failure_is_recorded_as_failed_with_a_sanitized_message()
+    {
+        var angebotId = NextEntityId();
+
+        await CreateSender(Options(ClosedPort())).SendAngebotReadyNotificationAsync(
+            AngebotReadyFor(angebotId), CancellationToken.None);
+
+        var delivery = await LoadAsync(angebotId);
+
+        Assert.Equal(NotificationDeliveryStatus.Failed, delivery.Status);
+        Assert.Equal("The mail server could not be reached or rejected the message.", delivery.FailureMessage);
+        Assert.False(string.IsNullOrWhiteSpace(delivery.FailureType));
+        Assert.Null(delivery.SentAt);
+
+        // The recipient was resolved before the transport failed, so it is recorded.
+        Assert.Equal("klein@example.invalid", delivery.Recipient);
+    }
+
+    /// <summary>
+    /// S3-3's reason for a nullable column: the Inspector's address is produced during delivery, so a
+    /// resolution failure genuinely has no recipient to record — and must still be persisted.
+    /// </summary>
+    [Fact]
+    public async Task A_preparation_failure_before_recipient_resolution_is_recorded_with_a_null_recipient()
+    {
+        var angebotId = NextEntityId();
+
+        await using var server = new InProcessSmtpServer();
+        await CreateSender(Options(server.Port)).SendAngebotChangesRequestedNotificationAsync(
+            new AngebotChangesRequestedNotification(angebotId, "ANG-2026-00005", "Bitte korrigieren.", InspectorId: 999_999),
+            CancellationToken.None);
+
+        var delivery = await LoadAsync(angebotId);
+
+        Assert.Equal(NotificationDeliveryStatus.Failed, delivery.Status);
+        Assert.Null(delivery.Recipient);
+        Assert.Equal("The notification could not be prepared.", delivery.FailureMessage);
+        Assert.Equal("InvalidOperationException", delivery.FailureType);
+        Assert.Equal(1, delivery.AttemptCount);
+        Assert.NotNull(delivery.LastAttemptAt);
+        Assert.Empty(server.Messages);
+    }
+
+    /// <summary>
+    /// S3-2/S3-4: the database gets an application-authored summary, never the exception's own text.
+    /// MailKit surfaces the SMTP server's reply, which routinely echoes the recipient address.
+    /// </summary>
+    [Fact]
+    public async Task No_raw_exception_text_or_secret_is_persisted()
+    {
+        var angebotId = NextEntityId();
+
+        await CreateSender(Options(ClosedPort(), "smtp-user", "smtp-secret")).SendAngebotReadyNotificationAsync(
+            AngebotReadyFor(angebotId), CancellationToken.None);
+
+        var delivery = await LoadAsync(angebotId);
+        var persisted = delivery.FailureType + "|" + delivery.FailureMessage;
+
+        Assert.DoesNotContain("tok-abc123", persisted);
+        Assert.DoesNotContain("/angebot/", persisted);
+        Assert.DoesNotContain("smtp-user", persisted);
+        Assert.DoesNotContain("smtp-secret", persisted);
+        Assert.DoesNotContain("Guten Tag", persisted);
+        Assert.DoesNotContain("127.0.0.1", persisted);
+
+        // The approved category text, and nothing beyond it.
+        Assert.Equal("The mail server could not be reached or rejected the message.", delivery.FailureMessage);
+    }
+
+    [Fact]
+    public async Task A_cancelled_delivery_is_recorded_as_failed_with_the_cancellation_message()
+    {
+        var angebotId = NextEntityId();
+
+        await using var server = new InProcessSmtpServer();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await CreateSender(Options(server.Port)).SendAngebotReadyNotificationAsync(
+            AngebotReadyFor(angebotId), cancellation.Token);
+
+        var delivery = await LoadAsync(angebotId);
+
+        Assert.Equal(NotificationDeliveryStatus.Failed, delivery.Status);
+        Assert.Equal("Delivery was cancelled before it completed.", delivery.FailureMessage);
+    }
+
+    /// <summary>Every notification maps to its own type and to the right business record.</summary>
+    [Fact]
+    public async Task All_six_notifications_record_their_type_and_business_reference()
+    {
+        var leadId = NextEntityId();
+        var submittedId = NextEntityId();
+        var changesId = NextEntityId();
+        var readyId = NextEntityId();
+        var invoiceId = NextEntityId();
+        var decisionId = NextEntityId();
+        var inspectorId = await SeedInspectorAsync($"map-{Guid.NewGuid():N}@example.invalid", isActive: true);
+
+        var sender = CreateSender(Options(ClosedPort()));
+
+        await sender.SendNewWebsiteLeadNotificationAsync(
+            new NewWebsiteLeadNotification(leadId, "Familie Klein", "0176", "klein@example.invalid"), CancellationToken.None);
+        await sender.SendAngebotSubmittedForReviewNotificationAsync(
+            new AngebotSubmittedForReviewNotification(submittedId, "ANG-1", 7), CancellationToken.None);
+        await sender.SendAngebotChangesRequestedNotificationAsync(
+            new AngebotChangesRequestedNotification(changesId, "ANG-2", "c", inspectorId), CancellationToken.None);
+        await sender.SendAngebotReadyNotificationAsync(AngebotReadyFor(readyId), CancellationToken.None);
+        await sender.SendInvoiceReadyNotificationAsync(
+            new InvoiceReadyNotification(invoiceId, "RE-1", "Familie Klein", "klein@example.invalid", 1m, new DateTime(2026, 8, 31), "tok"),
+            CancellationToken.None);
+        await sender.SendAngebotDecisionNotificationAsync(
+            new AngebotDecisionNotification(decisionId, "ANG-3", 7, "Familie Klein", Approved: true), CancellationToken.None);
+
+        Assert.Equal((NotificationType.NewWebsiteLead, "Lead"), await TypeAndEntityAsync(leadId));
+        Assert.Equal((NotificationType.AngebotSubmittedForReview, "Angebot"), await TypeAndEntityAsync(submittedId));
+        Assert.Equal((NotificationType.AngebotChangesRequested, "Angebot"), await TypeAndEntityAsync(changesId));
+        Assert.Equal((NotificationType.AngebotReady, "Angebot"), await TypeAndEntityAsync(readyId));
+        Assert.Equal((NotificationType.InvoiceReady, "Invoice"), await TypeAndEntityAsync(invoiceId));
+        Assert.Equal((NotificationType.AngebotDecision, "Angebot"), await TypeAndEntityAsync(decisionId));
+    }
+
+    /// <summary>
+    /// S3-5. The previous suite only ever configured one Admin recipient, which is why an
+    /// arithmetic error in the length test went unnoticed — this exercises the path that actually
+    /// stores a joined set.
+    /// </summary>
+    [Fact]
+    public async Task An_admin_notification_records_every_configured_recipient()
+    {
+        var leadId = NextEntityId();
+        var options = Options(
+            ClosedPort(),
+            adminRecipients: ["office@example.invalid", "owner@example.invalid", "buchhaltung@example.invalid"]);
+
+        await CreateSender(options).SendNewWebsiteLeadNotificationAsync(
+            new NewWebsiteLeadNotification(leadId, "Familie Klein", "0176", "klein@example.invalid"),
+            CancellationToken.None);
+
+        var delivery = await LoadAsync(leadId);
+
+        Assert.Equal(
+            "office@example.invalid, owner@example.invalid, buchhaltung@example.invalid",
+            delivery.Recipient);
+    }
+
+    [Fact]
+    public async Task A_single_admin_recipient_is_recorded_without_a_separator()
+    {
+        var leadId = NextEntityId();
+
+        await CreateSender(Options(ClosedPort())).SendNewWebsiteLeadNotificationAsync(
+            new NewWebsiteLeadNotification(leadId, "Familie Klein", "0176", "klein@example.invalid"),
+            CancellationToken.None);
+
+        var delivery = await LoadAsync(leadId);
+
+        Assert.Equal("office@example.invalid", delivery.Recipient);
+        Assert.DoesNotContain(NotificationDelivery.RecipientSeparator, delivery.Recipient);
+    }
+
+    /// <summary>The single-recipient flows are unchanged by the multi-recipient correction.</summary>
+    [Fact]
+    public async Task A_customer_notification_still_records_exactly_one_address()
+    {
+        var angebotId = NextEntityId();
+
+        await using var server = new InProcessSmtpServer();
+        await CreateSender(Options(server.Port)).SendAngebotReadyNotificationAsync(
+            AngebotReadyFor(angebotId), CancellationToken.None);
+
+        Assert.Equal("klein@example.invalid", (await LoadAsync(angebotId)).Recipient);
+    }
+
+    [Fact]
+    public async Task An_inspector_notification_still_records_exactly_one_address()
+    {
+        var angebotId = NextEntityId();
+        var address = $"inspector-{Guid.NewGuid():N}@example.invalid";
+        var inspectorId = await SeedInspectorAsync(address, isActive: true);
+
+        await using var server = new InProcessSmtpServer();
+        await CreateSender(Options(server.Port)).SendAngebotChangesRequestedNotificationAsync(
+            new AngebotChangesRequestedNotification(angebotId, "ANG-2026-00005", "Bitte korrigieren.", inspectorId),
+            CancellationToken.None);
+
+        Assert.Equal(address, (await LoadAsync(angebotId)).Recipient);
+    }
+
+    private static int NextEntityId() => Random.Shared.Next(100_000, 999_999);
+
+    private static AngebotReadyNotification AngebotReadyFor(int angebotId) =>
+        new(angebotId, "ANG-2026-00005", "Familie Klein", "klein@example.invalid", "tok-abc123");
+
+    private async Task<NotificationDelivery> LoadAsync(int entityId)
+    {
+        await using var context = fixture.CreateContext();
+        return await context.NotificationDeliveries.SingleAsync(d => d.EntityId == entityId);
+    }
+
+    private async Task<(NotificationType, string)> TypeAndEntityAsync(int entityId)
+    {
+        var delivery = await LoadAsync(entityId);
+        return (delivery.NotificationType, delivery.EntityType);
     }
 
     private static CapturedLogEntry AssertSingleWarning(CapturingLoggerProvider logProvider)

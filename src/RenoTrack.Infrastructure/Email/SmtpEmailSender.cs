@@ -4,7 +4,10 @@ using Microsoft.Extensions.Logging;
 using MimeKit;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Common.Notifications;
+using RenoTrack.Domain.Entities;
 using RenoTrack.Infrastructure.Identity;
+using RenoTrack.Infrastructure.Persistence;
+using RenoTrack.Infrastructure.Persistence.Entities;
 
 namespace RenoTrack.Infrastructure.Email;
 
@@ -22,18 +25,25 @@ namespace RenoTrack.Infrastructure.Email;
 /// exception attached, and swallowed. This is D50's Best-Effort Audit shape applied to the second
 /// best-effort side effect in the system, not a new idea.</para>
 ///
-/// <para><b>Nothing is persisted and nothing is retried.</b> No <c>NotificationDeliveries</c> row, no
-/// status, no attempt counter (Slice 3), no retry (Slice 5). Until Slice 3 lands, a failed
-/// notification exists only in the log — a known, accepted gap, not an oversight.</para>
+/// <para><b>Every attempt is recorded (Phase 9 Slice 3, D69).</b> A <c>Pending</c>
+/// <see cref="NotificationDelivery"/> row is persisted before the attempt and updated to
+/// <c>Sent</c> or <c>Failed</c> — so a failure an anonymous caller could never be told about is
+/// still visible to an Admin later. The database gets a sanitized summary; the exception itself
+/// stays in the log. <b>Nothing is retried</b>: Slice 5 owns retry, and there is no queue, worker or
+/// scheduler anywhere in this path.</para>
 /// </summary>
 public sealed class SmtpEmailSender(
     EmailOptions options,
     EmailMessageFactory messageFactory,
     InspectorEmailLookup inspectorEmailLookup,
+    RenoTrackDbContext dbContext,
     ILogger<SmtpEmailSender> logger) : IEmailSender
 {
     public Task SendNewWebsiteLeadNotificationAsync(NewWebsiteLeadNotification notification, CancellationToken cancellationToken) =>
         DeliverAsync(
+            NotificationType.NewWebsiteLead,
+            nameof(Lead),
+            notification.LeadId,
             _ => Task.FromResult(messageFactory.CreateNewWebsiteLead(notification)),
             nameof(SendNewWebsiteLeadNotificationAsync),
             $"LeadId={notification.LeadId}",
@@ -41,6 +51,9 @@ public sealed class SmtpEmailSender(
 
     public Task SendAngebotSubmittedForReviewNotificationAsync(AngebotSubmittedForReviewNotification notification, CancellationToken cancellationToken) =>
         DeliverAsync(
+            NotificationType.AngebotSubmittedForReview,
+            nameof(Angebot),
+            notification.AngebotId,
             _ => Task.FromResult(messageFactory.CreateAngebotSubmittedForReview(notification)),
             nameof(SendAngebotSubmittedForReviewNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}",
@@ -54,6 +67,9 @@ public sealed class SmtpEmailSender(
     /// </summary>
     public Task SendAngebotChangesRequestedNotificationAsync(AngebotChangesRequestedNotification notification, CancellationToken cancellationToken) =>
         DeliverAsync(
+            NotificationType.AngebotChangesRequested,
+            nameof(Angebot),
+            notification.AngebotId,
             async token =>
             {
                 var inspectorEmail = await inspectorEmailLookup.FindEmailAsync(notification.InspectorId, token);
@@ -73,6 +89,9 @@ public sealed class SmtpEmailSender(
 
     public Task SendAngebotReadyNotificationAsync(AngebotReadyNotification notification, CancellationToken cancellationToken) =>
         DeliverAsync(
+            NotificationType.AngebotReady,
+            nameof(Angebot),
+            notification.AngebotId,
             _ => Task.FromResult(messageFactory.CreateAngebotReady(notification)),
             nameof(SendAngebotReadyNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}",
@@ -80,6 +99,9 @@ public sealed class SmtpEmailSender(
 
     public Task SendInvoiceReadyNotificationAsync(InvoiceReadyNotification notification, CancellationToken cancellationToken) =>
         DeliverAsync(
+            NotificationType.InvoiceReady,
+            nameof(Invoice),
+            notification.InvoiceId,
             _ => Task.FromResult(messageFactory.CreateInvoiceReady(notification)),
             nameof(SendInvoiceReadyNotificationAsync),
             $"InvoiceId={notification.InvoiceId}, InvoiceNumber={notification.InvoiceNumber}",
@@ -87,6 +109,9 @@ public sealed class SmtpEmailSender(
 
     public Task SendAngebotDecisionNotificationAsync(AngebotDecisionNotification notification, CancellationToken cancellationToken) =>
         DeliverAsync(
+            NotificationType.AngebotDecision,
+            nameof(Angebot),
+            notification.AngebotId,
             _ => Task.FromResult(messageFactory.CreateAngebotDecision(notification)),
             nameof(SendAngebotDecisionNotificationAsync),
             $"AngebotId={notification.AngebotId}, AngebotNumber={notification.AngebotNumber}, Approved={notification.Approved}",
@@ -113,23 +138,44 @@ public sealed class SmtpEmailSender(
     /// reports problems the one place that hides them.</para>
     /// </summary>
     private async Task DeliverAsync(
+        NotificationType notificationType,
+        string entityType,
+        int entityId,
         Func<CancellationToken, Task<MimeMessage>> buildMessage,
         string method,
         string details,
         CancellationToken cancellationToken)
     {
+        var delivery = new NotificationDelivery(notificationType, entityType, entityId);
+        var phase = DeliveryPhase.Preparation;
+        Exception? failure = null;
+
         try
         {
+            // Persisted Pending before the attempt, after the handler's own commit (D69). A crash
+            // before this line loses the record entirely — the accepted window; a crash after it
+            // leaves a Pending row, which is the honest statement that an attempt never concluded.
+            dbContext.NotificationDeliveries.Add(delivery);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
             var message = await buildMessage(cancellationToken);
 
-            await SendAsync(message, cancellationToken);
+            // The addresses actually on the message, so the record reflects where it really went
+            // rather than the intent behind it (S3-3).
+            delivery.RecordRecipient(string.Join(
+                NotificationDelivery.RecipientSeparator,
+                message.To.Mailboxes.Select(mailbox => mailbox.Address)));
 
-            logger.LogInformation("{Method} delivered. {Details}", method, details);
+            phase = DeliveryPhase.Transport;
+            await SendAsync(message, cancellationToken);
         }
         catch (Exception exception)
         {
+            failure = exception;
+
             // The original exception is attached, not just its message: D59 established that a
-            // swallowed fault stays diagnosable only if its stack trace survives.
+            // swallowed fault stays diagnosable only if its stack trace survives. This log remains
+            // the only place the technical detail exists — the database gets a sanitized summary.
             logger.LogWarning(
                 exception,
                 "{Method} could not be delivered. The business operation it notifies about has already been " +
@@ -137,6 +183,79 @@ public sealed class SmtpEmailSender(
                 method,
                 details);
         }
+
+        await RecordOutcomeAsync(delivery, failure, phase, method, details);
+    }
+
+    /// <summary>
+    /// Writes the terminal state. Separate from the boundary above rather than nested inside its
+    /// <c>catch</c>, so there is still exactly one place that decides a notification failed — this
+    /// only records the decision.
+    ///
+    /// <para>Uses <see cref="CancellationToken.None"/> deliberately: a cancelled request is itself an
+    /// outcome worth recording, and passing the cancelled token would throw here and lose it.</para>
+    ///
+    /// <para>Its own failure is swallowed and logged for the same reason everything else here is: a
+    /// business operation that already committed must not fail because a bookkeeping row could not be
+    /// written. The cost is a row stranded in <c>Pending</c>, which Slice 4 will show as such.</para>
+    /// </summary>
+    private async Task RecordOutcomeAsync(
+        NotificationDelivery delivery,
+        Exception? failure,
+        DeliveryPhase phase,
+        string method,
+        string details)
+    {
+        try
+        {
+            if (failure is null)
+            {
+                delivery.MarkSent(DateTime.UtcNow);
+                logger.LogInformation("{Method} delivered. {Details}", method, details);
+            }
+            else
+            {
+                delivery.MarkFailed(DateTime.UtcNow, failure.GetType().Name, SanitizedFailureMessage(failure, phase));
+            }
+
+            await dbContext.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "{Method} completed but its delivery record could not be updated; it remains Pending. {Details}",
+                method,
+                details);
+        }
+    }
+
+    /// <summary>
+    /// One of the three approved category descriptions (S3-2), chosen by <b>delivery phase</b> rather
+    /// than exception type — the phase is exact, whereas type-matching would be a heuristic
+    /// (<see cref="InvalidOperationException"/> is thrown both by the recipient guard and by the
+    /// security-mode switch).
+    ///
+    /// <para><b>Nothing here is derived from the exception's text.</b> MailKit surfaces the SMTP
+    /// server's reply in its message, and real servers routinely echo the recipient address — so
+    /// persisting it would put third-party text, and PII nobody chose to store there, into the
+    /// database (S3-2, S3-4).</para>
+    /// </summary>
+    private static string SanitizedFailureMessage(Exception failure, DeliveryPhase phase) =>
+        failure is OperationCanceledException
+            ? "Delivery was cancelled before it completed."
+            : phase switch
+            {
+                DeliveryPhase.Preparation => "The notification could not be prepared.",
+                DeliveryPhase.Transport => "The mail server could not be reached or rejected the message.",
+                _ => "The notification could not be prepared.",
+            };
+
+    /// <summary>How far delivery had progressed when it failed. Local to this class; nothing persists it.</summary>
+    private enum DeliveryPhase
+    {
+        Preparation,
+        Transport,
     }
 
     /// <summary>
