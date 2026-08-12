@@ -6,6 +6,7 @@ using RenoTrack.Application;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Infrastructure;
+using RenoTrack.Infrastructure.Persistence.Queries;
 
 namespace RenoTrack.Api.Tests;
 
@@ -195,5 +196,23 @@ public sealed class DependencyInjectionTests
         // external dependency that would justify an Infrastructure-side one.
         Assert.IsType<OwnershipValidator>(ownershipValidator);
         Assert.Equal(typeof(ICommandHandler<,>).Assembly, ownershipValidator.GetType().Assembly);
+    }
+
+    /// <summary>
+    /// <see cref="INotificationDeliveryQueries"/> is the one read-side service the reflection-driven
+    /// theories above cannot cover: they discover types in the <b>Application</b> assembly, and this
+    /// interface is declared in Infrastructure by D69 (Application cannot name its enums). So the
+    /// "forgot to register it" safety net does not extend to it, and this explicit assertion is what
+    /// replaces it.
+    /// </summary>
+    [Fact]
+    public void NotificationDeliveryQueries_resolves_from_Infrastructure()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var queries = scope.ServiceProvider.GetRequiredService<INotificationDeliveryQueries>();
+
+        Assert.IsType<NotificationDeliveryQueries>(queries);
     }
 }

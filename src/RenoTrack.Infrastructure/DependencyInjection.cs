@@ -99,6 +99,10 @@ public static class DependencyInjection
         services.AddScoped<ILeadQueries, LeadQueries>();
         services.AddScoped<IProjectQueries, ProjectQueries>();
         services.AddScoped<IUserQueries, UserQueries>();
+        // Infrastructure-owned on both sides, unlike every registration above it: the interface as
+        // well as the implementation lives here, because the record it reads is Infrastructure's
+        // (D69) and Application cannot name its enums. See INotificationDeliveryQueries.
+        services.AddScoped<INotificationDeliveryQueries, NotificationDeliveryQueries>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IAuditService, AuditService>();
