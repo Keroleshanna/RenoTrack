@@ -344,7 +344,9 @@ This is explicitly meant to be a **simple, working v1** — not an exhaustive en
 
 - OQ-1: Should the Admin be able to create/manage Users (Inspectors) from within the dashboard, or is that a one-time setup task done directly in the database for v1? **Still open.** Phase 5's Development account bootstrap (`ARCHITECTURE_DECISIONS.md` D64) does **not** answer this: it provisions convenience accounts in the Development environment only, refuses to run anywhere else, and leaves Production with no code path that creates a user.
 - OQ-2: Does the company need the website in German only, or German + English for v1?
-- OQ-3: What is the expected email-sending method (existing company mailbox via SMTP, or a transactional provider such as SendGrid/Postmark)?
+- OQ-3: What is the expected email-sending method (existing company mailbox via SMTP, or a transactional provider such as SendGrid/Postmark)? **Split and partially resolved on 2026-08-09, before Phase 9 began** (`ARCHITECTURE_DECISIONS.md` D68):
+  - **OQ-3a — transport mechanism. RESOLVED: SMTP, via MailKit, behind the existing `IEmailSender` abstraction.** The Application layer continues to know nothing of SMTP, MailKit, hosts or credentials; the implementation lives in `RenoTrack.Infrastructure`. This answers the question the roadmap actually blocked Phase 9 on, because it is the only half that determines code.
+  - **OQ-3b — the production mailbox and sender identity. DEFERRED TO DEPLOYMENT, deliberately, and blocking nothing.** SMTP host, port, security mode, username, password, sender address, sender display name, optional Reply-To and the Admin notification recipients are supplied per deployment. No mailbox, address, host or credential is compiled into the source, and none has a default — an absent value fails startup naming the exact key. A company mailbox and a transactional provider's SMTP relay are the *same* implementation with different configuration, so choosing a vendor later changes no code.
 - OQ-4: Should rejected Angebote support a "revise and resend" path (Inspector edits and a new version is sent), or is rejection simply a dead end for that Lead in v1?
 
 ---

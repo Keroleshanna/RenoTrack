@@ -7,7 +7,13 @@ namespace RenoTrack.Infrastructure.Tests;
 /// <c>ILogger&lt;T&gt;</c> that is <c>typeof(T).FullName</c> — and it is what lets an assertion say
 /// "<em>this component</em> logged nothing" rather than "nothing in the process logged anything".
 /// </summary>
-internal sealed record CapturedLogEntry(string Category, LogLevel Level, string Message);
+/// <param name="Exception">
+/// The exception passed to <see cref="ILogger.Log{TState}"/>, when there was one. Captured as of
+/// Phase 9 Slice 2: the approved failure boundary must attach the original exception so its stack
+/// trace survives being swallowed (D59's rule), and "the message mentioned a failure" would not
+/// prove that. Optional so every existing construction site and assertion is unaffected.
+/// </param>
+internal sealed record CapturedLogEntry(string Category, LogLevel Level, string Message, Exception? Exception = null);
 
 /// <summary>
 /// Captures log entries so a test can assert on what was reported, for the cases where the log
@@ -81,6 +87,6 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter) =>
-            owner.Add(new CapturedLogEntry(categoryName, logLevel, formatter(state, exception)));
+            owner.Add(new CapturedLogEntry(categoryName, logLevel, formatter(state, exception), exception));
     }
 }

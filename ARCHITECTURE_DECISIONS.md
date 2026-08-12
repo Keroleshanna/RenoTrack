@@ -1302,6 +1302,147 @@ invoiced close silently. FR-7.3's "once its final invoice has been paid" presupp
 - **A new Application exception type for it.** CLAUDE.md §17 adds one when a real scenario needs a
   *distinct* status; this one needs 400, which two existing types already produce.
 
+## D68 — Email Transport Is SMTP via MailKit; OQ-3 Splits Into a Code Decision and a Deployment Decision
+
+**Date:** 2026-08-09 (Phase 9 design review, before any implementation). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+SRS OQ-3 asked one question — "existing company mailbox via SMTP, or a transactional provider such as SendGrid/Postmark?" — and `PROJECT_ROADMAP.md` made it a hard prerequisite for Phase 9. It could not be answered as asked: **no company mailbox exists yet**, because the product is still being built, and the only address available belongs to the developer personally. Picking a provider to unblock development would have recorded a vendor choice on no evidence; using a personal address would have baked one person's mailbox into a product intended for a company.
+
+The question turned out to contain two independent decisions with different owners and different deadlines.
+
+### Decision
+
+**OQ-3a — transport mechanism. Resolved: SMTP, via MailKit, behind the unchanged `IEmailSender`.** The dependency direction is Application → `IEmailSender` → Infrastructure → MailKit/SMTP. Application references no SMTP type, no MailKit type, no host and no credential; its package list stays FluentValidation + DI.Abstractions + Logging.Abstractions.
+
+**OQ-3b — production mailbox and sender identity. Deferred to deployment, and blocking nothing.** SMTP host, port, security mode, username, password, sender address, sender display name, optional `Reply-To`, and the Admin notification recipients are per-deployment configuration. **No value is compiled in and none has a default**; an absent required value fails startup naming the exact key, matching `TokenLinkOptions`/`JwtOptions`. Secrets follow D64's precedent: `dotnet user-secrets` in Development (registered only in Development, so a credential cannot reach Production), environment variables in Production, never committed.
+
+### Why
+
+A company mailbox and a transactional provider's **SMTP relay** are the same implementation with different settings, so the vendor question moves out of code entirely. Only an API/SDK client would have made it sticky. That matters beyond convenience: the product is intended to be deployable for other companies later (each with its own mailbox), so a vendor recorded in code would be wrong for the second deployment and would have to be reopened.
+
+Two further reasons specific to this codebase. First, **token secrecy**: `AngebotReadyNotification`/`InvoiceReadyNotification` carry the raw token that *is* the customer's credential, and this project has spent real effort keeping it out of logs and diagnostics (`CLAUDE.md` §22, `RouteDiagnostics`, `LoggingNoOpEmailSender`'s deliberate omission of the token). Routing every token through a third party's retained message store is a decision deserving an explicit processor agreement, not a library choice made in passing. Second, **testability**: MailKit's transport can be exercised over a real socket against an in-process listener, whereas an HTTP SDK would leave a boundary this project's no-mocking rule (`CLAUDE.md` §14) cannot exercise for real.
+
+### Consequences
+
+- Phase 9 can be built, tested and completed **without any real mailbox existing**, because no value is compiled in and non-production refuses to deliver by default.
+- Deliverability, DNS/SPF/DKIM alignment, and any Microsoft 365 SMTP-AUTH/OAuth2 obstacle surface **at deployment, not during development**. This defers that risk rather than eliminating it, and is accepted knowingly.
+- Switching to a transactional provider later is a configuration change, not a code change — which is exactly what `Architecture.md` §4's "swappable without touching business logic" claims and, until now, had not been tested by a real decision.
+
+### Alternatives rejected
+
+- **Answer OQ-3 as one question by choosing a provider now.** Would record a vendor decision on no evidence, and would be re-made per deployment anyway.
+- **Choose an arbitrary company address to unblock development.** Invents a business fact; explicitly refused by the Product Owner.
+- **Use the developer's personal address as a default.** Would place one person's mailbox into a product built for a company.
+- **A provider HTTP API/SDK.** Its advantages — delivery telemetry, bounce webhooks, suppression lists — serve requirements no document states, at the cost of vendor lock-in in code and a third-party processor holding every token link.
+
+---
+
+## D69 — Notification Delivery State Is Persisted in One Infrastructure-Owned `NotificationDeliveries` Table, Written After the Business Commit
+
+**Date:** 2026-08-09 (Phase 9 design review). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+Every one of the six `IEmailSender` call sites `await`s the sender **uncaught**, after `SaveChangesAsync` and after `auditService.LogAsync`. With the placeholder that is harmless — `LoggingNoOpEmailSender` cannot throw. With a real SMTP client it means a transport fault becomes **HTTP 500 on already-committed work**: the Angebot is sent, the token link exists, the audit row is written, and the caller is told the operation failed.
+
+The Product Owner set two requirements beyond merely not failing: the failure must be **visible to an Admin**, and it must be **retryable**. That rules out logging alone, and for a concrete reason rather than a stylistic one — **two of the six senders are anonymous public endpoints** (`CreateLeadCommandHandler`, the website contact form; `RecordAngebotDecisionCommandHandler`, the customer's token-link decision). In those flows no Admin is present in the request, so a failure cannot be reported to the caller in any actionable way.
+
+No existing durable surface can hold this. `AuditLog` is best-effort and swallows its own failures (D50), and `CLAUDE.md` §10 restricts audit to *business milestones* — a transport failure is not one.
+
+### Decision
+
+**The business operation and email delivery are separate concerns. A committed business operation is a success even when delivery fails**, on every flow including the anonymous ones. The API never converts one into the other.
+
+**Delivery state is persisted in one Infrastructure-owned table, `NotificationDeliveries`**, with the lifecycle `Pending → Sending → Sent` or `Pending → Sending → Failed → (retry) → Sending → Sent`. The row is created **after** the business commit — *not* inside it.
+
+The record must answer: which notification this is, which business object it belongs to, who the recipient was, its status, when it was created, when it was last attempted, when it was successfully sent, what the last failure was, and how many attempts have occurred. It must **not** store SMTP credentials, a rendered email body, or any customer/business data reloadable from the source aggregate.
+
+**Ownership: Infrastructure, not Domain** — alongside `AuditLog` (D49), `NumberSequence` (D51) and `RefreshToken` (D60). No Domain `Notification` aggregate is created, and no notification state is added to an existing aggregate. The Domain stays unaware of email, SMTP, delivery attempts and retry state.
+
+### Why
+
+**Why persistence at all** — the requirement forces it. "An Admin can see the failure and retry it" is an in-product read and an in-product action; with two anonymous senders there is no caller to return it to, and no existing table may carry it.
+
+**Why no payload is stored.** All six notifications are reconstructible from already-persisted state: Angebot-ready from `Angebot` + `TokenLink` (whose `Token` is stored raw, deliberately, because the public read looks it up), invoice-ready from `Invoice` + `Customer` + `TokenLink`, decision from `Angebot` + `Lead`, submitted-for-review from `Angebot`, new-lead from `Lead`, changes-requested from `Angebot` + `AngebotReviewComment`. The record therefore needs identity, not content — and storing no second copy of the token means this table adds no new class of credential exposure.
+
+**Why Infrastructure-owned.** D49's test applied unchanged: no Domain aggregate has an invariant that references delivery state, no business rule branches on it, and no state transition depends on it. A `Notification` aggregate would put an operational concern inside the consistency boundary and would drag email semantics into a Domain that is deliberately transport-ignorant.
+
+**Why written after the commit, not inside it.** Writing it inside the business transaction is the Outbox pattern (option C3 of the design review). That would change the transaction shape of six handlers and require a dispatcher to send — the first `IHostedService` in the codebase.
+
+### Consequences
+
+- **An accepted, documented crash window.** If the process dies between the business commit and the notification-row insert, the record is lost: the business operation stands, and nobody learns an email was owed. This is a deliberate trade-off at single-company scale, where email is a notification side effect rather than business evidence (`LoggingNoOpEmailSender`'s own doc comment makes the same distinction against BR-10). **Stated here rather than hidden.** It is the one thing an Outbox would fix, and the reason to revisit is a real incident, not principle.
+- One new table and one migration (**#9**), whose exact columns are derived from this repository's conventions and reviewed before implementation.
+- No message broker, no queue, no `BackgroundService`, no `IHostedService`, no dispatcher — none exists in `src/` today and none is added.
+
+### Alternatives rejected
+
+- **Direct send + catch-and-log only.** Satisfies "don't fail the business operation" and nothing else. A log line is not Admin-visible, and the two anonymous flows make that gap concrete rather than theoretical.
+- **Outbox (row inside the business transaction).** Correct where a lost notification is a business failure; here it is not. Changes six handlers' transaction semantics and needs a dispatcher.
+- **In-memory queue + background worker.** Would be the first hosted service in the codebase, and is *worse* than catch-and-log for durability — an in-memory queue loses everything on restart, invisibly. It solves latency, not the stated requirements.
+- **Recording failures in `AuditLog`.** Forbidden twice over: D50 makes audit writes best-effort and swallowed, so business-visible data must never depend on them; and `CLAUDE.md` §10 reserves audit for business milestones.
+- **Per-aggregate delivery columns** (e.g. `Angebote.NotificationFailed`). Six notification types would mean columns scattered across five tables, and would put an operational concern into Domain aggregates.
+
+---
+
+## D70 — Notification Retry Is Manual, Synchronous, and Retries Only the Notification
+
+**Date:** 2026-08-09 (Phase 9 design review). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+Retry is **manual only**, triggered by an Admin, executed **synchronously** within that Admin's API request. There is **no automatic retry, no background retry, no delay/backoff, and no maximum attempt count**.
+
+A retry re-sends **only the notification**. It loads the persisted record, reconstructs the message from persisted business data, sends, and updates the status. **It never re-executes the underlying business operation** — retrying a decision notification must not re-record the decision; retrying an Angebot link must not re-send the Angebot as a business action.
+
+### Why
+
+The Admin is present and is the rate limiter, so backoff and attempt caps solve nothing a human clicking does not already solve. Automatic retry would need a scheduler this codebase deliberately does not have (D69). Reconstruction rather than replay is what makes "retry the notification, not the operation" structural rather than a matter of care: the retry path loads an aggregate and calls `IEmailSender`, and has no access to a command handler at all.
+
+### Duplicate sends — explicitly acknowledged, not eliminated
+
+- **Definite failure** (connection refused, authentication rejected): retry is safe.
+- **Ambiguous failure** (e.g. an SMTP timeout after `DATA`): the message may already have been delivered, so a retry can produce a duplicate. **Accepted.** No message-ID deduplication or distributed idempotency infrastructure is introduced to eliminate this edge case.
+- **Admin double-click**: prevented by the status transition `Failed → Sending → Sent`, not by any distributed mechanism. The exact concurrency mechanism is designed before implementation.
+
+The harm profile is what makes this acceptable: every notification is **content-idempotent** — the same link, the same facts — so a duplicate is a second identical email, never a second business effect.
+
+### Consequences
+
+- No retention or archival policy is defined; notification rows remain until a real requirement exists. No 30/90-day deletion and no archival job is invented.
+- A permanently-failing notification is retried by a human until it succeeds or the Admin stops. Nothing escalates it automatically.
+
+---
+
+## D71 — Admin Notification Recipients Are a Configured List, Deliberately Independent of the Identity Admin Role
+
+**Date:** 2026-08-09 (Phase 9 design review). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+FR-9.2, FR-1.3, FR-6.5, SRS §2.2 and §2.3 all use the definite singular — "notify **the Admin**", "the Admin … owns the business relationship" — while `PermissionMatrix.md` opens with "There are two internal **roles** (Admin, Inspector)" and the Identity implementation places no limit on how many accounts hold the Admin role. **No document reconciles the two, and none states how a notification is addressed.** It was an open decision, not a settled rule to be inferred.
+
+### Decision
+
+Admin notifications go to a **configured list of company-level recipients** (e.g. `buero@firma.de`, `owner@firma.de`), supplied per deployment. Operational notifications are **not** sent to every Admin user's personal mailbox, and **no `IUserQueries` lookup is added for this purpose**.
+
+The configured list is the **notification distribution policy**, deliberately independent of Dashboard authorization: who may *act* in the dashboard and who receives *operational mail* are different questions with different answers.
+
+The **Inspector** recipient is unaffected and remains per-person — `AngebotChangesRequestedNotification` carries only `InspectorId`, so resolving it to an address needs a lookup regardless.
+
+### Why
+
+A single configured address satisfies FR-9.2's singular reading exactly; making it a **list** costs one line of validation and removes the most likely future change request ("also send to the owner"). Deriving recipients from the Admin role instead would invent a distribution policy from documentary silence, turn one notification into N sends and N notification rows, need a new interface method, and **fail open in the worst way — silently sending nothing when no active Admin exists.**
+
+### Consequences
+
+- Adding an Admin account does not subscribe that person to operational mail, and removing one does not unsubscribe them. The list is maintained as deployment configuration. **This is intended, and is the cost of keeping notification distribution independent of authorization.**
+- The list is required configuration: absent or empty fails startup naming the key, since FR-9.2 would otherwise silently never fire.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1434,3 +1575,12 @@ invoiced close silently. FR-7.3's "once its final invoice has been paid" presupp
 | A second SQL `SUM` for `alreadyInvoiced` on the Project detail read | Phase 8 Slice 6 | The invoice rows are already fetched and carry the same `GrossAmount`; a third round trip would recompute what is in hand, and would hit the value-converted-`Money`-inside-an-aggregate constraint the balance read documents |
 | Hiding `Void` Invoices from the Project detail list | Phase 8 Slice 6 | BR-9 keeps a voided Invoice as a numbered, visible record; a list that dropped one would make the gap in the numbering look like a deleted document. Excluded from the figures only |
 | Leaving the Project detail invoice list unordered | Phase 8 Slice 6 | Two identical requests could present rows in different orders; `IssueDate` alone is not unique, so the primary key is the tiebreaker (the same reasoning CLAUDE.md §22 applies to paged reads) |
+| Choosing a transactional email provider (SendGrid/Postmark) for v1 | D68 / Phase 9 design | Records a vendor decision on no evidence, would be re-made per deployment, and puts every token-link credential in a third party's retained message store; an SMTP relay gives most of the benefit as pure configuration |
+| An arbitrary or personal email address as a production default | D68 / Phase 9 design | Invents a business fact and bakes one person's mailbox into a product built for a company; explicitly refused by the Product Owner |
+| Outbox (notification row written inside the business transaction) | D69 / Phase 9 design | Changes the transaction shape of six handlers and needs a dispatcher; email here is a notification side effect, not business evidence, so the crash window is cheaper than the machinery |
+| In-memory queue + `BackgroundService` for email | D69 / Phase 9 design | Would be the first hosted service in `src/`, and is *worse* than catch-and-log for durability — an in-memory queue loses everything on restart, invisibly |
+| Recording delivery failures in `AuditLog` | D69 / Phase 9 design | D50 makes audit writes best-effort and swallowed, so Admin-visible data must never depend on them; CLAUDE.md §10 also reserves audit for business milestones |
+| A Domain `Notification` aggregate, or delivery columns on existing aggregates | D69 / Phase 9 design | No Domain invariant references delivery state (D49's test); it would drag transport semantics into a deliberately transport-ignorant Domain |
+| Deriving Admin notification recipients from the Identity Admin role | D71 / Phase 9 design | Invents a distribution policy from documentary silence, needs a new lookup, fans one notification into N, and fails open by silently sending nothing when no active Admin exists |
+| Automatic retry, backoff, or an attempt cap for failed notifications | D70 / Phase 9 design | The Admin triggering the retry is the rate limiter; automatic retry needs a scheduler the architecture deliberately does not have |
+| Message-ID deduplication to eliminate ambiguous-failure duplicates | D70 / Phase 9 design | Every notification is content-idempotent, so a duplicate is a second identical email, never a second business effect |

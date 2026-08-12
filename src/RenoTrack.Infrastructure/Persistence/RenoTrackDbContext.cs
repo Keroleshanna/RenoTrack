@@ -32,6 +32,7 @@ public sealed class RenoTrackDbContext(DbContextOptions<RenoTrackDbContext> opti
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

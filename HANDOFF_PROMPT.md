@@ -38,14 +38,41 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
   describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
 
 YOUR TASK: PHASE 8 IS COMPLETE AND MERGED (PR #14). THE NEXT DELIVERABLE IS PHASE 9 (Email Service
-Integration), WHICH HAS NOT STARTED.
+Integration) — ITS DESIGN IS APPROVED AND RECORDED; IMPLEMENTATION HAS NOT STARTED.
 
-Phase 9 per PROJECT_ROADMAP.md is "Email Service Integration (real, not placeholder)" — replacing
-LoggingNoOpEmailSender with a real implementation plus the German templates FR-9.3 requires.
-IT IS BLOCKED ON SRS OQ-3 (which email provider), which is still unanswered — resolve that with the
-Product Owner before designing anything. All six IEmailSender methods and their notification models
-already exist and are called from real handlers, so Phase 9 changes the implementation, not the
-call sites. DO NOT START PHASE 9 WITHOUT AN EXPLICIT INSTRUCTION AND A DESIGN REVIEW.
+PHASE 9'S DESIGN IS ALREADY APPROVED AND RECORDED. Read PHASE9_PROGRESS.md first — it carries the
+eight approved decisions (F1-F8), the slice plan, and the repository facts the design depends on.
+The permanent record is ARCHITECTURE_DECISIONS.md D68-D71. DO NOT REDESIGN ANY OF IT.
+
+- OQ-3 NO LONGER BLOCKS PHASE 9. It was split (D68): OQ-3a, the transport, is RESOLVED as SMTP via
+  MailKit behind the unchanged IEmailSender; OQ-3b, the real mailbox/sender identity/Admin
+  recipients, is DEFERRED TO DEPLOYMENT. No company mailbox exists yet and that is fine: nothing
+  company-specific is compiled in, nothing has a default, an absent required key fails startup by
+  name, and non-production refuses to deliver by default. NEVER invent a company address, and never
+  use a personal one as a default.
+- A COMMITTED BUSINESS OPERATION STAYS SUCCESSFUL WHEN ITS EMAIL FAILS — including on the two
+  ANONYMOUS flows (contact form, customer token-link decision). The API never turns a delivery
+  failure into a 500. The failure is PERSISTED (Infrastructure-owned NotificationDeliveries table,
+  migration #9), visible
+  to an Admin, and retryable. Logging alone is insufficient precisely because those two senders have
+  no Admin in the request (D69).
+- The notification row is written AFTER the business commit, not inside it. The crash window that
+  creates is ACCEPTED AND DOCUMENTED, not an oversight. NO Outbox, NO broker, NO queue, NO
+  BackgroundService/IHostedService — none exists in src/ and Phase 9 adds none.
+- RETRY IS MANUAL, SYNCHRONOUS, ADMIN-TRIGGERED, and re-sends ONLY the notification, reconstructed
+  from persisted business data. It must NEVER re-execute the business operation. No automatic retry,
+  no backoff, no attempt cap, no retention policy (D70).
+- ADMIN RECIPIENTS ARE A CONFIGURED LIST, deliberately independent of the Identity Admin role. Do
+  NOT add an IUserQueries lookup for it (D71). PermissionMatrix.md §9 adds the two new Admin-only
+  operations (view failed/pending notifications, retry) — Admin F, Inspector —, no ownership check.
+- SIX German templates, not five. Architecture.md §10 said five; IEmailSender has had six methods
+  since Phase 2 (the sixth is the Inspector "changes requested" from Sequence Diagram §5). §10 is
+  corrected. Producing six is not scope creep.
+- PHASE 9 IS THE COMPLETE DELIVERY WORKFLOW, not SMTP integration only.
+
+All six IEmailSender methods and their notification models already exist and are called from real
+handlers, so Phase 9 changes the implementation, not the call sites. IMPLEMENTATION HAS NOT STARTED —
+no branch, no code. DO NOT START IT WITHOUT AN EXPLICIT INSTRUCTION.
 
 Phase 8 per PROJECT_ROADMAP.md was "API: Invoices, Splitting, Payment Tracking, Project Completion".
 PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions,
@@ -139,7 +166,8 @@ BEFORE YOU DO ANYTHING ELSE, IN THIS ORDER:
      dotnet test RenoTrack.slnx
      dotnet ef migrations has-pending-model-changes --project src/RenoTrack.Infrastructure --startup-project src/RenoTrack.Infrastructure
 
-2. Read, in full: PHASE8_PROGRESS.md (the active phase — its approved decisions and slice plan),
+2. Read, in full: PHASE9_PROGRESS.md (the active phase — its approved decisions and slice plan),
+   ARCHITECTURE_DECISIONS.md D68-D71, PHASE8_PROGRESS.md (the last completed phase),
    CLAUDE.md (§2's constructor/materialisation rule and §22's API ruleset are the newest),
    PROJECT_STATE.md, NEXT_STEPS.md (especially §1g and §5a), PHASE7_PROGRESS.md, and
    ARCHITECTURE_DECISIONS.md D57–D65 plus the "Decisions Explicitly Rejected" table.

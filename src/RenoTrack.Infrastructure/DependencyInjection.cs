@@ -99,6 +99,10 @@ public static class DependencyInjection
         services.AddScoped<ILeadQueries, LeadQueries>();
         services.AddScoped<IProjectQueries, ProjectQueries>();
         services.AddScoped<IUserQueries, UserQueries>();
+        // Infrastructure-owned on both sides, unlike every registration above it: the interface as
+        // well as the implementation lives here, because the record it reads is Infrastructure's
+        // (D69) and Application cannot name its enums. See INotificationDeliveryQueries.
+        services.AddScoped<INotificationDeliveryQueries, NotificationDeliveryQueries>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IAuditService, AuditService>();
@@ -111,7 +115,6 @@ public static class DependencyInjection
         fileStorageOptions.Validate();
         services.AddSingleton(fileStorageOptions);
         services.AddScoped<IFileStorage, LocalDiskFileStorage>();
-        services.AddScoped<IEmailSender, LoggingNoOpEmailSender>();
 
         // Same eager-validation shape as file storage above (SRS FR-6.4's configurable lifetime):
         // a missing or zero lifetime must fail startup naming the key, not silently produce links
@@ -122,7 +125,66 @@ public static class DependencyInjection
         services.AddSingleton(tokenLinkOptions);
         services.AddScoped<ITokenLinkService, TokenLinkService>();
 
+        AddEmail(services, configuration, tokenLinkOptions);
+
         return services;
+    }
+
+    /// <summary>
+    /// Email delivery (D68, Phase 9 Slice 1). <b>Selection depends on <c>Email:Enabled</c> alone</b>
+    /// (S1-3) — no environment is consulted here, which is what lets this method keep its signature
+    /// and leaves D63/D64's Production-composing tests undisturbed. The Production
+    /// "must be explicitly enabled" rule is a separate startup step,
+    /// <see cref="EmailConfigurationVerifier"/>.
+    ///
+    /// <para><b>Validation is conditional, and that is forced rather than stylistic.</b> Both
+    /// <c>DependencyInjectionTests</c> classes compose this container with no <c>Email:*</c> keys at
+    /// all, which is exactly what a non-mailing host looks like; validating unconditionally would
+    /// fail them. Whenever delivery *is* enabled, every required key is validated eagerly, so a
+    /// misconfiguration fails at startup naming the key rather than at the first notification.</para>
+    /// </summary>
+    private static void AddEmail(
+        IServiceCollection services,
+        IConfiguration configuration,
+        TokenLinkOptions tokenLinkOptions)
+    {
+        var emailOptions = EmailOptions.FromConfiguration(configuration);
+        services.AddSingleton(emailOptions);
+        services.AddScoped<EmailConfigurationVerifier>();
+
+        // Registered unconditionally, unlike everything below the branch: NotificationDeliveriesController
+        // depends on it, and that controller must keep serving Slice 4's GET endpoint on the hosts where
+        // email is switched off — which is every test host and every non-production one. The service
+        // refuses with 409 when delivery is disabled rather than needing a stand-in sender (S5-9).
+        services.AddScoped<INotificationRetryService, NotificationRetryService>();
+
+        if (!emailOptions.Enabled)
+        {
+            // The placeholder is retained rather than deleted (approved): it is what every
+            // non-production host and both test projects resolve, and it logs a Warning per call so
+            // "no email was sent" is never silent.
+            services.AddScoped<IEmailSender, LoggingNoOpEmailSender>();
+            return;
+        }
+
+        emailOptions.Validate();
+
+        // Only reachable with delivery on, because nothing else composes a customer link today —
+        // see TokenLinkOptions.PublicBaseUrl for why the key lives in the TokenLink section while
+        // its requiredness is governed by Email:Enabled.
+        tokenLinkOptions.ValidatePublicBaseUrl();
+
+        services.AddScoped<EmailMessageFactory>();
+        services.AddScoped<InspectorEmailLookup>();
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
+
+        // Also registered concretely, and only here: NotificationRetryExecutor needs the internal
+        // retry entry point, which the IEmailSender abstraction neither has nor should have (D69).
+        // Both lines are AddScoped on the same concrete type, so a request that both sends and
+        // retries gets two instances — harmless, since the type holds no state between calls and
+        // its DbContext is the shared scoped one either way.
+        services.AddScoped<SmtpEmailSender>();
+        services.AddScoped<NotificationRetryExecutor>();
     }
 
     /// <summary>
