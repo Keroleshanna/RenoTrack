@@ -238,11 +238,141 @@ public class AngebotTests
         Assert.Throws<InvalidOperationException>(angebot.SubmitForReview);
     }
 
-    // ---- Full state machine: guarded transitions ---------------------------
+    // ---- UpdateItem (Phase 10) ---------------------------------------------
 
     [Fact]
-    public void SubmitForReview_OnlyAllowedFromDraft() =>
-        AssertTransitionOnlyAllowedFrom(AngebotStatus.Draft, a => a.SubmitForReview(), nameof(Angebot.SubmitForReview));
+    public void UpdateItem_ChangesTheValuesAndRecalculatesTotals()
+    {
+        var angebot = Angebot.Create(1, 5, ValidNumber, 9);
+        var section = angebot.AddSection("Bad", 1);
+        var item = angebot.AddItemToSection(
+            section, "Fliesn verlegn", 10m, ItemUnit.SquareMeter(), Money.FromExact(50.00m), VatRate.Standard);
+
+        angebot.UpdateItem(
+            section, item, "Fliesen verlegen", 12m, ItemUnit.SquareMeter(), Money.FromExact(55.00m),
+            VatRate.Standard, "Feinsteinzeug");
+
+        Assert.Equal("Fliesen verlegen", item.Description);
+        Assert.Equal("Feinsteinzeug", item.Specification);
+        Assert.Equal(12m, item.Quantity);
+        Assert.Equal(55.00m, item.UnitPrice.Amount);
+
+        // The whole point: money moves, and the stored totals must move with it.
+        Assert.Equal(660.00m, item.LineTotal.Amount);
+        Assert.Equal(660.00m, angebot.NetTotal.Amount);
+        Assert.Equal(785.40m, angebot.GrossTotal.Amount);
+    }
+
+    [Fact]
+    public void UpdateItem_CanChangeTheVatRateAndTheBreakdownFollows()
+    {
+        var angebot = Angebot.Create(1, 5, ValidNumber, 9);
+        var section = angebot.AddSection("Bad", 1);
+        var item = angebot.AddItemToSection(
+            section, "Leistung", 1m, ItemUnit.Piece(), Money.FromExact(100.00m), VatRate.Standard);
+
+        angebot.UpdateItem(section, item, "Leistung", 1m, ItemUnit.Piece(), Money.FromExact(100.00m), VatRate.Reduced);
+
+        var line = Assert.Single(angebot.VatBreakdown);
+        Assert.Equal(VatRate.Reduced, line.Rate);
+        Assert.Equal(7.00m, line.VatAmount.Amount);
+    }
+
+    [Fact]
+    public void UpdateItem_KeepsTheCatalogProvenanceLink()
+    {
+        var angebot = Angebot.Create(1, 5, ValidNumber, 9);
+        var section = angebot.AddSection("Bad", 1);
+        var item = angebot.AddItemToSection(
+            section, "Aus Katalog", 1m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard,
+            catalogItemId: 42);
+
+        angebot.UpdateItem(section, item, "Angepasst", 2m, ItemUnit.Piece(), Money.FromExact(12.00m), VatRate.Standard);
+
+        // BR-8: the link records where the line came from, not that it still matches. Clearing it
+        // would destroy provenance to record a divergence BR-8 already anticipates.
+        Assert.Equal(42, item.CatalogItemId);
+    }
+
+    [Theory]
+    [InlineData(AngebotStatus.InReview)]
+    [InlineData(AngebotStatus.ApprovedInternally)]
+    [InlineData(AngebotStatus.Sent)]
+    [InlineData(AngebotStatus.CustomerApproved)]
+    [InlineData(AngebotStatus.CustomerRejected)]
+    public void UpdateItem_IsRefusedOnceTheAngebotIsLocked(AngebotStatus status)
+    {
+        var angebot = CreateAngebotInStatus(status);
+        var section = angebot.Sections.Single();
+        var item = section.Items.Single();
+
+        Assert.Throws<InvalidOperationException>(() => angebot.UpdateItem(
+            section, item, "Neu", 1m, ItemUnit.Piece(), Money.FromExact(1.00m), VatRate.Standard));
+    }
+
+    [Fact]
+    public void UpdateItem_ReopensAChangesRequestedAngebotLikeEveryOtherEdit()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.ChangesRequested);
+        var section = angebot.Sections.Single();
+
+        angebot.UpdateItem(
+            section, section.Items.Single(), "Korrigiert", 1m, ItemUnit.Piece(),
+            Money.FromExact(10.00m), VatRate.Standard);
+
+        Assert.Equal(AngebotStatus.Draft, angebot.Status);
+    }
+
+    [Fact]
+    public void UpdateItem_RejectsAnItemFromAnotherSection()
+    {
+        var angebot = Angebot.Create(1, 5, ValidNumber, 9);
+        var first = angebot.AddSection("Bad", 1);
+        var second = angebot.AddSection("Küche", 2);
+        var item = angebot.AddItemToSection(
+            second, "Leistung", 1m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard);
+
+        Assert.Throws<InvalidOperationException>(() => angebot.UpdateItem(
+            first, item, "Verschoben", 1m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard));
+    }
+
+    [Theory]
+    [InlineData("", 1)]
+    [InlineData("   ", 1)]
+    [InlineData("Gültig", 0)]
+    [InlineData("Gültig", -1)]
+    public void UpdateItem_AppliesTheSameGuardsAsCreation(string description, decimal quantity)
+    {
+        var angebot = Angebot.Create(1, 5, ValidNumber, 9);
+        var section = angebot.AddSection("Bad", 1);
+        var item = angebot.AddItemToSection(
+            section, "Original", 1m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard);
+
+        // These are lifetime invariants of a line, not creation-time conditions, so a correction is
+        // held to exactly the same standard as an insertion.
+        Assert.Throws<ArgumentException>(() => angebot.UpdateItem(
+            section, item, description, quantity, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard));
+    }
+
+    // ---- Full state machine: guarded transitions ---------------------------
+
+    /// <summary>
+    /// <c>SubmitForReview</c> is the one transition with <b>two</b> legal source states.
+    /// </summary>
+    /// <remarks>
+    /// <c>ChangesRequested</c> was added in Phase 10, after QA found the workflow had a dead end:
+    /// an Inspector who read the Admin's comment and concluded nothing needed changing could not
+    /// send the quote back, because reaching <c>Draft</c> required editing something first. The
+    /// only workaround was a pointless edit made purely to satisfy a guard. Nothing was weakened —
+    /// the "at least one section with at least one item" rule still applies, and §2.4 already
+    /// treats <c>ChangesRequested</c> as an editable state.
+    /// </remarks>
+    [Fact]
+    public void SubmitForReview_AllowedFromDraftAndChangesRequested() =>
+        AssertTransitionOnlyAllowedFrom(
+            [AngebotStatus.Draft, AngebotStatus.ChangesRequested],
+            a => a.SubmitForReview(),
+            nameof(Angebot.SubmitForReview));
 
     [Fact]
     public void Approve_OnlyAllowedFromInReview() =>
@@ -359,13 +489,32 @@ public class AngebotTests
         }
     }
 
-    private static void AssertTransitionOnlyAllowedFrom(AngebotStatus expectedFrom, Action<Angebot> transition, string transitionName)
+    private static void AssertTransitionOnlyAllowedFrom(
+        AngebotStatus expectedFrom,
+        Action<Angebot> transition,
+        string transitionName) =>
+        AssertTransitionOnlyAllowedFrom([expectedFrom], transition, transitionName);
+
+    /// <summary>
+    /// Drives the aggregate to <b>every</b> status through its own real transitions, then asserts
+    /// the given event succeeds from exactly the listed source states and throws from all others,
+    /// naming both the actual and the expected state.
+    /// </summary>
+    /// <remarks>
+    /// Takes a set rather than a single state so a transition with more than one legal source can
+    /// still be pinned exhaustively — the alternative, exempting such a transition from this sweep,
+    /// would leave the states it must still refuse untested.
+    /// </remarks>
+    private static void AssertTransitionOnlyAllowedFrom(
+        AngebotStatus[] expectedFrom,
+        Action<Angebot> transition,
+        string transitionName)
     {
         foreach (var status in Enum.GetValues<AngebotStatus>())
         {
             var angebot = CreateAngebotInStatus(status);
 
-            if (status == expectedFrom)
+            if (expectedFrom.Contains(status))
             {
                 var exception = Record.Exception(() => transition(angebot));
                 Assert.Null(exception);
@@ -375,7 +524,7 @@ public class AngebotTests
                 var exception = Assert.Throws<InvalidOperationException>(() => transition(angebot));
                 Assert.Contains(transitionName, exception.Message);
                 Assert.Contains(status.ToString(), exception.Message);
-                Assert.Contains(expectedFrom.ToString(), exception.Message);
+                Assert.All(expectedFrom, allowed => Assert.Contains(allowed.ToString(), exception.Message));
             }
         }
     }

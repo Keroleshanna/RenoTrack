@@ -48,4 +48,22 @@ public sealed class FakeCatalogItemQueries : ICatalogItemQueries
 
         return Task.FromResult(new PagedResult<CatalogItemDto>(items, page, pageSize, all.Count));
     }
+
+    /// <summary>
+    /// Mirrors the real implementation's one load-bearing subtlety: a <b>retired</b> entry still
+    /// counts. Retiring an entry does not un-contribute the line it came from (BR-12), so filtering
+    /// retired rows out here would put "save as Catalog item" back on offer for a line that already
+    /// produced one.
+    /// </summary>
+    public Task<IReadOnlySet<int>> GetAngebotItemIdsWithCatalogEntryAsync(
+        IReadOnlyCollection<int> angebotItemIds,
+        CancellationToken cancellationToken)
+    {
+        var matches = _items
+            .Where(i => i.CreatedFromAngebotItemId is { } origin && angebotItemIds.Contains(origin))
+            .Select(i => i.CreatedFromAngebotItemId!.Value)
+            .ToHashSet();
+
+        return Task.FromResult<IReadOnlySet<int>>(matches);
+    }
 }

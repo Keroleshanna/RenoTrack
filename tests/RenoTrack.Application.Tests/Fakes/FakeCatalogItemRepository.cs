@@ -21,6 +21,19 @@ public sealed class FakeCatalogItemRepository : ICatalogItemRepository
         Task.FromResult(_catalogItems.GetValueOrDefault(id));
 
     /// <summary>
+    /// Searches seeded entries <b>and</b> ones added in this unit of work, so a handler test can
+    /// prove the idempotency guard without a `SaveChanges` in between — which is exactly the
+    /// double-click case it exists to defend.
+    /// </summary>
+    public Task<CatalogItem?> GetByCreatedFromAngebotItemIdAsync(
+        int angebotItemId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(
+            _catalogItems.Values
+                .Concat(AddedCatalogItems)
+                .FirstOrDefault(c => c.CreatedFromAngebotItemId == angebotItemId));
+
+    /// <summary>
     /// Test-only seam simulating a CatalogItem that already exists in the database with a real,
     /// assigned Id — normally EF Core's job (Phase 3), not yet available. Uses reflection purely
     /// because CatalogItem.Id has no public setter by design; this stays inside test code and

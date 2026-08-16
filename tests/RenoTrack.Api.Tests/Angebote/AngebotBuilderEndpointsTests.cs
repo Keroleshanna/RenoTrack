@@ -315,6 +315,237 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    // ---- Editing a line (Phase 10 QA) --------------------------------------
+
+    [Fact]
+    public async Task Inspector_can_correct_a_line_and_the_totals_follow()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        {
+            description = "Wände abbrechen und entsorgen",
+            specification = "inkl. Containergestellung",
+            unitCode = "m2",
+            quantity = 12m,
+            unitPrice = 30.00m,
+            vatRate = "Standard",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // The response carries the document's money, not the line — a price change moves both.
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(360.00m, body.GetProperty("netTotal").GetDecimal());
+        Assert.Equal(428.40m, body.GetProperty("grossTotal").GetDecimal());
+
+        var reread = await client.GetFromJsonAsync<JsonElement>($"/api/v1/angebote/{angebotId}");
+        var item = reread.GetProperty("sections")[0].GetProperty("items")[0];
+        Assert.Equal("Wände abbrechen und entsorgen", item.GetProperty("description").GetString());
+        Assert.Equal(12m, item.GetProperty("quantity").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Correcting_a_line_is_refused_once_the_quote_is_in_review()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+
+        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        {
+            description = "Zu spät",
+            specification = (string?)null,
+            unitCode = "m2",
+            quantity = 1m,
+            unitPrice = 1.00m,
+            vatRate = "Standard",
+        });
+
+        // StateMachine §2.4's edit-lock, enforced by the aggregate.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Correcting_another_inspectors_line_is_forbidden()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        using var other = await SecondInspectorClientAsync();
+
+        var response = await other.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        {
+            description = "Fremd",
+            specification = (string?)null,
+            unitCode = "m2",
+            quantity = 1m,
+            unitPrice = 1.00m,
+            vatRate = "Standard",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Correcting_a_line_accepts_a_custom_unit_because_ItemUnit_is_open()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        {
+            description = "Sonderposition",
+            specification = (string?)null,
+            unitCode = "Rolle",
+            quantity = 3m,
+            unitPrice = 20.00m,
+            vatRate = "Standard",
+        });
+
+        // ItemUnit is deliberately an *open* value object: FromCode falls back to a custom label
+        // for anything outside the five standard codes, unlike the closed LeadSource enum. This
+        // test originally asserted a 400 and was wrong — the failure was in the expectation, not
+        // the code, and the assertion was corrected rather than the behaviour (CLAUDE.md §14).
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var reread = await client.GetFromJsonAsync<JsonElement>($"/api/v1/angebote/{angebotId}");
+        Assert.Equal("Rolle", reread.GetProperty("sections")[0].GetProperty("items")[0]
+            .GetProperty("unit").GetString());
+    }
+
+    [Fact]
+    public async Task Correcting_a_line_with_a_blank_unit_is_a_field_keyed_400()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        {
+            description = "Ohne Einheit",
+            specification = (string?)null,
+            unitCode = "",
+            quantity = 1m,
+            unitPrice = 1.00m,
+            vatRate = "Standard",
+        });
+
+        // Open does not mean absent — the validator still requires a unit to be stated.
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(problem.GetProperty("errors").TryGetProperty("UnitCode", out _));
+    }
+
+    // ---- Save-as-Catalog is idempotent, and the read says so (Phase 10 QA) --
+
+    [Fact]
+    public async Task Saving_a_line_to_the_catalog_twice_creates_one_entry()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        var first = await client.PostAsync($"/api/v1/angebot-items/{itemId}/save-as-catalog-item", content: null);
+        var second = await client.PostAsync($"/api/v1/angebot-items/{itemId}/save-as-catalog-item", content: null);
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+
+        // A repeat is harmless, not a conflict: the caller asked for "this line is in the Catalog",
+        // and after the second click that is exactly the state.
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+        var secondId = (await second.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+        Assert.Equal(firstId, secondId);
+    }
+
+    [Fact]
+    public async Task The_document_read_reports_which_lines_are_already_in_the_catalog()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        var before = await client.GetFromJsonAsync<JsonElement>($"/api/v1/angebote/{angebotId}");
+        Assert.False(before.GetProperty("sections")[0].GetProperty("items")[0]
+            .GetProperty("savedToCatalog").GetBoolean());
+
+        await client.PostAsync($"/api/v1/angebot-items/{itemId}/save-as-catalog-item", content: null);
+
+        var after = await client.GetFromJsonAsync<JsonElement>($"/api/v1/angebote/{angebotId}");
+        var item = after.GetProperty("sections")[0].GetProperty("items")[0];
+
+        // This is what lets the screen stop offering the action. It is *not* catalogItemId, which
+        // points the other way — that stays null on a hand-written line.
+        Assert.True(item.GetProperty("savedToCatalog").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("catalogItemId").ValueKind);
+    }
+
+    [Fact]
+    public async Task A_line_that_was_saved_to_the_catalog_can_still_be_removed()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+
+        await client.PostAsync($"/api/v1/angebot-items/{itemId}/save-as-catalog-item", content: null);
+
+        var response = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/items/{itemId}");
+
+        // Under the old Restrict foreign key this was a DbUpdateException surfacing as a 500.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // ---- Resubmitting after changes were requested (Phase 10 QA) -----------
+
+    [Fact]
+    public async Task Submit_is_available_from_changes_requested_without_editing_anything()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        await AddSectionWithItemAsync(client, angebotId);
+        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+
+        using var admin = await AdminClientAsync();
+        await admin.PostAsJsonAsync(
+            $"/api/v1/angebote/{angebotId}/request-changes", new { comment = "Bitte Preise prüfen." });
+
+        // No edit in between. Previously the Inspector had to change something — anything — before
+        // the aggregate would accept a resubmission, which is a state change made purely to satisfy
+        // a guard.
+        var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("InReview", (await response.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Editing_a_returned_quote_then_resubmitting_also_works()
+    {
+        var (client, angebotId) = await DraftAngebotAsync();
+        var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
+        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+
+        using var admin = await AdminClientAsync();
+        await admin.PostAsJsonAsync(
+            $"/api/v1/angebote/{angebotId}/request-changes", new { comment = "Menge zu hoch." });
+
+        var edit = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        {
+            description = "Wände abbrechen",
+            specification = (string?)null,
+            unitCode = "m2",
+            quantity = 8m,
+            unitPrice = 25.00m,
+            vatRate = "Standard",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
+
+        var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     private Task<HttpClient> InspectorClientAsync() =>

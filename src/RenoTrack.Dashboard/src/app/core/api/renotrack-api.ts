@@ -12,6 +12,7 @@ import {
   AngebotSummaryDto,
   CatalogItemDto,
   CatalogItemWrite,
+  DEFAULT_PAGE_SIZE,
   InspectionDetailDto,
   InspectionDto,
   InvoiceDto,
@@ -20,6 +21,7 @@ import {
   LeadDto,
   LeadStatusDto,
   ManualLeadSourceDto,
+  MAX_PAGE_SIZE,
   NotificationDeliveryDto,
   NotificationDeliveryStatusDto,
   PagedResult,
@@ -185,6 +187,34 @@ export class RenoTrackApi {
 
   removeItem(angebotId: number, itemId: number): Observable<AngebotSummaryDto> {
     return this.http.delete<AngebotSummaryDto>(`/api/v1/angebote/${angebotId}/items/${itemId}`);
+  }
+
+  /**
+   * Corrects an existing line while the Angebot is editable (§3, owning Inspector).
+   *
+   * Returns the refreshed totals and VAT breakdown rather than the line: changing a quantity or a
+   * price moves the document's money, and that is what the screen re-renders (D81).
+   *
+   * No `catalogItemId` — editing has one mode. Re-pointing a line at a different Catalog entry is
+   * a different line, which add+remove already expresses. A Catalog-sourced line is editable and
+   * keeps its provenance link (BR-8).
+   */
+  updateItem(
+    angebotId: number,
+    itemId: number,
+    item: {
+      description: string;
+      specification: string | null;
+      unitCode: string;
+      quantity: number;
+      unitPrice: number;
+      vatRate: VatRateDto;
+    },
+  ): Observable<AngebotSummaryDto> {
+    return this.http.put<AngebotSummaryDto>(
+      `/api/v1/angebote/${angebotId}/items/${itemId}`,
+      item,
+    );
   }
 
   /**
@@ -514,10 +544,34 @@ function params(query: Record<string, unknown>): HttpParams {
   let result = new HttpParams();
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== '') {
-      result = result.set(key, String(value));
+      result = result.set(key, String(key === 'pageSize' ? clampPageSize(value) : value));
     }
   }
   return result;
+}
+
+/**
+ * Holds `pageSize` inside the range the API actually accepts.
+ *
+ * **This is a contract guard, not a convenience.** `Application.Common.Pagination` caps the page at
+ * {@link MAX_PAGE_SIZE}, and the validators reject anything larger with a `ValidationException` —
+ * which a screen experiences as a 400 and a user experiences as an empty list with no explanation.
+ * A picker that asked for 200 rows did exactly that.
+ *
+ * Clamping here, in the single funnel every query parameter passes through, means no present or
+ * future call site can send an out-of-range value by mistake. It is deliberately silent: the caller
+ * asked for "as many as possible", and the honest answer is the maximum the server allows. A screen
+ * that genuinely needs more rows than one page must page — which is why this clamps rather than
+ * throwing, and why nothing here tries to fetch the remainder behind the caller's back.
+ */
+export function clampPageSize(value: unknown): number {
+  const requested = Number(value);
+
+  if (!Number.isFinite(requested)) {
+    return DEFAULT_PAGE_SIZE;
+  }
+
+  return Math.min(Math.max(Math.trunc(requested), 1), MAX_PAGE_SIZE);
 }
 
 /**

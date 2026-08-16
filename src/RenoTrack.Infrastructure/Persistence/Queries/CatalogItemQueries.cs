@@ -62,4 +62,31 @@ public sealed class CatalogItemQueries(RenoTrackDbContext dbContext) : ICatalogI
 
         return new PagedResult<CatalogItemDto>(items, page, pageSize, totalCount);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>Retired entries count.</b> The question is whether this line has already been contributed
+    /// to the Catalog, and retiring the resulting entry does not un-contribute it — BR-12 keeps the
+    /// row precisely so its history survives. Filtering retired entries out here would put "save as
+    /// Catalog item" back on offer for a line that already produced one, which is the defect this
+    /// method exists to fix.
+    /// </remarks>
+    public async Task<IReadOnlySet<int>> GetAngebotItemIdsWithCatalogEntryAsync(
+        IReadOnlyCollection<int> angebotItemIds,
+        CancellationToken cancellationToken)
+    {
+        if (angebotItemIds.Count == 0)
+        {
+            return new HashSet<int>();
+        }
+
+        var matches = await dbContext.CatalogItems
+            .AsNoTracking()
+            .Where(c => c.CreatedFromAngebotItemId != null
+                && angebotItemIds.Contains(c.CreatedFromAngebotItemId.Value))
+            .Select(c => c.CreatedFromAngebotItemId!.Value)
+            .ToListAsync(cancellationToken);
+
+        return matches.ToHashSet();
+    }
 }

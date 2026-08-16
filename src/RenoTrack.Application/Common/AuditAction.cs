@@ -163,4 +163,17 @@ public enum AuditAction
 
     /// <summary>Work resumed on a paused Project — the mirror of <see cref="ProjectPutOnHold"/>.</summary>
     ProjectResumed,
+
+    /// <summary>
+    /// A completed Inspection was reopened so its record could be corrected (BR-10's own named
+    /// remedy, Phase 10). Logged against the <c>Lead</c>, following <see cref="InspectionDone"/>.
+    ///
+    /// <para>
+    /// <b>Audited even though the edits it enables are not.</b> Photos and notes are operational
+    /// activity, but deliberately reversing a workflow gate is exactly the kind of fact someone
+    /// reading this Inspection's history needs in order to interpret the evidence — and it is what
+    /// preserves "this visit was completed" once <c>CompletedAt</c> has been cleared.
+    /// </para>
+    /// </summary>
+    InspectionReopened,
 }

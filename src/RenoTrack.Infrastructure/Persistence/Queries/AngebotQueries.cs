@@ -65,7 +65,12 @@ public sealed class AngebotQueries(RenoTrackDbContext dbContext) : IAngebotQueri
 
                 // LineTotal is a computed Domain property with no column, so the projection
                 // restates Architecture.md §6.1 step 1 rather than reading it.
-                i.Quantity * i.UnitPrice.Amount))
+                i.Quantity * i.UnitPrice.Amount,
+
+                // Always false here, and deliberately not looked up: this read serves
+                // SaveAngebotItemAsCatalogItem, which asks the repository that question itself and
+                // needs the entity, not a flag. Only the document read populates it.
+                false))
             .SingleOrDefaultAsync(cancellationToken);
 
     /// <inheritdoc />

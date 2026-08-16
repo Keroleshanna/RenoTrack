@@ -118,6 +118,14 @@ export class CockpitModel {
       quotesInReview: this.api.angebote({ status: 'InReview', page: 1, pageSize: PAGE_SIZE_MAX }),
       quotesSent: this.api.angebote({ status: 'Sent', page: 1, pageSize: PAGE_SIZE_MAX }),
       quotesDraft: this.api.angebote({ status: 'Draft', page: 1, pageSize: 1 }),
+
+      // A returned quote is outstanding work for its author, exactly like an unfinished draft, and
+      // it is the one state with an explicit instruction attached to it.
+      quotesChangesRequested: this.api.angebote({
+        status: 'ChangesRequested',
+        page: 1,
+        pageSize: PAGE_SIZE_MAX,
+      }),
       today: this.api.inspections(now, tomorrow),
       tomorrow: this.api.inspections(tomorrow, dayAfter),
       week: this.api.inspections(now, weekEnd),
@@ -140,6 +148,8 @@ export class CockpitModel {
           quotesSent: data.quotesSent.items,
           quotesSentCount: data.quotesSent.totalCount,
           draftCount: data.quotesDraft.totalCount,
+          changesRequested: data.quotesChangesRequested.items,
+          changesRequestedCount: data.quotesChangesRequested.totalCount,
           today: data.today,
           tomorrow: data.tomorrow,
           weekCount: data.week.length,
@@ -165,6 +175,8 @@ export class CockpitModel {
       quotesSent: readonly AngebotListItemDto[];
       quotesSentCount: number;
       draftCount: number;
+      changesRequested: readonly AngebotListItemDto[];
+      changesRequestedCount: number;
       today: readonly InspectionDetailDto[];
       tomorrow: readonly InspectionDetailDto[];
       weekCount: number;
@@ -336,6 +348,8 @@ export class CockpitModel {
       leadCounts: Record<LeadStatusDto, number>;
       quotesInReviewCount: number;
       quotesSentCount: number;
+      draftCount: number;
+      changesRequestedCount: number;
       today: readonly InspectionDetailDto[];
       receivables: ReceivablesSummaryDto | null;
     },
@@ -399,15 +413,38 @@ export class CockpitModel {
               value: null,
               route: ['/besichtigungen'],
             },
+            // A returned quote is the most urgent thing an Inspector can be holding: the office is
+            // waiting on it and it carries an explicit instruction. Listed above the unwritten ones.
+            {
+              id: 'quotes-changes-requested',
+              severity: 'high',
+              count: d.changesRequestedCount,
+              title: t.quotesChangesRequested,
+              hint: t.quotesChangesRequestedHint,
+              value: null,
+              route: ['/angebote'],
+              queryParams: { status: 'ChangesRequested' },
+            },
             {
               id: 'quotes-to-write',
               severity: 'high',
-              count: d.leadCounts.InspectionDone,
+
+              // Leads whose visit is done and have no quote yet, **plus** quotes already started
+              // and not yet submitted.
+              //
+              // Counting only `InspectionDone` was a real defect: creating the draft moves the Lead
+              // to `AngebotInProgress`, so the task vanished the moment the Inspector opened the
+              // builder — while the quote was still empty and unsubmitted. The work disappeared
+              // from the list precisely when it started.
+              count: d.leadCounts.InspectionDone + d.draftCount,
               title: t.quotesToWrite,
               hint: t.quotesToWriteHint,
               value: null,
-              route: ['/leads'],
-              queryParams: { status: 'InspectionDone' },
+
+              // To the quotes workspace when there are drafts to finish, since that is where the
+              // work is; to the pipeline when the only outstanding item is a quote not yet begun.
+              route: d.draftCount > 0 ? ['/angebote'] : ['/leads'],
+              queryParams: d.draftCount > 0 ? { status: 'Draft' } : { status: 'InspectionDone' },
             },
             {
               id: 'awaiting-customer',
@@ -446,7 +483,8 @@ export class CockpitModel {
     const widest = Math.max(1, ...stages.map((stage) => counts[stage]));
 
     return stages.map((stage, index) => {
-      const previous = index > 0 ? counts[stages[index - 1]] : null;
+      const previousStage = index > 0 ? stages[index - 1] : null;
+      const previous = previousStage ? counts[previousStage] : null;
 
       return {
         id: stage,
@@ -456,8 +494,24 @@ export class CockpitModel {
         // value for "new enquiries" would be inventing a number.
         value: stage === 'AngebotSent' && sentValue > 0 ? this.money(sentValue) : null,
         share: counts[stage] / widest,
+
+        // **The percentage names its own denominator**, because without it the figure is
+        // unreadable: "50 %" next to "Visit scheduled" was taken for a conversion rate, when it is
+        // this stage's *current* count against the previous stage's *current* count.
+        //
+        // The arithmetic is unchanged — QA confirmed it was already right — but these are snapshot
+        // counts of where enquiries are sitting now, not a cohort followed through the funnel. An
+        // enquiry that reached `InspectionDone` has left `New` and is no longer in that
+        // denominator. Saying which stage the comparison is against is the difference between a
+        // number someone can use and one they will misread.
         conversion:
-          previous && previous > 0 ? `${Math.round((counts[stage] / previous) * 100)} %` : null,
+          previous && previous > 0
+            ? this.i18n.format(
+                this.i18n.t().cockpit.funnel.ofPrevious,
+                Math.round((counts[stage] / previous) * 100),
+                labels[previousStage as keyof typeof labels],
+              )
+            : null,
       };
     });
   }

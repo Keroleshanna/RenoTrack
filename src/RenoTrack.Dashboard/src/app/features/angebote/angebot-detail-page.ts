@@ -12,6 +12,7 @@ import {
   CatalogItemDto,
   ItemDto,
   LeadDto,
+  MAX_PAGE_SIZE,
   STANDARD_UNITS,
   SectionDetailDto,
   VAT_PERCENT,
@@ -104,6 +105,14 @@ export class AngebotDetailPage {
       : capabilitiesFor(null, 'Draft');
   });
 
+  /**
+   * The most recent review comment, for the changes-requested banner.
+   *
+   * Newest last in the history (oldest-first, per the endpoint), so the last entry is the one the
+   * Inspector is being asked to act on.
+   */
+  protected readonly latestComment = computed(() => this.comments().at(-1) ?? null);
+
   protected readonly isEmptyDocument = computed(
     () => (this.detail()?.sections.length ?? 0) === 0,
   );
@@ -112,6 +121,9 @@ export class AngebotDetailPage {
 
   protected readonly sectionDialogOpen = signal(false);
   protected readonly itemDialogSection = signal<SectionDetailDto | null>(null);
+
+  /** The line being corrected, or `null` while adding — the one thing that differs between them. */
+  protected readonly editingItem = signal<ItemDto | null>(null);
   protected readonly changesDialogOpen = signal(false);
   protected readonly pickerOpen = signal(false);
   protected readonly confirming = signal<Confirmable>(null);
@@ -260,6 +272,7 @@ export class AngebotDetailPage {
   }
 
   protected openItemDialog(section: SectionDetailDto): void {
+    this.editingItem.set(null);
     this.itemForm.reset({
       catalogItemId: null,
       description: '',
@@ -302,7 +315,38 @@ export class AngebotDetailPage {
     this.itemForm.patchValue({ unitCode: custom ? '' : 'm2' });
   }
 
-  protected addItem(): void {
+  /**
+   * Opens the same dialog to correct an existing line.
+   *
+   * Added after QA found a typo could only be fixed by deleting and re-entering the line — which
+   * also discards any Catalog entry contributed from it (FR-4.10), a real cost for a spelling
+   * mistake. Catalog-sourced lines are editable too: BR-8 makes the copy independent at creation.
+   */
+  protected openEditItem(section: SectionDetailDto, item: ItemDto): void {
+    this.itemForm.reset({
+      catalogItemId: item.catalogItemId,
+      description: item.description,
+      specification: item.specification ?? '',
+      unitCode: item.unit,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      vatRate: item.vatRate,
+    });
+
+    // A line stored with a custom unit opens in the text box, so correcting the price does not
+    // silently rewrite the unit to a standard code the Inspector never chose.
+    this.customUnit.set(!STANDARD_UNITS.includes(item.unit as never));
+    this.editingItem.set(item);
+    this.itemDialogSection.set(section);
+  }
+
+  protected closeItemDialog(): void {
+    this.itemDialogSection.set(null);
+    this.editingItem.set(null);
+  }
+
+  /** One entry point for both modes — which one runs is decided by {@link editingItem}. */
+  protected saveItem(): void {
     const section = this.itemDialogSection();
     if (!section) {
       return;
@@ -313,6 +357,26 @@ export class AngebotDetailPage {
     }
 
     const value = this.itemForm.getRawValue();
+    const editing = this.editingItem();
+
+    if (editing) {
+      this.perform(
+        // Every value is sent: the endpoint is a PUT that replaces them all. `catalogItemId` is
+        // absent from the request by design — editing has one mode, unlike adding.
+        this.api.updateItem(this.id, editing.id, {
+          description: value.description.trim(),
+          specification: value.specification.trim() || null,
+          unitCode: value.unitCode.trim(),
+          quantity: value.quantity,
+          unitPrice: value.unitPrice,
+          vatRate: value.vatRate,
+        }),
+        this.t().angebotDetail.itemUpdated,
+        () => this.closeItemDialog(),
+      );
+
+      return;
+    }
 
     this.perform(
       this.api.addItem(this.id, {
@@ -326,7 +390,7 @@ export class AngebotDetailPage {
         vatRate: value.vatRate,
       }),
       this.t().angebotDetail.itemAdded,
-      () => this.itemDialogSection.set(null),
+      () => this.closeItemDialog(),
     );
   }
 
@@ -461,10 +525,12 @@ export class AngebotDetailPage {
   protected openDuplicate(): void {
     this.duplicateForm.reset({ targetLeadId: null });
 
-    // A large page size rather than paging inside a dialog: this is a picker, and an Inspector's
-    // own caseload is bounded. A failure leaves the list empty, which the dialog explains.
+    // The API's maximum page, not an arbitrary large number: `Pagination.MaxPageSize` is 100 and
+    // the validator rejects anything above it, so an earlier `pageSize: 200` produced a 400 that
+    // the user saw as an empty picker. An Inspector's own caseload is comfortably inside one page;
+    // if that ever stops being true this needs real paging, not a bigger number.
     this.api
-      .leads({ page: 1, pageSize: 200 })
+      .leads({ page: 1, pageSize: MAX_PAGE_SIZE })
       .pipe(catchError(() => of({ items: [], page: 1, pageSize: 0, totalCount: 0 })))
       .subscribe((result) =>
         // The source Lead is excluded: this quote already belongs to it, so copying onto itself is

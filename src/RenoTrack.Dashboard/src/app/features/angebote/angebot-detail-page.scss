@@ -57,6 +57,43 @@
   font-size: 13px;
 }
 
+/* An action-required notice, not a passing message: it stays until the state that caused it
+   changes. Weightier than `.banner` because it carries the Admin's own words and is the thing the
+   Inspector opened the screen to read. */
+.callout {
+  margin: 0 0 var(--rt-space-5);
+  padding: var(--rt-space-5);
+  border-radius: var(--rt-radius-md);
+  border-left: 3px solid var(--rt-warning);
+  background: var(--rt-warning-bg);
+}
+
+.callout .rt-body {
+  margin-top: var(--rt-space-2);
+  max-width: 68ch;
+}
+
+.callout__quote {
+  margin: var(--rt-space-4) 0 0;
+  padding: var(--rt-space-3) var(--rt-space-4);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-surface-raised);
+}
+
+.callout__quote blockquote {
+  margin: 0;
+}
+
+.callout__quote figcaption {
+  margin-top: var(--rt-space-2);
+}
+
+/* Distinguishes "already contributed to the Catalog" from "came from the Catalog" — two different
+   facts that previously shared one visual treatment because only one of them was rendered. */
+.tag--saved {
+  background: var(--rt-surface-sunken);
+}
+
 .document {
   margin-bottom: var(--rt-space-5);
 }

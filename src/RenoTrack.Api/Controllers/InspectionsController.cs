@@ -6,6 +6,7 @@ using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Inspections.Commands.CompleteInspection;
 using RenoTrack.Application.Inspections.Commands.ReassignInspection;
+using RenoTrack.Application.Inspections.Commands.ReopenInspection;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
 using RenoTrack.Application.Inspections.Commands.UpdateInspectionNotes;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
@@ -34,6 +35,7 @@ public sealed class InspectionsController(
     ICommandHandler<CompleteInspectionCommand, InspectionDto> completeInspectionHandler,
     ICommandHandler<UpdateInspectionNotesCommand, InspectionDto> updateNotesHandler,
     ICommandHandler<ReassignInspectionCommand, InspectionDto> reassignInspectionHandler,
+    ICommandHandler<ReopenInspectionCommand, InspectionDto> reopenInspectionHandler,
     IQueryHandler<GetInspectionByIdQuery, InspectionDetailDto> getByIdHandler,
     IQueryHandler<GetInspectionScheduleQuery, IReadOnlyList<InspectionDetailDto>> getScheduleHandler)
     : ControllerBase
@@ -314,6 +316,45 @@ public sealed class InspectionsController(
             CompletedByInspectorId: CurrentUserId());
 
         var inspection = await completeInspectionHandler.HandleAsync(command, cancellationToken);
+
+        return Ok(inspection);
+    }
+
+    /// <summary>
+    /// Reopens a completed Inspection so its record can be corrected, then completed again
+    /// (BR-10, Phase 10). Assigned Inspector only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the action BR-10 names, not a relaxation of it.</b> The rule states that a
+    /// completed Inspection is immutable and that changing one "requires a distinct, explicit
+    /// action (e.g. a 'reopen' use case), not implicit editing". Photo upload, notes and
+    /// reassignment still refuse outright while the visit is complete; this is the explicit way to
+    /// say otherwise, and it is audited.
+    /// </para>
+    /// <para>
+    /// Inspector-only, matching every other Inspection edit: <c>PermissionMatrix.md</c> §2 marks
+    /// photos, notes and completion Inspector <c>S</c> / Admin <c>—</c>, deliberately, so the
+    /// evidence chain-of-custody points at whoever was on site. The action that *enables* those
+    /// edits belongs to the same person, and ownership is enforced in the handler.
+    /// </para>
+    /// <para>
+    /// <b>The Lead does not move back</b> — it stays at <c>InspectionDone</c>, because the visit
+    /// did happen and any Angebot built from it stays valid. <b>409</b> if the visit was never
+    /// completed.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/reopen")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<InspectionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Reopen(int id, CancellationToken cancellationToken)
+    {
+        var inspection = await reopenInspectionHandler.HandleAsync(
+            new ReopenInspectionCommand(InspectionId: id, ReopenedByInspectorId: CurrentUserId()),
+            cancellationToken);
 
         return Ok(inspection);
     }

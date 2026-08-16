@@ -21,12 +21,25 @@ describe('Angebot capabilities', () => {
       expect(editable).toEqual([...EDITABLE_STATUSES]);
     });
 
-    it('may submit from Draft only — ChangesRequested reopens by editing, not by a button', () => {
+    /**
+     * Submitting is available from **both** editable states.
+     *
+     * This test previously asserted `['Draft']` only, mirroring an aggregate that accepted nothing
+     * else. QA found the dead end that created: an Inspector who read the Admin's comment and
+     * concluded nothing needed changing had no way to send the quote back, because reaching
+     * `Draft` required editing something first. The workaround — adding and deleting a section to
+     * "unlock" it — is a state change made purely to satisfy a guard.
+     *
+     * The aggregate now accepts either editable state; this asserts the screen agrees with it,
+     * which is the whole contract of this module.
+     */
+    it('may submit from either editable state, so a returned quote can go straight back', () => {
       const submittable = OTHER.filter(
         (status) => capabilitiesFor('inspector', status).canSubmitForReview,
       );
 
-      expect(submittable).toEqual(['Draft']);
+      expect(submittable).toEqual([...EDITABLE_STATUSES]);
+      expect(capabilitiesFor('inspector', 'ChangesRequested').canSubmitForReview).toBeTrue();
     });
 
     it('flags ChangesRequested as awaiting rework, so the screen can explain the next step', () => {

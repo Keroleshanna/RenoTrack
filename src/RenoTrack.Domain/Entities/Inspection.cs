@@ -91,6 +91,45 @@ public sealed class Inspection
     }
 
     /// <summary>
+    /// Reopens a completed Inspection so its record can be corrected, then completed again.
+    ///
+    /// <para>
+    /// <b>This is the action BR-10 itself names, not a relaxation of it.</b> BR-10 states that a
+    /// completed Inspection is immutable and that "any future need to change a completed
+    /// Inspection's record requires a distinct, explicit action (e.g. a 'reopen' use case), not
+    /// implicit editing". The immutability was requested by the Product Owner during Phase 1, so it
+    /// is a real requirement and was not weakened here: <see cref="AddPhoto"/>,
+    /// <see cref="UpdateNotes"/> and <see cref="Reassign"/> still refuse outright while
+    /// <see cref="CompletedAt"/> is set. What changes is that there is now a way to say so
+    /// deliberately, instead of the record being unfixable after a typo.
+    /// </para>
+    /// <para>
+    /// <b>The fact that the visit was completed is not erased.</b> Clearing
+    /// <see cref="CompletedAt"/> is what makes the aggregate editable again, but the completion and
+    /// the reopening are both audited as their own business milestones, so the history reads as
+    /// "completed, reopened, completed again" rather than silently as though the first completion
+    /// never happened. The AuditLog is the record; this field is the lock.
+    /// </para>
+    /// <para>
+    /// The Lead is deliberately unaffected: it stays at <c>InspectionDone</c>, because the visit did
+    /// happen and any Angebot built from it remains valid. Reopening corrects evidence; it does not
+    /// rewind the pipeline. The Application layer therefore calls no Lead method here — the mirror
+    /// of the note on <see cref="Complete"/>.
+    /// </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if this Inspection is not currently completed.</exception>
+    public void Reopen()
+    {
+        if (CompletedAt is null)
+        {
+            throw new InvalidOperationException(
+                $"Cannot perform '{nameof(Reopen)}': Inspection {Id} is not completed.");
+        }
+
+        CompletedAt = null;
+    }
+
+    /// <summary>
     /// Moves this Inspection to a different Inspector. PermissionMatrix.md §2: "Reassign an
     /// Inspection to a different Inspector — Admin only."
     ///

@@ -9,6 +9,7 @@ using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
+using RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
 using RenoTrack.Application.Angebote.Queries.GetAngebote;
@@ -43,6 +44,7 @@ using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Inspections.Commands.CompleteInspection;
 using RenoTrack.Application.Inspections.Commands.ReassignInspection;
+using RenoTrack.Application.Inspections.Commands.ReopenInspection;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
 using RenoTrack.Application.Inspections.Commands.UpdateInspectionNotes;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
@@ -134,6 +136,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<UpdateLeadContactDetailsCommand>, UpdateLeadContactDetailsCommandValidator>();
         services.AddScoped<IValidator<AssignLeadInspectorCommand>, AssignLeadInspectorCommandValidator>();
         services.AddScoped<IValidator<ReassignInspectionCommand>, ReassignInspectionCommandValidator>();
+        services.AddScoped<IValidator<ReopenInspectionCommand>, ReopenInspectionCommandValidator>();
         services.AddScoped<IValidator<PutProjectOnHoldCommand>, PutProjectOnHoldCommandValidator>();
         services.AddScoped<IValidator<ResumeProjectCommand>, ResumeProjectCommandValidator>();
         services.AddScoped<IValidator<GetLeadByIdQuery>, GetLeadByIdQueryValidator>();
@@ -158,6 +161,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<RequestAngebotChangesCommand>, RequestAngebotChangesCommandValidator>();
         services.AddScoped<IValidator<RemoveAngebotSectionCommand>, RemoveAngebotSectionCommandValidator>();
         services.AddScoped<IValidator<RemoveAngebotItemCommand>, RemoveAngebotItemCommandValidator>();
+        services.AddScoped<IValidator<UpdateAngebotItemCommand>, UpdateAngebotItemCommandValidator>();
         services.AddScoped<IValidator<DuplicateAngebotCommand>, DuplicateAngebotCommandValidator>();
         services.AddScoped<IValidator<SendAngebotCommand>, SendAngebotCommandValidator>();
         services.AddScoped<IValidator<GetPublicAngebotByTokenQuery>, GetPublicAngebotByTokenQueryValidator>();
@@ -197,6 +201,7 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<UploadInspectionPhotoCommand, PhotoDto>, UploadInspectionPhotoCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateInspectionNotesCommand, InspectionDto>, UpdateInspectionNotesCommandHandler>();
         services.AddScoped<ICommandHandler<ReassignInspectionCommand, InspectionDto>, ReassignInspectionCommandHandler>();
+        services.AddScoped<ICommandHandler<ReopenInspectionCommand, InspectionDto>, ReopenInspectionCommandHandler>();
 
         services.AddScoped<ICommandHandler<CreateAngebotCommand, AngebotDto>, CreateAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<AddAngebotSectionCommand, SectionDto>, AddAngebotSectionCommandHandler>();
@@ -206,6 +211,7 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<RequestAngebotChangesCommand, AngebotDto>, RequestAngebotChangesCommandHandler>();
         services.AddScoped<ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto>, RemoveAngebotSectionCommandHandler>();
         services.AddScoped<ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto>, RemoveAngebotItemCommandHandler>();
+        services.AddScoped<ICommandHandler<UpdateAngebotItemCommand, AngebotSummaryDto>, UpdateAngebotItemCommandHandler>();
         services.AddScoped<ICommandHandler<DuplicateAngebotCommand, AngebotDto>, DuplicateAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<SendAngebotCommand, AngebotDto>, SendAngebotCommandHandler>();
 

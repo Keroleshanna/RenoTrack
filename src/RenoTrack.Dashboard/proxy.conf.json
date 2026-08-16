@@ -7,7 +7,7 @@
     "Not shipped, and not read by `ng build`."
   ],
   "/api": {
-    "target": "http://localhost:5294",
+    "target": "https://localhost:7060",
     "secure": false,
     "changeOrigin": false
   }

@@ -42,6 +42,23 @@ public sealed class SaveAngebotItemAsCatalogItemCommandHandler(
         var item = await angebotQueries.GetItemAsync(command.AngebotItemId, cancellationToken)
             ?? throw new NotFoundException(nameof(AngebotItem), command.AngebotItemId);
 
+        // Idempotent, not a conflict. FR-4.10 is a one-click action on a line, and a double-click,
+        // a retried request or a screen that has not refreshed must not put two entries into a
+        // shared company library. Returning the existing entry makes a repeat harmless and is
+        // precise, because the match is on this exact line's id rather than on a title anyone else
+        // might legitimately reuse.
+        //
+        // A 409 was considered and rejected: the caller asked for "this line is in the Catalog",
+        // and after a repeat that is exactly the state — refusing would report a failure for an
+        // outcome that already holds.
+        var existing = await catalogItemRepository.GetByCreatedFromAngebotItemIdAsync(
+            command.AngebotItemId, cancellationToken);
+
+        if (existing is not null)
+        {
+            return existing.ToDto();
+        }
+
         var catalogItem = CatalogItem.Create(
             item.Description,
             ItemUnit.FromCode(item.Unit),

@@ -168,6 +168,16 @@ export interface ItemDto {
   readonly unitPrice: number;
   readonly vatRate: VatRateDto;
   readonly lineTotal: number;
+
+  /**
+   * Whether a Catalog entry has already been created *from* this line (FR-4.10).
+   *
+   * **The opposite direction to `catalogItemId`, and not interchangeable with it.** That field
+   * means the line was created *from* the Catalog (BR-8). A line can carry either, both or
+   * neither — using `catalogItemId` to decide whether to offer "save as Catalog item" is what left
+   * the action on offer after it had already been used.
+   */
+  readonly savedToCatalog: boolean;
 }
 
 export interface SectionDetailDto {
@@ -242,7 +252,24 @@ export interface AngebotReviewCommentDto {
  * the way in (`ItemUnit.FromCode`) and resolved on the way out. Naming the write shape separately
  * is what stops the read DTO's field name being sent by mistake — which is exactly the 400 this
  * type was introduced to prevent.
+ *
+ * The code itself is **not** restricted to `STANDARD_UNITS`: `ItemUnit` is a deliberately open
+ * value object, so anything outside the five standard codes becomes a custom unit rather than an
+ * error. The form offers the standard codes for convenience and a free-text escape hatch for the
+ * rest, exactly as the Angebot line-item form does.
  */
+/**
+ * The API's paging limits, mirrored from `Application.Common.Pagination`.
+ *
+ * **These are the server's numbers, not the client's preference.** `GetLeadsQueryValidator` and its
+ * siblings reject a `pageSize` above {@link MAX_PAGE_SIZE} with a `ValidationException`, and a
+ * picker that asked for 200 produced exactly that — a 400 the user experienced as an empty list.
+ * Anything needing more rows than this pages; it does not ask for a bigger page.
+ */
+export const MAX_PAGE_SIZE = 100;
+
+export const DEFAULT_PAGE_SIZE = 25;
+
 export interface CatalogItemWrite {
   readonly title: string;
   readonly defaultUnitCode: string;

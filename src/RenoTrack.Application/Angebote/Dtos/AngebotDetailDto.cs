@@ -53,7 +53,16 @@ public sealed record AngebotDetailDto(
 
 public static class AngebotDetailMappingExtensions
 {
-    public static AngebotDetailDto ToDetailDto(this Angebot angebot) => new(
+    /// <param name="itemIdsSavedToCatalog">
+    /// Line ids a Catalog entry has already been created from (FR-4.10), supplied by the caller
+    /// from <c>ICatalogItemQueries</c>. The aggregate cannot know this — <c>CatalogItem</c> is an
+    /// independent aggregate related by id only — so it is threaded in rather than looked up here.
+    /// An empty set is the honest default: it means "not asked", and the only screen that asks is
+    /// the one offering the action.
+    /// </param>
+    public static AngebotDetailDto ToDetailDto(
+        this Angebot angebot,
+        IReadOnlySet<int>? itemIdsSavedToCatalog = null) => new(
         angebot.Id,
         angebot.LeadId,
         angebot.InspectionId,
@@ -74,12 +83,15 @@ public static class AngebotDetailMappingExtensions
         [.. angebot.Sections
             .OrderBy(section => section.SortOrder)
             .ThenBy(section => section.Id)
-            .Select(section => section.ToDetailDto())]);
+            .Select(section => section.ToDetailDto(itemIdsSavedToCatalog))]);
 
-    public static SectionDetailDto ToDetailDto(this AngebotSection section) => new(
+    public static SectionDetailDto ToDetailDto(
+        this AngebotSection section,
+        IReadOnlySet<int>? itemIdsSavedToCatalog = null) => new(
         section.Id,
         section.Title,
         section.SortOrder,
         section.Subtotal.Amount,
-        [.. section.Items.Select(item => item.ToDto())]);
+        [.. section.Items.Select(item =>
+            item.ToDto(itemIdsSavedToCatalog?.Contains(item.Id) ?? false))]);
 }

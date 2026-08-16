@@ -66,7 +66,12 @@ export function capabilitiesFor(
 
   return {
     canEdit: isInspector && EDITABLE_STATUSES.includes(status),
-    canSubmitForReview: isInspector && status === 'Draft',
+
+    // Both editable states, not just Draft. A returned quote could previously only be resubmitted
+    // after editing something — so an Inspector who read the comment and concluded nothing needed
+    // changing had no way forward, and the workaround was an edit made purely to satisfy a guard.
+    // The aggregate now accepts either state; this mirrors it.
+    canSubmitForReview: isInspector && EDITABLE_STATUSES.includes(status),
     canReview: isAdmin && status === 'InReview',
     canSend: isAdmin && status === 'ApprovedInternally',
     canConvertToProject: isAdmin && status === 'CustomerApproved',

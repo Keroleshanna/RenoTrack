@@ -8,7 +8,7 @@ import { ApiError } from '../../core/api/api-error';
 import { I18n } from '../../core/i18n/i18n';
 import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/state-panels';
 
-type Range = 'week' | 'nextWeek' | 'month';
+export type Range = 'week' | 'nextWeek' | 'month';
 
 type State =
   | { readonly kind: 'loading' }
@@ -284,10 +284,7 @@ export class InspectionsPage {
   protected load(): void {
     this.state.set({ kind: 'loading' });
 
-    const today = startOfDay(new Date());
-    const range = this.range();
-    const from = range === 'nextWeek' ? addDays(today, 7) : today;
-    const to = range === 'week' ? addDays(today, 7) : range === 'nextWeek' ? addDays(today, 14) : addDays(today, 30);
+    const { from, to } = rangeBounds(this.range(), new Date());
 
     this.api.inspections(from, to).subscribe({
       next: (items) => this.state.set({ kind: 'ready', items }),
@@ -299,14 +296,58 @@ export class InspectionsPage {
   }
 }
 
-function startOfDay(date: Date): Date {
+export function startOfDay(date: Date): Date {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
   return copy;
 }
 
-function addDays(date: Date, days: number): Date {
+export function addDays(date: Date, days: number): Date {
   const copy = new Date(date);
   copy.setDate(copy.getDate() + days);
   return copy;
+}
+
+/**
+ * Midnight on the Monday of `date`'s own week.
+ *
+ * Monday, not Sunday: this is a German business calendar (ISO-8601), and "this week" has to mean
+ * the week the office means. `getDay()` returns 0 for Sunday, which is the end of an ISO week, not
+ * the start — the `|| 7` is what maps it to day 7 rather than day 0.
+ */
+export function startOfWeek(date: Date): Date {
+  const start = startOfDay(date);
+  return addDays(start, -((start.getDay() || 7) - 1));
+}
+
+/**
+ * The half-open `[from, to)` window each filter means.
+ *
+ * **These were rolling windows and that was the bug.** "This week" ran today→+7 and "next 30 days"
+ * ran today→+30, so with a single upcoming visit both filters returned the same row and the three
+ * chips looked broken. Rolling ranges are a defensible design, but they are not what the labels
+ * say, and a filter that does not mean its label is worse than one that is merely coarse.
+ *
+ * Now: the two week filters are **calendar** weeks, mutually exclusive and adjacent, so a visit
+ * falls in exactly one of them. "Next 30 days" stays a rolling window from today, because that is
+ * precisely what its label claims — it legitimately overlaps both weeks, and that overlap is the
+ * point rather than a defect.
+ *
+ * `to` is exclusive, matching the API (`ScheduledAt >= from && ScheduledAt < to`), so no visit is
+ * double-counted at a boundary and none falls through the gap between two ranges.
+ */
+export function rangeBounds(range: Range, now: Date): { from: Date; to: Date } {
+  const weekStart = startOfWeek(now);
+
+  switch (range) {
+    case 'week':
+      return { from: weekStart, to: addDays(weekStart, 7) };
+
+    case 'nextWeek':
+      return { from: addDays(weekStart, 7), to: addDays(weekStart, 14) };
+
+    case 'month':
+      // From today, not from the week start: nobody means "the last four days" by "next 30 days".
+      return { from: startOfDay(now), to: addDays(startOfDay(now), 30) };
+  }
 }

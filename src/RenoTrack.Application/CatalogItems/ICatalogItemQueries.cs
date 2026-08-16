@@ -17,4 +17,26 @@ public interface ICatalogItemQueries
         int page,
         int pageSize,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Of the given Angebot line ids, those a Catalog entry was already created from (FR-4.10).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the reverse direction of <c>AngebotItem.CatalogItemId</c>, and confusing the two
+    /// was a real defect.</b> <c>CatalogItemId</c> records that a line was created *from* the
+    /// Catalog (BR-8); this answers whether a line has been contributed *to* it. A line can have
+    /// either, both or neither, so neither field can stand in for the other — the screen that used
+    /// <c>CatalogItemId</c> to decide whether to offer "save as Catalog item" therefore offered it
+    /// forever, including on lines that had already been saved.
+    /// </para>
+    /// <para>
+    /// A query rather than a Domain navigation, because <c>CatalogItem</c> and <c>Angebot</c> are
+    /// independent aggregates related by id only (CLAUDE.md §2). Batched over the whole document
+    /// rather than asked per line, so rendering a quote stays one round trip.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlySet<int>> GetAngebotItemIdsWithCatalogEntryAsync(
+        IReadOnlyCollection<int> angebotItemIds,
+        CancellationToken cancellationToken);
 }

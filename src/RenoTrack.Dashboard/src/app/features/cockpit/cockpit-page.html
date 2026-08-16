@@ -104,6 +104,12 @@
 
           @if (c.funnel.length) {
             <app-funnel-chart [rows]="c.funnel" />
+            <!--
+              States outright that this is a distribution, not a cohort followed over time. Each
+              row's percentage already names its own denominator; this says what the chart as a
+              whole is, so the stages are not read as a running total.
+            -->
+            <p class="rt-caption funnel-summary">{{ t().cockpit.funnel.snapshotHint }}</p>
             @if (c.funnelSummary) {
               <p class="funnel-summary">{{ c.funnelSummary }}</p>
             }

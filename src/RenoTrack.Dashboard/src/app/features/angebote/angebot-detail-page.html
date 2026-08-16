@@ -40,7 +40,26 @@
         endpoint to offer instead — so the screen says so rather than showing a disabled control.
       -->
       @if (capabilities().awaitingRework) {
-        <p class="banner">{{ t().angebotDetail.awaitingRework }}</p>
+        <!--
+          The Admin's comment belongs *here*, not only in the review history further down. An
+          Inspector arriving from a notification needs to see what was asked before they can act on
+          it; making them scroll past the whole document to find it is how a review round gets
+          missed.
+        -->
+        <section class="callout callout--action" role="status">
+          <h2 class="rt-subtitle">{{ t().angebotDetail.changesRequestedTitle }}</h2>
+          <p class="rt-body">{{ t().angebotDetail.changesRequestedBody }}</p>
+
+          @if (latestComment(); as comment) {
+            <figure class="callout__quote">
+              <blockquote class="rt-body">{{ comment.comment }}</blockquote>
+              <figcaption class="rt-caption">
+                {{ t().angebotDetail.byAdmin }} ·
+                {{ comment.createdAt | date: t().formats.dateTime : undefined : locale() }}
+              </figcaption>
+            </figure>
+          }
+        </section>
       } @else if (angebot.status === 'InReview' && !capabilities().canReview) {
         <p class="banner">{{ t().angebotDetail.inReviewHint }}</p>
       }
@@ -111,8 +130,18 @@
                           @if (item.specification) {
                             <span class="rt-table__secondary">{{ item.specification }}</span>
                           }
+                          <!--
+                            Two independent facts, not one. `catalogItemId` means the line was
+                            created *from* the Catalog (BR-8); `savedToCatalog` means a Catalog
+                            entry was created *from this line* (FR-4.10). A line can carry either,
+                            both or neither, and conflating them is what left "save to Catalog" on
+                            offer after it had already been used.
+                          -->
                           @if (item.catalogItemId) {
                             <span class="tag">{{ t().angebotDetail.fromCatalog }}</span>
+                          }
+                          @if (item.savedToCatalog) {
+                            <span class="tag tag--saved">{{ t().angebotDetail.inCatalog }}</span>
                           }
                         </td>
                         <td class="rt-numeric">{{ item.quantity }}</td>
@@ -126,7 +155,17 @@
                         </td>
                         @if (capabilities().canEdit || capabilities().canSaveCustomItemToCatalog) {
                           <td class="row-actions">
-                            @if (capabilities().canSaveCustomItemToCatalog && !item.catalogItemId) {
+                            <!--
+                              Offered on a hand-written line that has not been contributed yet.
+                              `savedToCatalog` is the server's answer to "is this already in the
+                              library", so the button disappears after the first successful save
+                              rather than staying on offer forever.
+                            -->
+                            @if (
+                              capabilities().canSaveCustomItemToCatalog &&
+                              !item.catalogItemId &&
+                              !item.savedToCatalog
+                            ) {
                               <button
                                 type="button"
                                 class="rt-button rt-button--small"
@@ -134,6 +173,16 @@
                                 (click)="saveToCatalog(item)"
                               >
                                 {{ t().angebotDetail.saveToCatalog }}
+                              </button>
+                            }
+                            @if (capabilities().canEdit) {
+                              <button
+                                type="button"
+                                class="rt-button rt-button--small"
+                                [disabled]="busy()"
+                                (click)="openEditItem(section, item)"
+                              >
+                                {{ t().actions.edit }}
                               </button>
                             }
                             @if (capabilities().canEdit) {
@@ -333,26 +382,37 @@
         </ng-container>
       </app-dialog>
 
+      <!--
+        One dialog for adding and correcting a line: the fields are identical and only the target
+        differs. `editingItem()` is what distinguishes them.
+      -->
       <app-dialog
         [open]="itemDialogSection() !== null"
-        [heading]="t().angebotDetail.addItem"
-        [description]="t().angebotDetail.addItemHint"
-        (closed)="itemDialogSection.set(null)"
+        [heading]="editingItem() ? t().angebotDetail.editItem : t().angebotDetail.addItem"
+        [description]="editingItem() ? t().angebotDetail.editItemHint : t().angebotDetail.addItemHint"
+        (closed)="closeItemDialog()"
       >
         <form [formGroup]="itemForm" class="item-form">
-          <div class="item-form__source">
-            <button type="button" class="rt-button" (click)="pickerOpen.set(true)">
-              {{ t().angebotDetail.fromCatalogAction }}
-            </button>
-            @if (itemForm.controls.catalogItemId.value) {
-              <span class="tag">{{ t().angebotDetail.linkedToCatalog }}</span>
-              <button type="button" class="rt-button rt-button--small" (click)="clearCatalogLink()">
-                {{ t().angebotDetail.makeCustom }}
+          <!--
+            The Catalog picker fills a *new* line's values. It is hidden while editing, because
+            re-pointing an existing line at a different Catalog entry is not a correction — that is
+            a different line, and add+remove already expresses it.
+          -->
+          @if (!editingItem()) {
+            <div class="item-form__source">
+              <button type="button" class="rt-button" (click)="pickerOpen.set(true)">
+                {{ t().angebotDetail.fromCatalogAction }}
               </button>
-            } @else {
-              <span class="rt-caption">{{ t().angebotDetail.customItemHint }}</span>
-            }
-          </div>
+              @if (itemForm.controls.catalogItemId.value) {
+                <span class="tag">{{ t().angebotDetail.linkedToCatalog }}</span>
+                <button type="button" class="rt-button rt-button--small" (click)="clearCatalogLink()">
+                  {{ t().angebotDetail.makeCustom }}
+                </button>
+              } @else {
+                <span class="rt-caption">{{ t().angebotDetail.customItemHint }}</span>
+              }
+            </div>
+          }
 
           <div class="rt-field">
             <label class="rt-field__label" for="item-description">{{
@@ -440,14 +500,14 @@
         </form>
 
         <ng-container dialogActions>
-          <button type="button" class="rt-button" (click)="itemDialogSection.set(null)">
+          <button type="button" class="rt-button" (click)="closeItemDialog()">
             {{ t().actions.cancel }}
           </button>
           <button
             type="button"
             class="rt-button rt-button--primary"
             [disabled]="busy()"
-            (click)="addItem()"
+            (click)="saveItem()"
           >
             {{ t().actions.save }}
           </button>

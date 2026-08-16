@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Domain.Entities;
 
@@ -15,4 +16,20 @@ public sealed class CatalogItemRepository(RenoTrackDbContext dbContext) : ICatal
 
     public async Task<CatalogItem?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
         await dbContext.CatalogItems.FindAsync([id], cancellationToken);
+
+    /// <remarks>
+    /// Tracked, not <c>AsNoTracking</c>: the caller returns this entity's DTO on the idempotent
+    /// path and the unit of work is shared, so leaving it tracked keeps the behaviour identical to
+    /// <see cref="GetByIdAsync"/> above.
+    /// <para>
+    /// <c>SingleOrDefaultAsync</c> rather than <c>FirstOrDefault</c> — one line yields at most one
+    /// entry, and if that ever stops being true it is a bug worth failing on rather than silently
+    /// picking one of two.
+    /// </para>
+    /// </remarks>
+    public async Task<CatalogItem?> GetByCreatedFromAngebotItemIdAsync(
+        int angebotItemId,
+        CancellationToken cancellationToken) =>
+        await dbContext.CatalogItems
+            .SingleOrDefaultAsync(c => c.CreatedFromAngebotItemId == angebotItemId, cancellationToken);
 }

@@ -53,6 +53,7 @@ export const DE = {
     create: 'Anlegen',
     confirm: 'Bestätigen',
     remove: 'Entfernen',
+    edit: 'Bearbeiten',
     /** Überschrift der Aktionsspalte — nur für Screenreader, sichtbar bleibt sie leer. */
     actionsColumn: 'Aktionen',
   },
@@ -123,7 +124,7 @@ export const DE = {
       today: 'Termine heute',
       todayHint: 'Ihre Vor-Ort-Termine.',
       quotesToWrite: 'Angebote zu erstellen',
-      quotesToWriteHint: 'Besichtigung erledigt, Angebot fehlt.',
+      quotesToWriteHint: 'Besichtigung erledigt oder Entwurf offen.',
       myQuotes: 'Meine Angebote',
       myQuotesHint: 'In Arbeit oder in Prüfung.',
       week: 'Termine diese Woche',
@@ -145,6 +146,14 @@ export const DE = {
       heading: 'Vom Kontakt zum Auftrag',
       subheading: 'Wo Vorgänge liegen bleiben — und wie viel Geld daran hängt.',
       empty: 'Noch keine Anfragen erfasst.',
+      /**
+       * Nennt ausdrücklich die Bezugsgröße: „50 % von Neue Anfragen“ statt nur „50 %“.
+       * Die Zahl vergleicht den aktuellen Bestand dieser Stufe mit dem der vorherigen — es ist
+       * keine Quote über den Zeitverlauf, und ohne den Bezug wird sie genau so missverstanden.
+       */
+      ofPrevious: '{0} % von {1}',
+      snapshotHint:
+        'Momentaufnahme: Jede Anfrage steht in genau einer Stufe. Die Prozentwerte vergleichen den aktuellen Bestand mit der jeweils vorherigen Stufe.',
       stages: {
         New: 'Neue Anfragen',
         InspectionScheduled: 'Besichtigung geplant',
@@ -170,7 +179,9 @@ export const DE = {
       leadsToSchedule: 'Besichtigung planen',
       leadsToScheduleHint: 'Neue Anfragen ohne Termin',
       quotesToWrite: 'Angebote zu erstellen',
-      quotesToWriteHint: 'Besichtigung erledigt, Angebot fehlt',
+      quotesToWriteHint: 'Besichtigung erledigt oder Entwurf noch offen',
+      quotesChangesRequested: 'Angebote überarbeiten',
+      quotesChangesRequestedHint: 'Die Verwaltung hat Änderungen angefordert',
       inspectionsToday: 'Besichtigungen heute',
       inspectionsTodayHint: 'Vor-Ort-Termine im Tagesplan',
     },
@@ -313,6 +324,17 @@ export const DE = {
     noComments: 'Noch keine Rückmeldungen.',
     byAdmin: 'Verwaltung',
 
+    editItem: 'Position bearbeiten',
+    editItemHint:
+      'Die Änderungen gelten nur für dieses Angebot. Ein Katalogeintrag, der aus dieser Position entstanden ist, bleibt unverändert.',
+    itemUpdated: 'Position wurde aktualisiert.',
+    inCatalog: 'Im Katalog',
+
+    changesRequestedTitle: 'Die Verwaltung hat Änderungen angefordert',
+    changesRequestedBody:
+      'Bitte prüfen Sie die Anmerkung und passen Sie das Angebot an. Anschließend reichen Sie es erneut zur Prüfung ein — auch dann, wenn Sie keine Änderung für nötig halten.',
+    latestComment: 'Aktuelle Anmerkung',
+
     awaitingRework:
       'Die Verwaltung hat Änderungen angefordert. Sobald Sie das Angebot bearbeiten, gilt es wieder als Entwurf und kann erneut eingereicht werden.',
     inReviewHint: 'Dieses Angebot liegt zur Prüfung bei der Verwaltung.',
@@ -391,6 +413,8 @@ export const DE = {
     readOnlyHint: 'Der Katalog wird von der Verwaltung gepflegt.',
     contributeHint:
       'Eigene Positionen übernehmen Sie direkt aus einem Angebot in den Katalog.',
+    useCustomUnit: 'Eigene Einheit eingeben',
+    useStandardUnit: 'Standardeinheit wählen',
   },
 
   /** Die Lead-Detailseite (Wireframe C1) mit den beiden Aktionen, die den Vorgang bewegen. */

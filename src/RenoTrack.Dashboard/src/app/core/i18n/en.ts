@@ -55,6 +55,7 @@ export const EN: Strings = {
     create: 'Create',
     confirm: 'Confirm',
     remove: 'Remove',
+    edit: 'Edit',
     /** Heading for the actions column — screen readers only; it stays visually empty. */
     actionsColumn: 'Actions',
   },
@@ -118,7 +119,7 @@ export const EN: Strings = {
       today: 'Appointments today',
       todayHint: 'Your on-site visits.',
       quotesToWrite: 'Quotes to write',
-      quotesToWriteHint: 'Visit done, quote outstanding.',
+      quotesToWriteHint: 'Visit done, or a draft still open.',
       myQuotes: 'My quotes',
       myQuotesHint: 'Being written or in review.',
       week: 'Appointments this week',
@@ -140,6 +141,14 @@ export const EN: Strings = {
       heading: 'From enquiry to order',
       subheading: 'Where work stalls — and how much money is sitting there.',
       empty: 'No enquiries recorded yet.',
+      /**
+       * Names the denominator outright: "50 % of New enquiries" rather than a bare "50 %".
+       * The figure compares this stage's current count with the previous stage's current count —
+       * it is not a rate over time, and without the reference it is read as one.
+       */
+      ofPrevious: '{0} % of {1}',
+      snapshotHint:
+        'A snapshot: every enquiry sits in exactly one stage. The percentages compare the current count with the stage before it.',
       stages: {
         New: 'New enquiries',
         InspectionScheduled: 'Visit scheduled',
@@ -165,7 +174,9 @@ export const EN: Strings = {
       leadsToSchedule: 'Schedule a site visit',
       leadsToScheduleHint: 'New enquiries with no appointment',
       quotesToWrite: 'Quotes to write',
-      quotesToWriteHint: 'Visit done, quote outstanding',
+      quotesToWriteHint: 'Visit done, or a draft still open',
+      quotesChangesRequested: 'Quotes to revise',
+      quotesChangesRequestedHint: 'The office has requested changes',
       inspectionsToday: 'Site visits today',
       inspectionsTodayHint: "On today's schedule",
     },
@@ -307,6 +318,17 @@ export const EN: Strings = {
     noComments: 'No responses yet.',
     byAdmin: 'Office',
 
+    editItem: 'Edit line',
+    editItemHint:
+      'The change applies to this quote only. A Catalog entry created from this line is unaffected.',
+    itemUpdated: 'Line updated.',
+    inCatalog: 'In Catalog',
+
+    changesRequestedTitle: 'The office has requested changes',
+    changesRequestedBody:
+      'Read the comment and adjust the quote, then submit it for review again — including when you conclude that nothing needs changing.',
+    latestComment: 'Latest comment',
+
     awaitingRework:
       'The office has requested changes. As soon as you edit the quote it becomes a draft again and can be resubmitted.',
     inReviewHint: 'This quote is with the office for review.',
@@ -384,6 +406,8 @@ export const EN: Strings = {
       'Changes apply to new quotes only. Lines already written into a quote are unaffected (BR-8).',
     readOnlyHint: 'The Catalog is curated by the office.',
     contributeHint: 'You add your own lines to the Catalog from within a quote.',
+    useCustomUnit: 'Enter a custom unit',
+    useStandardUnit: 'Choose a standard unit',
   },
 
   /** The Lead detail page (Wireframe C1) and the two actions that move an enquiry. */

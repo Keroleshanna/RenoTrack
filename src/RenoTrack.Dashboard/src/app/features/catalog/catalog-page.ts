@@ -150,15 +150,29 @@ import { WorkspacePage } from '../workspaces/workspace-page';
           <div class="rt-field">
             <label class="rt-field__label" for="catalog-unit">{{ t().catalog.unit }}</label>
             <!--
-              A select over the known codes, not free text: the server resolves this through
-              ItemUnit.FromCode, so an unrecognised string is a 400 the user cannot diagnose.
-              Same list the Angebot line-item form offers, for the same reason.
+              A select over the five standard codes with an escape hatch to free text — the same
+              shape the Angebot line-item form uses, and for the same reason: ItemUnit is a
+              deliberately *open* value object, so an unrecognised code becomes a custom unit
+              rather than an error. Offering only a select would quietly remove a capability the
+              Domain supports; offering only a text box would invite typos where a standard code
+              was meant.
             -->
-            <select id="catalog-unit" class="rt-select" formControlName="defaultUnitCode">
-              @for (unit of units; track unit) {
-                <option [value]="unit">{{ unit }}</option>
-              }
-            </select>
+            @if (customUnit()) {
+              <input id="catalog-unit" class="rt-input" formControlName="defaultUnitCode" />
+            } @else {
+              <select id="catalog-unit" class="rt-select" formControlName="defaultUnitCode">
+                @for (unit of units; track unit) {
+                  <option [value]="unit">{{ unit }}</option>
+                }
+              </select>
+            }
+            <button
+              type="button"
+              class="rt-button rt-button--small unit-toggle"
+              (click)="toggleCustomUnit(!customUnit())"
+            >
+              {{ customUnit() ? t().catalog.useStandardUnit : t().catalog.useCustomUnit }}
+            </button>
           </div>
 
           <div class="rt-field">
@@ -255,6 +269,9 @@ export class CatalogPage extends WorkspacePage<CatalogItemDto> {
 
   protected readonly units = STANDARD_UNITS;
 
+  /** Whether the unit field is a free-text box rather than the standard-code picker. */
+  protected readonly customUnit = signal(false);
+
   protected readonly form = new FormGroup({
     title: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     defaultSpecification: new FormControl('', { nonNullable: true }),
@@ -281,8 +298,19 @@ export class CatalogPage extends WorkspacePage<CatalogItemDto> {
     return this.api.catalogPage({ page, pageSize: this.pageSize });
   }
 
+  protected toggleCustomUnit(custom: boolean): void {
+    this.customUnit.set(custom);
+
+    // Switching back to the picker must land on a value the picker can actually show, or the
+    // control would display the first option while the form still held the custom text.
+    if (!custom && !STANDARD_UNITS.includes(this.form.getRawValue().defaultUnitCode as never)) {
+      this.form.patchValue({ defaultUnitCode: STANDARD_UNITS[0] });
+    }
+  }
+
   protected openCreate(): void {
     this.editing.set(null);
+    this.customUnit.set(false);
     this.form.reset({
       title: '',
       defaultSpecification: '',
@@ -294,6 +322,10 @@ export class CatalogPage extends WorkspacePage<CatalogItemDto> {
 
   protected openEdit(item: CatalogItemDto): void {
     this.editing.set(item);
+
+    // An entry stored with a custom unit opens in the text box, so editing it does not silently
+    // rewrite the unit to a standard code the user never chose.
+    this.customUnit.set(!STANDARD_UNITS.includes(item.defaultUnit as never));
     this.form.reset({
       title: item.title,
       defaultSpecification: item.defaultSpecification ?? '',
