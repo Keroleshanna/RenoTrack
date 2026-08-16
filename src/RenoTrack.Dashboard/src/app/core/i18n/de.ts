@@ -58,6 +58,14 @@ export const DE = {
     actionsColumn: 'Aktionen',
   },
 
+  /** Aktionen auf Kontaktdaten — überall gleich, egal auf welchem Bildschirm sie auftauchen. */
+  contact: {
+    call: 'Anrufen',
+    whatsApp: 'WhatsApp',
+    email: 'E-Mail',
+    route: 'Route',
+  },
+
   states: {
     loading: 'Wird geladen …',
     emptyTitle: 'Keine Einträge',
@@ -215,9 +223,12 @@ export const DE = {
       source: 'Quelle',
       status: 'Status',
       inspector: 'Bauleitung',
+      visit: 'Besichtigung',
       created: 'Eingegangen',
     },
     unassigned: 'Nicht zugewiesen',
+    noVisit: 'Nicht geplant',
+    visitDone: 'erledigt',
     newLead: 'Neuer Lead',
   },
 
@@ -465,6 +476,19 @@ export const DE = {
     notesSaved: 'Notizen wurden gespeichert.',
     photoUploaded: 'Foto wurde hochgeladen.',
     completed: 'Besichtigung wurde abgeschlossen.',
+
+    choosePhotos: 'Fotos auswählen',
+    takePhoto: 'Foto aufnehmen',
+    photosSelected: '{0} Foto(s) ausgewählt',
+    uploading: 'Wird hochgeladen … {0} von {1}',
+    photosUploaded: '{0} Foto(s) hochgeladen.',
+    photosFailed: '{0} Foto(s) konnten nicht hochgeladen werden. Bitte erneut versuchen.',
+
+    reopen: 'Besichtigung wieder öffnen',
+    reopenTitle: 'Besichtigung wieder öffnen?',
+    reopenBody:
+      'Die Besichtigung wird wieder bearbeitbar, damit Notizen und Fotos korrigiert werden können. Der Vorgang wird protokolliert. Die Anfrage bleibt auf „Besichtigung erledigt“ — der Termin hat stattgefunden.',
+    reopened: 'Besichtigung wurde wieder geöffnet.',
 
     reassign: 'Bauleitung ändern',
     reassignTitle: 'Besichtigung übertragen',

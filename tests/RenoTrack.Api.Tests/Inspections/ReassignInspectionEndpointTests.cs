@@ -153,6 +153,75 @@ public sealed class ReassignInspectionEndpointTests(RenoTrackApiFactory factory)
         Assert.Equal(originalInspector, lead.AssignedInspectorId);
     }
 
+    // ---------- POST /inspections/{id}/reopen (BR-10's named remedy) ----------
+
+    [Fact]
+    public async Task Inspector_can_reopen_a_completed_visit_and_correct_it()
+    {
+        var (inspectionId, leadId) = await SeedScheduledInspectionAsync(completed: true);
+        using var client = await InspectorAsync();
+
+        var response = await client.PostAsync($"/api/v1/inspections/{inspectionId}/reopen", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // The edits BR-10 was blocking now work — that is the whole point of reopening.
+        var notes = await client.PatchAsJsonAsync(
+            $"/api/v1/inspections/{inspectionId}", new { notes = "Nachträglich korrigiert." });
+
+        Assert.Equal(HttpStatusCode.OK, notes.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var lead = await dbContext.Leads.AsNoTracking().SingleAsync(l => l.Id == leadId);
+
+        // The Lead does not rewind: the visit happened, and any quote built on it stays valid.
+        Assert.Equal(LeadStatus.InspectionDone, lead.Status);
+    }
+
+    [Fact]
+    public async Task Reopening_a_visit_that_was_never_completed_is_409()
+    {
+        var (inspectionId, _) = await SeedScheduledInspectionAsync();
+        using var client = await InspectorAsync();
+
+        var response = await client.PostAsync($"/api/v1/inspections/{inspectionId}/reopen", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_cannot_reopen_a_visit()
+    {
+        var (inspectionId, _) = await SeedScheduledInspectionAsync(completed: true);
+        using var client = await AdminAsync();
+
+        var response = await client.PostAsync($"/api/v1/inspections/{inspectionId}/reopen", content: null);
+
+        // §2 marks photos, notes and completion Inspector S / Admin — . The action that re-enables
+        // those edits belongs to whoever was on site.
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reopening_is_recorded_in_the_audit_trail()
+    {
+        var (inspectionId, leadId) = await SeedScheduledInspectionAsync(completed: true);
+        using var client = await InspectorAsync();
+
+        await client.PostAsync($"/api/v1/inspections/{inspectionId}/reopen", content: null);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+        // Clearing CompletedAt is what unlocks the aggregate; this row is what preserves the fact
+        // that the visit had been completed.
+        Assert.True(await dbContext.AuditLogs.AsNoTracking().AnyAsync(a =>
+            a.EntityType == "Lead"
+            && a.EntityId == leadId
+            && a.Action == RenoTrack.Application.Common.AuditAction.InspectionReopened));
+    }
+
     // ---------- helpers ----------
 
     private Task<int> InspectorIdAsync() => factory.GetUserIdAsync(RenoTrackApiFactory.InspectorEmail);

@@ -10,6 +10,7 @@ import { AngebotHeaderDto, LeadDto, UserSummaryDto } from '../../core/api/contra
 import { RenoTrackApi } from '../../core/api/renotrack-api';
 import { Auth } from '../../core/auth/auth';
 import { I18n } from '../../core/i18n/i18n';
+import { ContactActions } from '../../shared/ui/contact-actions';
 import { Dialog } from '../../shared/ui/dialog';
 import { Notifier } from '../../shared/ui/notifier';
 import { ErrorState, Skeleton } from '../../shared/ui/state-panels';
@@ -41,6 +42,7 @@ import { StatusChip } from '../../shared/ui/status-chip';
     DatePipe,
     ReactiveFormsModule,
     RouterLink,
+    ContactActions,
     Dialog,
     ErrorState,
     Skeleton,

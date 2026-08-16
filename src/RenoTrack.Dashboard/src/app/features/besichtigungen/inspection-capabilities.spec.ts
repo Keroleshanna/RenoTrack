@@ -58,6 +58,21 @@ describe('Inspection capabilities', () => {
     expect(inspectionCapabilitiesFor('admin', COMPLETED).canReassign).toBeFalse();
   });
 
+  // ---- Reopen (BR-10's own named remedy) ----
+
+  it('offers reopen to Bauleitung only once the visit is complete', () => {
+    // The exact inverse of the on-site controls: unavailable while open, available once closed.
+    expect(inspectionCapabilitiesFor('inspector', null).canReopen).toBeFalse();
+    expect(inspectionCapabilitiesFor('inspector', COMPLETED).canReopen).toBeTrue();
+  });
+
+  it('does not offer reopen to Verwaltung', () => {
+    // §2 marks photos, notes and completion Inspector S / Admin — , so the action that re-enables
+    // those edits belongs to the same person.
+    expect(inspectionCapabilitiesFor('admin', COMPLETED).canReopen).toBeFalse();
+    expect(inspectionCapabilitiesFor('admin', null).canReopen).toBeFalse();
+  });
+
   it('never lets Bauleitung reassign, even their own open visit', () => {
     // Owning the work confers no say in who owns it — the mirror of the Lead assignment rule.
     expect(inspectionCapabilitiesFor('inspector', null).canReassign).toBeFalse();

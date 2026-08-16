@@ -69,6 +69,8 @@ describe('i18n', () => {
       // 'Name' and 'optional' are the same word in German and English.
       'leadForm.name',
       'leadForm.optional',
+      // A brand name. Translating it would be wrong, not merely unnecessary.
+      'contact.whatsApp',
       // "Pos." abbreviates Position in both languages — it is the column marker on the printed
       // quote, not prose.
       'angebotDetail.position',

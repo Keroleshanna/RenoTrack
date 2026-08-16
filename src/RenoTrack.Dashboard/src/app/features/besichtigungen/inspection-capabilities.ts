@@ -34,6 +34,16 @@ export interface InspectionCapabilities {
    * immutable, so rewriting who attended it is refused with a 409 exactly as a late photo is.
    */
   readonly canReassign: boolean;
+
+  /**
+   * Reopening a completed visit so its record can be corrected (BR-10's own named remedy).
+   *
+   * **The exact inverse of the on-site controls**: available only once the visit is complete, and
+   * only to the Inspector, since it is what re-enables *their* edits. BR-10's immutability is not
+   * weakened — photos, notes and reassignment still refuse while `completedAt` is set — this is
+   * the deliberate, audited way to say otherwise.
+   */
+  readonly canReopen: boolean;
 }
 
 export function inspectionCapabilitiesFor(
@@ -48,5 +58,6 @@ export function inspectionCapabilitiesFor(
     canUploadPhoto: open,
     canComplete: open,
     canReassign: role === 'admin' && stillOpen,
+    canReopen: role === 'inspector' && !stillOpen,
   };
 }

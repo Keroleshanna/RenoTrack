@@ -60,6 +60,14 @@ export const EN: Strings = {
     actionsColumn: 'Actions',
   },
 
+  /** Actions on contact details — identical wherever they appear. */
+  contact: {
+    call: 'Call',
+    whatsApp: 'WhatsApp',
+    email: 'Email',
+    route: 'Directions',
+  },
+
   states: {
     loading: 'Loading …',
     emptyTitle: 'Nothing here',
@@ -209,9 +217,12 @@ export const EN: Strings = {
       source: 'Source',
       status: 'Status',
       inspector: 'Site management',
+      visit: 'Site visit',
       created: 'Received',
     },
     unassigned: 'Unassigned',
+    noVisit: 'Not scheduled',
+    visitDone: 'done',
     newLead: 'New lead',
   },
 
@@ -456,6 +467,19 @@ export const EN: Strings = {
     notesSaved: 'Notes saved.',
     photoUploaded: 'Photo uploaded.',
     completed: 'Site visit completed.',
+
+    choosePhotos: 'Choose photos',
+    takePhoto: 'Take a photo',
+    photosSelected: '{0} photo(s) selected',
+    uploading: 'Uploading … {0} of {1}',
+    photosUploaded: '{0} photo(s) uploaded.',
+    photosFailed: '{0} photo(s) could not be uploaded. Please try again.',
+
+    reopen: 'Reopen visit',
+    reopenTitle: 'Reopen this site visit?',
+    reopenBody:
+      'The visit becomes editable again so notes and photos can be corrected. The action is recorded in the audit trail. The enquiry stays at "Visit done" — the visit did take place.',
+    reopened: 'Site visit reopened.',
 
     reassign: 'Change site management',
     reassignTitle: 'Hand this visit to a colleague',

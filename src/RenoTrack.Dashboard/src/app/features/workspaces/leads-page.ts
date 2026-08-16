@@ -2,12 +2,15 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Observable } from 'rxjs';
+import { Observable, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 
 import { ApiError } from '../../core/api/api-error';
+import { ContactActions } from '../../shared/ui/contact-actions';
 import { RenoTrackApi } from '../../core/api/renotrack-api';
 import { Auth } from '../../core/auth/auth';
 import {
+  InspectionDetailDto,
   LEAD_STATUSES,
   LeadDto,
   LeadStatusDto,
@@ -38,7 +41,15 @@ import { WorkspacePage } from './workspace-page';
 @Component({
   selector: 'app-leads-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, ReactiveFormsModule, RouterLink, Dialog, StatusChip, WorkspaceChrome],
+  imports: [
+    DatePipe,
+    ReactiveFormsModule,
+    RouterLink,
+    ContactActions,
+    Dialog,
+    StatusChip,
+    WorkspaceChrome,
+  ],
   template: `
     <app-workspace-chrome
       [title]="t().leads.title"
@@ -73,6 +84,7 @@ import { WorkspacePage } from './workspace-page';
               <th>{{ t().leads.columns.contact }}</th>
               <th>{{ t().leads.columns.source }}</th>
               <th>{{ t().leads.columns.status }}</th>
+              <th>{{ t().leads.columns.visit }}</th>
               <th class="rt-numeric">{{ t().leads.columns.created }}</th>
             </tr>
           </thead>
@@ -88,9 +100,34 @@ import { WorkspacePage } from './workspace-page';
                 <td>
                   <span class="rt-table__primary">{{ lead.phone }}</span>
                   <span class="rt-table__secondary">{{ lead.email }}</span>
+                  <app-contact-actions
+                    [phone]="lead.phone"
+                    [email]="lead.email"
+                    [address]="lead.address"
+                  />
                 </td>
                 <td>{{ t().leadSource[lead.source] }}</td>
                 <td><app-status-chip kind="lead" [value]="lead.status" /></td>
+                <td>
+                  <!--
+                    Real appointment data from the schedule read, not inferred from the Lead's
+                    status: "InspectionScheduled" says a visit exists, never when it is. An
+                    Inspector planning their day should not have to go back to the Cockpit for it.
+                  -->
+                  @if (visitFor(lead.id); as visit) {
+                    <span class="rt-table__primary">
+                      {{ visit.scheduledAt | date: t().formats.date : undefined : locale() }}
+                    </span>
+                    <span class="rt-table__secondary">
+                      {{ visit.scheduledAt | date: t().formats.time : undefined : locale() }}
+                      @if (visit.completedAt) {
+                        · {{ t().leads.visitDone }}
+                      }
+                    </span>
+                  } @else {
+                    <span class="rt-muted">{{ t().leads.noVisit }}</span>
+                  }
+                </td>
                 <td class="rt-numeric">
                   {{ lead.createdAt | date: t().formats.date : undefined : locale() }}
                 </td>
@@ -218,6 +255,23 @@ export class LeadsPage extends WorkspacePage<LeadDto> {
   protected readonly busy = signal(false);
   protected readonly createOpen = signal(false);
 
+  /**
+   * Scheduled visits, keyed by Lead, for the appointment column.
+   *
+   * A separate read because a Lead carries no appointment: the schedule endpoint is the only place
+   * that fact lives, and its window is generous here (a quarter back, a year forward) so a visit
+   * shows up whether it is next week or already done. Scoping is still the server's — an Inspector
+   * sees only their own visits, exactly as they see only their own Leads.
+   *
+   * If it fails the column simply reads "not scheduled" rather than taking the list down: the
+   * pipeline is the point of this screen, and the appointment is a useful extra on top of it.
+   */
+  private readonly visits = signal<ReadonlyMap<number, InspectionDetailDto>>(new Map());
+
+  protected visitFor(leadId: number): InspectionDetailDto | undefined {
+    return this.visits().get(leadId);
+  }
+
   protected readonly form = new FormGroup({
     name: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     phone: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
@@ -250,6 +304,30 @@ export class LeadsPage extends WorkspacePage<LeadDto> {
   constructor() {
     super();
     this.initialise();
+    this.loadVisits();
+  }
+
+  private loadVisits(): void {
+    const from = new Date();
+    from.setMonth(from.getMonth() - 3);
+
+    const to = new Date();
+    to.setFullYear(to.getFullYear() + 1);
+
+    this.api
+      .inspections(from, to)
+      .pipe(catchError(() => of([] as InspectionDetailDto[])))
+      .subscribe((visits) => {
+        const byLead = new Map<number, InspectionDetailDto>();
+
+        // Latest visit wins when a Lead has more than one — a reassigned or repeated visit is the
+        // one the user is planning around, not the historical first attempt.
+        for (const visit of [...visits].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))) {
+          byLead.set(visit.leadId, visit);
+        }
+
+        this.visits.set(byLead);
+      });
   }
 
   protected fetch(status: string | null, page: number): Observable<PagedResult<LeadDto>> {

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Observable, of } from 'rxjs';
+import { Observable, firstValueFrom, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import { ApiError } from '../../core/api/api-error';
@@ -10,6 +10,7 @@ import { InspectionDetailDto, UserSummaryDto } from '../../core/api/contracts';
 import { RenoTrackApi } from '../../core/api/renotrack-api';
 import { Auth } from '../../core/auth/auth';
 import { I18n } from '../../core/i18n/i18n';
+import { ContactActions } from '../../shared/ui/contact-actions';
 import { Dialog } from '../../shared/ui/dialog';
 import { Notifier } from '../../shared/ui/notifier';
 import { ErrorState, Skeleton } from '../../shared/ui/state-panels';
@@ -41,7 +42,7 @@ import { InspectionCapabilities, inspectionCapabilitiesFor } from './inspection-
 @Component({
   selector: 'app-inspection-detail-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, ReactiveFormsModule, RouterLink, Dialog, ErrorState, Skeleton],
+  imports: [DatePipe, ReactiveFormsModule, RouterLink, ContactActions, Dialog, ErrorState, Skeleton],
   templateUrl: './inspection-detail-page.html',
   styleUrl: './inspection-detail-page.scss',
 })
@@ -72,8 +73,17 @@ export class InspectionDetailPage {
     inspectorId: new FormControl<number | null>(null, { validators: [Validators.required] }),
   });
 
-  /** The file chosen for upload, held until the user confirms — never uploaded on selection. */
-  protected readonly pendingFile = signal<File | null>(null);
+  protected readonly reopenOpen = signal(false);
+
+  /** Files chosen for upload, held until the user confirms — never uploaded on selection. */
+  protected readonly pendingFiles = signal<readonly File[]>([]);
+
+  /** Progress while a batch is in flight, e.g. "3 of 5". Null when nothing is uploading. */
+  protected readonly uploadProgress = signal<string | null>(null);
+
+  protected readonly pendingLabel = computed(() =>
+    this.i18n.format(this.t().inspectionDetail.photosSelected, this.pendingFiles().length),
+  );
 
   protected readonly notesForm = new FormGroup({
     notes: new FormControl('', { nonNullable: true }),
@@ -122,21 +132,74 @@ export class InspectionDetailPage {
     );
   }
 
-  protected chooseFile(event: Event): void {
+  protected chooseFiles(event: Event): void {
     const input = event.target as HTMLInputElement;
-    this.pendingFile.set(input.files?.[0] ?? null);
+    this.pendingFiles.set([...(input.files ?? [])]);
+
+    // Cleared so choosing the same file twice in a row still fires `change` — a camera capture
+    // often produces the identical name each time.
+    input.value = '';
   }
 
-  protected uploadPhoto(): void {
-    const file = this.pendingFile();
-    if (!file) {
+  /**
+   * Uploads every selected photo.
+   *
+   * **Sequential, not parallel.** The endpoint writes a file and commits a row per call; firing ten
+   * at once from a phone on site invites timeouts and interleaves failures unhelpfully. One at a
+   * time also makes the progress count honest.
+   *
+   * **Partial failure is reported as partial**, not as total success or total failure: whatever
+   * uploaded stays uploaded — each call is its own transaction — so the user is told how many
+   * arrived and the rest are kept in the pending list to retry. Silently discarding them, or
+   * claiming success for a batch that half-failed, are both worse than an accurate count.
+   */
+  protected async uploadPhotos(): Promise<void> {
+    const files = this.pendingFiles();
+    if (files.length === 0) {
       return;
     }
 
-    this.perform(
-      this.api.uploadInspectionPhoto(this.id, file, null),
-      this.t().inspectionDetail.photoUploaded,
-      () => this.pendingFile.set(null),
+    this.busy.set(true);
+
+    const failed: File[] = [];
+    let uploaded = 0;
+
+    for (const [index, file] of files.entries()) {
+      this.uploadProgress.set(
+        this.i18n.format(this.t().inspectionDetail.uploading, index + 1, files.length),
+      );
+
+      try {
+        await firstValueFrom(this.api.uploadInspectionPhoto(this.id, file, null));
+        uploaded++;
+      } catch {
+        failed.push(file);
+      }
+    }
+
+    this.busy.set(false);
+    this.uploadProgress.set(null);
+    this.pendingFiles.set(failed);
+
+    if (uploaded > 0) {
+      this.notifier.success(
+        this.i18n.format(this.t().inspectionDetail.photosUploaded, uploaded),
+      );
+    }
+
+    if (failed.length > 0) {
+      this.notifier.error(
+        this.i18n.format(this.t().inspectionDetail.photosFailed, failed.length),
+      );
+    }
+
+    // Always, even when everything failed: the count on screen must match the server's.
+    this.reload();
+  }
+
+  protected reopen(): void {
+    this.perform(this.api.reopenInspection(this.id), this.t().inspectionDetail.reopened, () =>
+      this.reopenOpen.set(false),
     );
   }
 

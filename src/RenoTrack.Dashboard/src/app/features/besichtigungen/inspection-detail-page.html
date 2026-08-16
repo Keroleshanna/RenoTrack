@@ -33,9 +33,16 @@
           </div>
           <div class="facts__row">
             <dt>{{ t().leadDetail.phone }}</dt>
-            <dd><a [href]="'tel:' + inspection.leadPhone">{{ inspection.leadPhone }}</a></dd>
+            <dd>{{ inspection.leadPhone }}</dd>
           </div>
         </dl>
+
+        <!--
+          The screen that most needs these: someone standing outside the building, on a phone.
+          Directions and a call are one tap rather than a copy-paste into another app.
+        -->
+        <app-contact-actions [phone]="inspection.leadPhone" [address]="inspection.leadAddress" />
+
         <a class="rt-button open-lead" [routerLink]="['/leads', inspection.leadId]">
           {{ t().inspectionDetail.openLead }}
         </a>
@@ -59,22 +66,53 @@
 
         @if (capabilities().canUploadPhoto) {
           <div class="upload">
-            <input
-              id="photo"
-              class="rt-input"
-              type="file"
-              accept="image/*"
-              capture="environment"
-              (change)="chooseFile($event)"
-            />
-            <button
-              type="button"
-              class="rt-button rt-button--primary"
-              [disabled]="busy() || !pendingFile()"
-              (click)="uploadPhoto()"
-            >
-              {{ t().inspectionDetail.addPhoto }}
-            </button>
+            <!--
+              Two inputs, because they are two different actions on a phone. The library picker is
+              `multiple` and carries no `capture`, so the OS offers the gallery; the camera one
+              carries `capture="environment"`, which is what makes a tap open the rear camera
+              directly instead of a chooser. One input cannot be both — `capture` suppresses the
+              gallery, which is exactly what someone selecting five existing photos does not want.
+            -->
+            <label class="rt-button upload__pick">
+              {{ t().inspectionDetail.choosePhotos }}
+              <input
+                class="rt-visually-hidden"
+                type="file"
+                accept="image/*"
+                multiple
+                (change)="chooseFiles($event)"
+              />
+            </label>
+
+            <label class="rt-button upload__pick">
+              {{ t().inspectionDetail.takePhoto }}
+              <input
+                class="rt-visually-hidden"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                (change)="chooseFiles($event)"
+              />
+            </label>
+
+            @if (pendingFiles().length) {
+              <p class="rt-caption upload__pending">
+                {{ pendingLabel() }}
+              </p>
+
+              <button
+                type="button"
+                class="rt-button rt-button--primary"
+                [disabled]="busy()"
+                (click)="uploadPhotos()"
+              >
+                {{ t().inspectionDetail.addPhoto }}
+              </button>
+            }
+
+            @if (uploadProgress(); as progress) {
+              <p class="rt-caption upload__pending" role="status">{{ progress }}</p>
+            }
           </div>
         }
       </section>
@@ -120,7 +158,25 @@
         </footer>
       }
       @if (inspection.completedAt) {
-        <p class="banner">{{ t().inspectionDetail.completedHint }}</p>
+        <!--
+          BR-10 keeps a completed visit immutable, and that stays true. What the rule itself names
+          as the remedy is an explicit reopen — so the screen says the visit is closed *and* offers
+          the deliberate way to correct it, rather than leaving a dead end.
+        -->
+        <div class="banner">
+          <p>{{ t().inspectionDetail.completedHint }}</p>
+
+          @if (capabilities().canReopen) {
+            <button
+              type="button"
+              class="rt-button rt-button--small"
+              [disabled]="busy()"
+              (click)="reopenOpen.set(true)"
+            >
+              {{ t().inspectionDetail.reopen }}
+            </button>
+          }
+        </div>
       }
 
       <app-dialog
@@ -140,6 +196,31 @@
             (click)="complete()"
           >
             {{ t().actions.confirm }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!--
+        Confirmed, because reopening reverses a workflow gate and is recorded in the audit trail —
+        a consequence outside this screen (D83).
+      -->
+      <app-dialog
+        [open]="reopenOpen()"
+        [heading]="t().inspectionDetail.reopenTitle"
+        [description]="t().inspectionDetail.reopenBody"
+        (closed)="reopenOpen.set(false)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="reopenOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="reopen()"
+          >
+            {{ t().inspectionDetail.reopen }}
           </button>
         </ng-container>
       </app-dialog>

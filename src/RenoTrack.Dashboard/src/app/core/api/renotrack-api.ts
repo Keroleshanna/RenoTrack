@@ -459,6 +459,16 @@ export class RenoTrackApi {
   }
 
   /**
+   * Reopens a completed visit so its record can be corrected (BR-10's own named remedy).
+   *
+   * Assigned Inspector only, and audited. The Lead stays at `InspectionDone` — the visit did
+   * happen, and any quote built from it remains valid. **409** if it was never completed.
+   */
+  reopenInspection(id: number): Observable<InspectionDto> {
+    return this.http.post<InspectionDto>(`/api/v1/inspections/${id}/reopen`, {});
+  }
+
+  /**
    * Moves a scheduled visit to a different Inspector (§2 — Admin only).
    *
    * BR-13 follows: the Lead's assigned Inspector moves with the visit, in the same commit. **409

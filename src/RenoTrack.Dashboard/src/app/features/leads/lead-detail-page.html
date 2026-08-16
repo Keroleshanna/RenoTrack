@@ -45,6 +45,13 @@
           </div>
         </dl>
 
+        <!-- Ring, message, write or navigate — without anyone copying a number out by hand. -->
+        <app-contact-actions
+          [phone]="lead.phone"
+          [email]="lead.email"
+          [address]="lead.address"
+        />
+
         @if (lead.notes) {
           <div class="notes">
             <p class="rt-label">{{ t().leadDetail.notes }}</p>
