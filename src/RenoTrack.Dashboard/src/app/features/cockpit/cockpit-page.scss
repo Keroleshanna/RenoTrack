@@ -1,0 +1,336 @@
+// The Cockpit's composition. The panel, table and typography primitives live in `styles/_base.scss`
+// because every workspace renders the same shapes; what stays here is layout.
+
+:host {
+  display: block;
+  max-width: var(--rt-content-max);
+  margin: 0 auto;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-8);
+}
+
+.head__subtitle {
+  margin-top: var(--rt-space-2);
+}
+
+.head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--rt-space-3);
+}
+
+.head__refresh {
+  padding: var(--rt-space-2) var(--rt-space-4);
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-strong);
+  border-radius: var(--rt-radius-md);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.head__refresh:hover {
+  border-color: var(--rt-brand);
+  color: var(--rt-brand);
+}
+
+// ---- KPI row --------------------------------------------------------------------------------
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-5);
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  padding: var(--rt-space-5);
+  background: var(--rt-surface-raised);
+  border-radius: var(--rt-radius-lg);
+  box-shadow: var(--rt-shadow-1);
+  color: inherit;
+  text-decoration: none;
+  transition: box-shadow var(--rt-motion-fast) var(--rt-ease),
+    transform var(--rt-motion-fast) var(--rt-ease);
+}
+
+// Only the tiles that lead somewhere lift — the affordance has to mean something.
+a.kpi:hover {
+  box-shadow: var(--rt-shadow-2);
+  transform: translateY(-1px);
+}
+
+// The figure is the point of the tile, so it takes the weight and the tabular figures.
+.kpi__value {
+  margin: var(--rt-space-3) 0 var(--rt-space-2);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi__hint {
+  margin-top: auto;
+  color: var(--rt-text-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+// A hairline of tone rather than a coloured card. Six coloured tiles in a row would shout, and
+// nothing on the page would read as more urgent than anything else.
+.kpi--good {
+  box-shadow: inset 0 2px 0 var(--rt-money-paid), var(--rt-shadow-1);
+}
+.kpi--warn {
+  box-shadow: inset 0 2px 0 var(--rt-accent), var(--rt-shadow-1);
+}
+.kpi--bad {
+  box-shadow: inset 0 2px 0 var(--rt-money-overdue), var(--rt-shadow-1);
+}
+
+// ---- Panel grid -----------------------------------------------------------------------------
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--rt-space-5);
+  padding-bottom: var(--rt-space-16);
+}
+
+.grid > .rt-panel {
+  grid-column: span 4;
+}
+
+.grid > .panel--wide {
+  grid-column: span 12;
+}
+
+// The one accented surface: the only panel that is work rather than information.
+.panel--decisions {
+  box-shadow: inset 3px 0 0 var(--rt-accent), var(--rt-shadow-1);
+}
+
+// ---- Decisions ------------------------------------------------------------------------------
+
+.decisions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decision {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: center;
+  gap: var(--rt-space-3);
+  padding: var(--rt-space-3) var(--rt-space-3) var(--rt-space-3) var(--rt-space-2);
+  border-radius: var(--rt-radius-md);
+  color: inherit;
+  text-decoration: none;
+  transition: background var(--rt-motion-fast) var(--rt-ease);
+}
+
+.decision:hover {
+  background: var(--rt-surface-sunken);
+}
+
+.decision__count {
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.decision--high .decision__count {
+  color: var(--rt-money-overdue);
+}
+.decision--medium .decision__count {
+  color: var(--rt-accent);
+}
+.decision--info .decision__count {
+  color: var(--rt-text-muted);
+}
+
+.decision__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.decision__title {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.decision__hint {
+  color: var(--rt-text-muted);
+  font-size: 11.5px;
+}
+
+.decision__value {
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.funnel-summary {
+  margin: var(--rt-space-5) 0 0;
+  padding-top: var(--rt-space-4);
+  border-top: 1px solid var(--rt-border);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+// ---- The day --------------------------------------------------------------------------------
+
+.day--next {
+  margin-top: var(--rt-space-5);
+  padding-top: var(--rt-space-4);
+  border-top: 1px solid var(--rt-border);
+}
+
+.day__label {
+  margin: 0 0 var(--rt-space-3);
+  color: var(--rt-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.day__empty {
+  margin: 0;
+  color: var(--rt-text-muted);
+  font-size: 12.5px;
+}
+
+// Each appointment links to the on-site screen (C3) — the Cockpit lists work, and every entry must
+// reach the place that work is actually done.
+.slot {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: var(--rt-space-3);
+  padding: var(--rt-space-2);
+  margin: 0 calc(-1 * var(--rt-space-2));
+  border-radius: var(--rt-radius-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+.slot:hover {
+  background: var(--rt-surface-sunken);
+}
+
+// A completed visit stays on the plan — it shows what has been done — but recedes.
+.slot--done {
+  opacity: 0.55;
+}
+
+.slot__time {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--rt-brand);
+}
+
+.slot__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.slot__customer {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.slot__address {
+  color: var(--rt-text-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot__done {
+  color: var(--rt-success);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+// ---- Responsive -------------------------------------------------------------------------------
+// Desktop is the business workstation. On mobile the ORDER changes rather than the layout merely
+// narrowing: decisions and the day come first, because that is what a phone is used for on site.
+
+@media (max-width: 1279px) {
+  .kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .grid > .rt-panel {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 899px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--rt-space-3);
+  }
+
+  .grid > .rt-panel,
+  .grid > .panel--wide {
+    grid-column: span 12;
+  }
+
+  .panel--decisions {
+    order: -2;
+  }
+
+  .panel--day {
+    order: -1;
+  }
+
+  .kpi {
+    padding: var(--rt-space-4);
+  }
+
+  .kpi__value {
+    font-size: 21px;
+  }
+
+  .head__actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+// A project row is a destination: the Cockpit lists work, and every entry must reach the place the
+// work is actually done.
+.row-link {
+  color: var(--rt-brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.row-link:hover {
+  text-decoration: underline;
+}

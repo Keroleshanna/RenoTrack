@@ -14,10 +14,12 @@ using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetAngebote;
 using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
+using RenoTrack.Domain.Enums;
 
 namespace RenoTrack.Api.Controllers;
 
@@ -55,6 +57,7 @@ public sealed class AngeboteController(
     ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto> removeSectionHandler,
     ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto> removeItemHandler,
     IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto> getAngebotByIdHandler,
+    IQueryHandler<GetAngeboteQuery, PagedResult<AngebotListItemDto>> getAngeboteHandler,
     IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>> getLeadAngeboteHandler,
     ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto> submitForReviewHandler,
     ICommandHandler<ApproveAngebotCommand, AngebotDto> approveHandler,
@@ -126,6 +129,34 @@ public sealed class AngeboteController(
             cancellationToken);
 
         return Ok(angebote);
+    }
+
+    /// <summary>
+    /// Every Angebot, filterable by status and paged. Admin "F"; an Inspector sees only their own.
+    /// </summary>
+    /// <remarks>
+    /// The cross-Lead read the Dashboard needs. <c>GetForLead</c> below answers "this Lead's
+    /// history" and cannot answer "which quotes are in review" without one request per Lead.
+    ///
+    /// <b>Scope is taken from the token, never the query string</b> (D61): an Inspector's own id is
+    /// forced in, so a caller cannot widen their visibility by asking — the same rule
+    /// <c>LeadsController.GetAll</c> applies to the pipeline.
+    /// </remarks>
+    [HttpGet]
+    [ProducesResponseType<PagedResult<AngebotListItemDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] AngebotStatus? status,
+        [FromQuery] int page = Pagination.FirstPage,
+        [FromQuery] int pageSize = Pagination.DefaultPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await getAngeboteHandler.HandleAsync(
+            new GetAngeboteQuery(status, RequestingInspectorId(), page, pageSize),
+            cancellationToken);
+
+        return Ok(result);
     }
 
     /// <summary>Adds a section to an editable Angebot. Owning Inspector only.</summary>

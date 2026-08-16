@@ -1,0 +1,128 @@
+// Wireframe C3 — the on-site screen. The one genuinely mobile-first surface in this application
+// (SRS §2.4 calls it out for this screen and no other), so the column is narrow by default and the
+// controls are full-width and thumb-sized rather than laid out for a pointer.
+
+:host {
+  display: block;
+  max-width: 720px;
+  margin: 0 auto;
+  padding-bottom: var(--rt-space-16);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-5);
+}
+
+.head__sub {
+  margin-top: var(--rt-space-2);
+}
+
+.state {
+  padding: 3px var(--rt-space-3);
+  background: var(--rt-status-scheduled-bg);
+  border: 1px solid var(--rt-status-scheduled-border);
+  border-radius: var(--rt-radius-pill);
+  color: var(--rt-status-scheduled-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.state--done {
+  background: var(--rt-status-done-bg);
+  border-color: var(--rt-status-done-border);
+  color: var(--rt-status-done-fg);
+}
+
+.block {
+  margin-bottom: var(--rt-space-4);
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-3);
+  margin: var(--rt-space-4) 0 0;
+}
+
+.facts__row dt {
+  color: var(--rt-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.facts__row dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+
+.facts__row a {
+  color: var(--rt-brand);
+  text-decoration: none;
+}
+
+.open-lead {
+  align-self: flex-start;
+  margin-top: var(--rt-space-4);
+}
+
+.upload {
+  display: flex;
+  align-items: center;
+  gap: var(--rt-space-3);
+  flex-wrap: wrap;
+}
+
+.upload .rt-input {
+  flex: 1 1 240px;
+}
+
+.notes-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--rt-space-3);
+  margin-top: var(--rt-space-4);
+}
+
+.notes__text {
+  margin: var(--rt-space-3) 0 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.banner {
+  margin: 0;
+  padding: var(--rt-space-3) var(--rt-space-4);
+  background: var(--rt-surface-sunken);
+  border-radius: var(--rt-radius-md);
+  font-size: 13px;
+  color: var(--rt-text-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+// On a phone, in a stairwell, one-handed: every control is full width and comfortably tappable.
+@media (max-width: 599px) {
+  .actions button,
+  .upload button,
+  .upload .rt-input,
+  .notes-form button,
+  .open-lead {
+    width: 100%;
+  }
+
+  .actions button,
+  .notes-form button {
+    min-height: 44px;
+  }
+}

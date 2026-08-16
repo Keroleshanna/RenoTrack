@@ -1,0 +1,14 @@
+{
+  "//": [
+    "Development only. D74: the Dashboard calls relative /api/v1/... paths so the same code works",
+    "unchanged under Architecture.md §13's same-origin hosting option. This proxy is what makes a",
+    "relative path reach the API while `ng serve` and Kestrel run on different ports.",
+    "Points at the API's HTTP profile, so nobody has to trust the ASP.NET development certificate.",
+    "Not shipped, and not read by `ng build`."
+  ],
+  "/api": {
+    "target": "http://localhost:5294",
+    "secure": false,
+    "changeOrigin": false
+  }
+}

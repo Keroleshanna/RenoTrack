@@ -5,10 +5,12 @@ using RenoTrack.Api.Inspections.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Inspections.Commands.CompleteInspection;
+using RenoTrack.Application.Inspections.Commands.ReassignInspection;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
 using RenoTrack.Application.Inspections.Commands.UpdateInspectionNotes;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Inspections.Dtos;
+using RenoTrack.Application.Inspections.Queries.GetInspections;
 
 namespace RenoTrack.Api.Controllers;
 
@@ -30,8 +32,61 @@ public sealed class InspectionsController(
     ICommandHandler<ScheduleInspectionCommand, InspectionDto> scheduleInspectionHandler,
     ICommandHandler<UploadInspectionPhotoCommand, PhotoDto> uploadPhotoHandler,
     ICommandHandler<CompleteInspectionCommand, InspectionDto> completeInspectionHandler,
-    ICommandHandler<UpdateInspectionNotesCommand, InspectionDto> updateNotesHandler) : ControllerBase
+    ICommandHandler<UpdateInspectionNotesCommand, InspectionDto> updateNotesHandler,
+    ICommandHandler<ReassignInspectionCommand, InspectionDto> reassignInspectionHandler,
+    IQueryHandler<GetInspectionByIdQuery, InspectionDetailDto> getByIdHandler,
+    IQueryHandler<GetInspectionScheduleQuery, IReadOnlyList<InspectionDetailDto>> getScheduleHandler)
+    : ControllerBase
 {
+    /// <summary>
+    /// One Inspection with its Lead's contact details. Admin "F"; an Inspector sees only their own.
+    /// </summary>
+    /// <remarks>
+    /// <b>Phase 10 added this; there was no Inspection read of any kind before</b> — the C3 site
+    /// screen could not load the visit it is named after, and no schedule could be shown to anyone.
+    ///
+    /// A non-owning Inspector receives <b>404, not 403</b>. The scope is a <c>WHERE</c> clause so the
+    /// row is simply not found, and that is the right answer to give: a 403 would confirm that an
+    /// Inspection with that id exists on someone else's round.
+    /// </remarks>
+    [HttpGet("{id:int}")]
+    [ProducesResponseType<InspectionDetailDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
+    {
+        var inspection = await getByIdHandler.HandleAsync(
+            new GetInspectionByIdQuery(id, RequestingInspectorId()),
+            cancellationToken);
+
+        return Ok(inspection);
+    }
+
+    /// <summary>
+    /// Site visits in a time window, earliest first — the operational schedule.
+    /// </summary>
+    /// <remarks>
+    /// Unpaged: the window bounds the result, and one company's day of visits is a handful of rows.
+    /// The window itself is capped by the validator, so this cannot become "every Inspection ever"
+    /// by asking for a century.
+    /// </remarks>
+    [HttpGet]
+    [ProducesResponseType<IReadOnlyList<InspectionDetailDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetSchedule(
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        [FromQuery] bool includeCompleted = true,
+        CancellationToken cancellationToken = default)
+    {
+        var schedule = await getScheduleHandler.HandleAsync(
+            new GetInspectionScheduleQuery(from, to, RequestingInspectorId(), includeCompleted),
+            cancellationToken);
+
+        return Ok(schedule);
+    }
+
     /// <summary>
     /// Schedules an Inspection for a Lead (SRS FR-2.3). Admin only.
     /// </summary>
@@ -48,11 +103,11 @@ public sealed class InspectionsController(
     /// surfacing as 409 through D59's mapping — the controller checks no status itself.
     /// </para>
     /// <para>
-    /// Returns 201 without a <c>Location</c> header, and unlike Slice 5's Lead creation this is
-    /// expected to stay that way for now: no <c>GET /api/v1/inspections/{id}</c> exists, it is
-    /// absent from Architecture.md §5.2's endpoint table, and no agreed Phase 4 slice adds one —
-    /// even though PermissionMatrix.md §2 does document a "View an Inspection" permission. That gap
-    /// is recorded rather than closed by widening this slice.
+    /// Returns 201 without a <c>Location</c> header. <b>That gap is now closed:</b> Phase 10 added
+    /// <c>GET /api/v1/inspections/{id}</c> (see <see cref="GetById"/>), which is the permission
+    /// PermissionMatrix.md §2 always documented as "View an Inspection" and which nothing served.
+    /// The header itself is left off deliberately rather than by omission — every other creation
+    /// endpoint in this codebase behaves the same way, and changing one alone would be inconsistent.
     /// </para>
     /// </remarks>
     [HttpPost("/api/v1/leads/{leadId:int}/inspections")]
@@ -263,6 +318,50 @@ public sealed class InspectionsController(
         return Ok(inspection);
     }
 
+    /// <summary>
+    /// Moves a scheduled Inspection to a different Inspector (<c>PermissionMatrix.md</c> §2
+    /// "Reassign an Inspection to a different Inspector — Admin F, Inspector —").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Admin-only, narrowing the class-level attribute. Marked <c>F</c>, so no ownership check
+    /// belongs here (CLAUDE.md §16) — the outgoing Inspector's ownership is the very thing being
+    /// removed, so consulting it would be backwards.
+    /// </para>
+    /// <para>
+    /// <c>InspectorId</c> comes from the body because it names <em>who is acted upon</em>, matching
+    /// <c>ScheduleInspectionRequest.InspectorId</c> (D61 as corrected in Phase 4 Slice 7). The
+    /// acting Admin still comes from the JWT.
+    /// </para>
+    /// <para>
+    /// The handler also re-applies BR-13, so the Lead's assigned Inspector moves with the visit in
+    /// the same commit. <b>409</b> once the Inspection is completed — BR-10 makes it immutable, and
+    /// rewriting who attended a finished visit would falsify the record. <b>404</b> when the target
+    /// names no active Inspector (D62), which a foreign key alone could not determine.
+    /// </para>
+    /// </remarks>
+    [HttpPut("{id:int}/inspector")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<InspectionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Reassign(
+        int id,
+        ReassignInspectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var inspection = await reassignInspectionHandler.HandleAsync(
+            new ReassignInspectionCommand(
+                InspectionId: id,
+                request.InspectorId,
+                ReassignedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(inspection);
+    }
+
     /// <summary>The authenticated caller's own user id, from the JWT's <c>sub</c> claim.</summary>
     /// <remarks>
     /// Throws rather than returning a sentinel: every action here requires a role, so an
@@ -276,5 +375,31 @@ public sealed class InspectionsController(
         return int.TryParse(subject, out var userId)
             ? userId
             : throw new ForbiddenException("Authenticated principal has no usable subject claim.");
+    }
+
+    /// <summary>
+    /// The caller's own id when they are an Inspector, or <c>null</c> when they are an Admin and
+    /// therefore unrestricted ("F" in <c>PermissionMatrix.md</c> §2).
+    /// </summary>
+    /// <remarks>
+    /// <b>Written to fail secure</b>, identical in shape to the helpers on <c>LeadsController</c> and
+    /// <c>AngeboteController</c>: <c>null</c> means unrestricted, so it is only ever returned after
+    /// positively establishing the Admin role — never by falling through. Inspector is checked first,
+    /// so a mis-provisioned dual-role account is scoped rather than unrestricted. Anything that is
+    /// neither role is refused outright rather than defaulted.
+    /// </remarks>
+    private int? RequestingInspectorId()
+    {
+        if (User.IsInRole(Roles.Inspector))
+        {
+            return CurrentUserId();
+        }
+
+        if (User.IsInRole(Roles.Admin))
+        {
+            return null;
+        }
+
+        throw new ForbiddenException("This account has no role that grants access to Inspections.");
     }
 }

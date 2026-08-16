@@ -1,0 +1,571 @@
+<a class="rt-back-link" routerLink="/angebote">← {{ t().angebotDetail.backToList }}</a>
+
+@switch (loadState()) {
+  @case ('loading') {
+    <section class="rt-panel"><app-skeleton [lineCount]="10" /></section>
+  }
+  @case ('error') {
+    <section class="rt-panel">
+      <app-error-state [body]="loadError()" (retry)="load()" />
+    </section>
+  }
+  @default {
+    @if (detail(); as angebot) {
+      <header class="head">
+        <div>
+          <p class="rt-label">{{ t().angebotDetail.documentLabel }}</p>
+          <h1 class="rt-display">{{ angebot.angebotNumber }}</h1>
+          <p class="rt-body rt-muted head__sub">
+            @if (leadName(); as name) {
+              <a class="head__lead" [routerLink]="['/leads', angebot.leadId]">{{ name }}</a>
+              <span aria-hidden="true"> · </span>
+            }
+            {{ t().angebotDetail.createdOn }}
+            {{ angebot.createdAt | date: t().formats.date : undefined : locale() }}
+          </p>
+        </div>
+
+        <div class="head__status">
+          <app-status-chip kind="angebot" [value]="angebot.status" />
+          <span class="head__total">{{
+            angebot.grossTotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale()
+          }}</span>
+          <span class="rt-caption">{{ t().angebotDetail.grossTotal }}</span>
+        </div>
+      </header>
+
+      <!--
+        The state explanation. `ChangesRequested` is the one state whose next step is not a button:
+        editing is what returns the quote to `Draft` (StateMachine.md §2.3), and there is no reopen
+        endpoint to offer instead — so the screen says so rather than showing a disabled control.
+      -->
+      @if (capabilities().awaitingRework) {
+        <p class="banner">{{ t().angebotDetail.awaitingRework }}</p>
+      } @else if (angebot.status === 'InReview' && !capabilities().canReview) {
+        <p class="banner">{{ t().angebotDetail.inReviewHint }}</p>
+      }
+
+      <section class="rt-panel document">
+        <header class="rt-panel__head">
+          <div>
+            <h2 class="rt-subtitle">{{ t().angebotDetail.positions }}</h2>
+            <p class="rt-panel__sub">{{ t().angebotDetail.positionsHint }}</p>
+          </div>
+          @if (capabilities().canEdit) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="openSectionDialog()"
+            >
+              {{ t().angebotDetail.addSection }}
+            </button>
+          }
+        </header>
+
+        @if (isEmptyDocument()) {
+          <app-empty-state
+            [title]="t().angebotDetail.emptyTitle"
+            [body]="
+              capabilities().canEdit ? t().angebotDetail.emptyBody : t().angebotDetail.emptyBodyRead
+            "
+          />
+        }
+
+        @for (section of angebot.sections; track section.id) {
+          <article class="section">
+            <header class="section__head">
+              <div>
+                <span class="rt-label">{{ t().angebotDetail.position }} {{ section.sortOrder }}</span>
+                <h3 class="rt-subtitle">{{ section.title }}</h3>
+              </div>
+              <div class="section__aside">
+                <span class="rt-caption">{{ t().angebotDetail.subtotal }}</span>
+                <span class="section__subtotal">{{
+                  section.subtotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale()
+                }}</span>
+              </div>
+            </header>
+
+            @if (section.items.length) {
+              <div class="rt-table-wrap">
+                <table class="rt-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t().angebotDetail.columns.description }}</th>
+                      <th class="rt-numeric">{{ t().angebotDetail.columns.quantity }}</th>
+                      <th>{{ t().angebotDetail.columns.unit }}</th>
+                      <th class="rt-numeric">{{ t().angebotDetail.columns.unitPrice }}</th>
+                      <th class="rt-numeric">{{ t().angebotDetail.columns.vat }}</th>
+                      <th class="rt-numeric">{{ t().angebotDetail.columns.lineTotal }}</th>
+                      @if (capabilities().canEdit || capabilities().canSaveCustomItemToCatalog) {
+                        <th><span class="rt-visually-hidden">{{ t().angebotDetail.columns.actions }}</span></th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of section.items; track item.id) {
+                      <tr>
+                        <td>
+                          <span class="rt-table__primary">{{ item.description }}</span>
+                          @if (item.specification) {
+                            <span class="rt-table__secondary">{{ item.specification }}</span>
+                          }
+                          @if (item.catalogItemId) {
+                            <span class="tag">{{ t().angebotDetail.fromCatalog }}</span>
+                          }
+                        </td>
+                        <td class="rt-numeric">{{ item.quantity }}</td>
+                        <td>{{ item.unit }}</td>
+                        <td class="rt-numeric">
+                          {{ item.unitPrice | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}
+                        </td>
+                        <td class="rt-numeric">{{ vatPercent(item.vatRate) }} %</td>
+                        <td class="rt-numeric strong">
+                          {{ item.lineTotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}
+                        </td>
+                        @if (capabilities().canEdit || capabilities().canSaveCustomItemToCatalog) {
+                          <td class="row-actions">
+                            @if (capabilities().canSaveCustomItemToCatalog && !item.catalogItemId) {
+                              <button
+                                type="button"
+                                class="rt-button rt-button--small"
+                                [disabled]="busy()"
+                                (click)="saveToCatalog(item)"
+                              >
+                                {{ t().angebotDetail.saveToCatalog }}
+                              </button>
+                            }
+                            @if (capabilities().canEdit) {
+                              <button
+                                type="button"
+                                class="rt-button rt-button--small rt-button--danger"
+                                [disabled]="busy()"
+                                (click)="removeItem(item)"
+                              >
+                                {{ t().actions.remove }}
+                              </button>
+                            }
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <p class="rt-caption section__empty">{{ t().angebotDetail.sectionEmpty }}</p>
+            }
+
+            @if (capabilities().canEdit) {
+              <footer class="section__foot">
+                <button
+                  type="button"
+                  class="rt-button rt-button--small"
+                  [disabled]="busy()"
+                  (click)="openItemDialog(section)"
+                >
+                  {{ t().angebotDetail.addItem }}
+                </button>
+                <button
+                  type="button"
+                  class="rt-button rt-button--small rt-button--danger"
+                  [disabled]="busy()"
+                  (click)="removeSection(section)"
+                >
+                  {{ t().angebotDetail.removeSection }}
+                </button>
+              </footer>
+            }
+          </article>
+        }
+      </section>
+
+      <!-- The summary block, exactly as the printed document reads it (Architecture.md §6.1). -->
+      <section class="rt-panel summary">
+        <h2 class="rt-subtitle">{{ t().angebotDetail.summary }}</h2>
+        <dl class="summary__list">
+          <div class="summary__row">
+            <dt>{{ t().angebotDetail.netTotal }}</dt>
+            <dd>{{ angebot.netTotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}</dd>
+          </div>
+          @for (line of angebot.vatBreakdown; track line.rate) {
+            <div class="summary__row summary__row--muted">
+              <dt>{{ vatLabel(line.rate) }}</dt>
+              <dd>{{ line.vatAmount | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}</dd>
+            </div>
+          }
+          <div class="summary__row summary__row--total">
+            <dt>{{ t().angebotDetail.grossTotal }}</dt>
+            <dd>{{ angebot.grossTotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <!-- The internal review log (FR-5.4). Readable by both roles; only an Admin ever writes one. -->
+      <section class="rt-panel review">
+        <header class="rt-panel__head">
+          <div>
+            <h2 class="rt-subtitle">{{ t().angebotDetail.reviewHistory }}</h2>
+            <p class="rt-panel__sub">{{ t().angebotDetail.reviewHistoryHint }}</p>
+          </div>
+        </header>
+
+        @if (comments().length === 0) {
+          <p class="rt-caption">{{ t().angebotDetail.noComments }}</p>
+        } @else {
+          <ol class="comments">
+            @for (comment of comments(); track comment.id) {
+              <li class="comment">
+                <p class="comment__meta rt-caption">
+                  {{ t().angebotDetail.byAdmin }}
+                  <span aria-hidden="true"> · </span>
+                  {{ comment.createdAt | date: t().formats.dateTime : undefined : locale() }}
+                </p>
+                <p class="comment__text">{{ comment.comment }}</p>
+              </li>
+            }
+          </ol>
+        }
+      </section>
+
+      <!-- Every action this role may take on this document, in the order the workflow runs. -->
+      @if (
+        capabilities().canSubmitForReview ||
+        capabilities().canReview ||
+        capabilities().canSend ||
+        capabilities().canConvertToProject ||
+        capabilities().canDuplicate
+      ) {
+        <footer class="actions">
+          <!--
+            FR-4.11. Offered from every status: a decided quote is the most useful template there
+            is, and §3's own wording covers past drafts and decided quotes alike.
+          -->
+          @if (capabilities().canDuplicate) {
+            <button type="button" class="rt-button" [disabled]="busy()" (click)="openDuplicate()">
+              {{ t().angebotDetail.duplicate }}
+            </button>
+          }
+          @if (capabilities().canSubmitForReview) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="confirm('submit')"
+            >
+              {{ t().angebotDetail.submitForReview }}
+            </button>
+          }
+          @if (capabilities().canReview) {
+            <button
+              type="button"
+              class="rt-button"
+              [disabled]="busy()"
+              (click)="openChangesDialog()"
+            >
+              {{ t().angebotDetail.requestChanges }}
+            </button>
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="confirm('approve')"
+            >
+              {{ t().angebotDetail.approve }}
+            </button>
+          }
+          @if (capabilities().canSend) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="confirm('send')"
+            >
+              {{ t().angebotDetail.send }}
+            </button>
+          }
+          @if (capabilities().canConvertToProject) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="confirm('convert')"
+            >
+              {{ t().angebotDetail.convert }}
+            </button>
+          }
+        </footer>
+      }
+
+      <!-- ---- Dialogs ------------------------------------------------------------------------ -->
+
+      <app-dialog
+        [open]="sectionDialogOpen()"
+        [heading]="t().angebotDetail.addSection"
+        [description]="t().angebotDetail.addSectionHint"
+        (closed)="sectionDialogOpen.set(false)"
+      >
+        <form [formGroup]="sectionForm" (ngSubmit)="addSection()">
+          <div class="rt-field">
+            <label class="rt-field__label" for="section-title">{{
+              t().angebotDetail.sectionTitle
+            }}</label>
+            <input id="section-title" class="rt-input" formControlName="title" />
+            @if (sectionForm.controls.title.touched && sectionForm.controls.title.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="sectionDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="addSection()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <app-dialog
+        [open]="itemDialogSection() !== null"
+        [heading]="t().angebotDetail.addItem"
+        [description]="t().angebotDetail.addItemHint"
+        (closed)="itemDialogSection.set(null)"
+      >
+        <form [formGroup]="itemForm" class="item-form">
+          <div class="item-form__source">
+            <button type="button" class="rt-button" (click)="pickerOpen.set(true)">
+              {{ t().angebotDetail.fromCatalogAction }}
+            </button>
+            @if (itemForm.controls.catalogItemId.value) {
+              <span class="tag">{{ t().angebotDetail.linkedToCatalog }}</span>
+              <button type="button" class="rt-button rt-button--small" (click)="clearCatalogLink()">
+                {{ t().angebotDetail.makeCustom }}
+              </button>
+            } @else {
+              <span class="rt-caption">{{ t().angebotDetail.customItemHint }}</span>
+            }
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="item-description">{{
+              t().angebotDetail.columns.description
+            }}</label>
+            <input id="item-description" class="rt-input" formControlName="description" />
+            @if (itemForm.controls.description.touched && itemForm.controls.description.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="item-specification">{{
+              t().angebotDetail.specification
+            }}</label>
+            <textarea
+              id="item-specification"
+              class="rt-textarea"
+              formControlName="specification"
+            ></textarea>
+          </div>
+
+          <div class="item-form__grid">
+            <div class="rt-field">
+              <label class="rt-field__label" for="item-quantity">{{
+                t().angebotDetail.columns.quantity
+              }}</label>
+              <input
+                id="item-quantity"
+                class="rt-input"
+                type="number"
+                min="0"
+                step="0.01"
+                formControlName="quantity"
+              />
+            </div>
+
+            <div class="rt-field">
+              <label class="rt-field__label" for="item-unit">{{
+                t().angebotDetail.columns.unit
+              }}</label>
+              @if (customUnit()) {
+                <input id="item-unit" class="rt-input" formControlName="unitCode" />
+              } @else {
+                <select id="item-unit" class="rt-select" formControlName="unitCode">
+                  @for (unit of units; track unit) {
+                    <option [value]="unit">{{ unit }}</option>
+                  }
+                </select>
+              }
+              <button
+                type="button"
+                class="rt-button rt-button--small unit-toggle"
+                (click)="toggleCustomUnit(!customUnit())"
+              >
+                {{ customUnit() ? t().angebotDetail.standardUnit : t().angebotDetail.customUnit }}
+              </button>
+            </div>
+
+            <div class="rt-field">
+              <label class="rt-field__label" for="item-price">{{
+                t().angebotDetail.columns.unitPrice
+              }}</label>
+              <input
+                id="item-price"
+                class="rt-input"
+                type="number"
+                min="0"
+                step="0.01"
+                formControlName="unitPrice"
+              />
+            </div>
+
+            <div class="rt-field">
+              <label class="rt-field__label" for="item-vat">{{
+                t().angebotDetail.columns.vat
+              }}</label>
+              <select id="item-vat" class="rt-select" formControlName="vatRate">
+                @for (rate of vatRates; track rate.value) {
+                  <option [value]="rate.value">{{ rate.percent }} %</option>
+                }
+              </select>
+            </div>
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="itemDialogSection.set(null)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="addItem()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <app-catalog-picker
+        [open]="pickerOpen()"
+        (selected)="useCatalogItem($event)"
+        (cancelled)="pickerOpen.set(false)"
+      />
+
+      <app-dialog
+        [open]="changesDialogOpen()"
+        [heading]="t().angebotDetail.requestChanges"
+        [description]="t().angebotDetail.requestChangesHint"
+        (closed)="changesDialogOpen.set(false)"
+      >
+        <form [formGroup]="changesForm">
+          <div class="rt-field">
+            <label class="rt-field__label" for="review-comment">{{
+              t().angebotDetail.comment
+            }}</label>
+            <textarea id="review-comment" class="rt-textarea" formControlName="comment"></textarea>
+            @if (changesForm.controls.comment.touched && changesForm.controls.comment.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="changesDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="requestChanges()"
+          >
+            {{ t().angebotDetail.requestChanges }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <app-dialog
+        [open]="confirming() !== null"
+        [heading]="confirmationHeading()"
+        [description]="confirmationBody()"
+        (closed)="confirming.set(null)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="confirming.set(null)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="runConfirmed()"
+          >
+            {{ t().actions.confirm }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!--
+        FR-4.11. The target list is the Inspector's own Leads, unfiltered by whether one already
+        has a live quote: that is StateMachine §2.4's rule, the server owns it, and a screen never
+        re-implements a Domain rule to pre-empt a refusal (D83). The hint says so plainly.
+      -->
+      <app-dialog
+        [open]="duplicateOpen()"
+        [heading]="t().angebotDetail.duplicateTitle"
+        [description]="t().angebotDetail.duplicateHint"
+        (closed)="duplicateOpen.set(false)"
+      >
+        @if (duplicateTargets().length) {
+          <form [formGroup]="duplicateForm">
+            <div class="rt-field">
+              <label class="rt-field__label" for="duplicate-target">
+                {{ t().angebotDetail.duplicateTarget }}
+              </label>
+              <select id="duplicate-target" class="rt-select" formControlName="targetLeadId">
+                <option [ngValue]="null">{{ t().leadDetail.chooseInspector }}</option>
+                @for (target of duplicateTargets(); track target.id) {
+                  <option [ngValue]="target.id">{{ target.name }}</option>
+                }
+              </select>
+              @if (
+                duplicateForm.controls.targetLeadId.touched &&
+                duplicateForm.controls.targetLeadId.invalid
+              ) {
+                <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+              }
+            </div>
+            <p class="rt-caption">{{ t().angebotDetail.duplicateTargetHint }}</p>
+          </form>
+        } @else {
+          <p class="rt-body">{{ t().angebotDetail.noDuplicateTargets }}</p>
+        }
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="duplicateOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          @if (duplicateTargets().length) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="duplicate()"
+            >
+              {{ t().actions.create }}
+            </button>
+          }
+        </ng-container>
+      </app-dialog>
+    }
+  }
+}

@@ -109,4 +109,58 @@ public enum AuditAction
     /// explicitly ("AuditLog entry with reason") on top of storing it on the invoice row itself.
     /// </summary>
     InvoiceVoided,
+
+    /// <summary>
+    /// A Lead's contact details were corrected (<c>PermissionMatrix.md</c> §1, Phase 10). Logged
+    /// against the <c>Lead</c>.
+    ///
+    /// <para>
+    /// <b>Audited even though it is an edit rather than a state transition</b>, on
+    /// <see cref="CatalogItemUpdated"/>'s precedent and because FR-2.5 scopes the Lead's trail to
+    /// "every status change <i>and key action</i>". This changes who the customer is understood to
+    /// be — a correction to committed business data other people then act on — which is materially
+    /// different from the in-progress editing CLAUDE.md §10 excludes (Inspection notes, adding a
+    /// draft section). "The email changed, by whom, and when" is precisely what Wireframe C1's
+    /// activity timeline exists to answer.
+    /// </para>
+    /// <para>
+    /// <c>details</c> deliberately carries no before/after values: <c>AuditLog</c> is a free-text
+    /// column, not a field-level change log, and writing the old address into it would scatter
+    /// personal data across a table with a different retention story than <c>Leads</c> itself.
+    /// </para>
+    /// </summary>
+    LeadContactDetailsUpdated,
+
+    /// <summary>
+    /// An Admin assigned or reassigned the Inspector responsible for a Lead
+    /// (<c>PermissionMatrix.md</c> §1, Phase 10). Logged against the <c>Lead</c>, with the newly
+    /// assigned Inspector's id in <c>details</c>.
+    ///
+    /// <para>
+    /// A genuine milestone: it changes who is accountable for the work, and it is what makes an
+    /// Inspector's scoped pipeline (§1's server-side filter) show or stop showing this Lead. Note
+    /// that scheduling an Inspection also assigns the Inspector (BR-13) — that path is already
+    /// covered by <see cref="InspectionScheduled"/> and is not double-logged here.
+    /// </para>
+    /// </summary>
+    LeadInspectorAssigned,
+
+    /// <summary>
+    /// An Admin moved an Inspection to a different Inspector (<c>PermissionMatrix.md</c> §2
+    /// "Reassign an Inspection to a different Inspector", Phase 10). Logged against the
+    /// <c>Lead</c>, following <see cref="InspectionScheduled"/>'s target exactly and for the same
+    /// reason: reassignment re-applies BR-13, so the Lead's assigned Inspector moves with it, and
+    /// CLAUDE.md §10 puts the audit row where the business-visible change lands.
+    /// </summary>
+    InspectionReassigned,
+
+    /// <summary>
+    /// A Project was paused (<c>PermissionMatrix.md</c> §5 "Put Project On Hold / Resume",
+    /// StateMachine.md §4.3). Logged against the <c>Project</c>, like
+    /// <see cref="ProjectCompleted"/> — a status change on the Project that moves nothing else.
+    /// </summary>
+    ProjectPutOnHold,
+
+    /// <summary>Work resumed on a paused Project — the mirror of <see cref="ProjectPutOnHold"/>.</summary>
+    ProjectResumed,
 }

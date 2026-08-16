@@ -8,6 +8,8 @@ using Microsoft.IdentityModel.Tokens;
 using RenoTrack.Application.Angebote;
 using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common.Interfaces;
+using RenoTrack.Application.Inspections;
+using RenoTrack.Application.Invoices;
 using RenoTrack.Application.Leads;
 using RenoTrack.Application.Projects;
 using RenoTrack.Infrastructure.Email;
@@ -98,7 +100,14 @@ public static class DependencyInjection
         services.AddScoped<IAngebotReviewCommentQueries, AngebotReviewCommentQueries>();
         services.AddScoped<ILeadQueries, LeadQueries>();
         services.AddScoped<IProjectQueries, ProjectQueries>();
+        services.AddScoped<IInvoiceQueries, InvoiceQueries>();
+        services.AddScoped<IInspectionQueries, InspectionQueries>();
         services.AddScoped<IUserQueries, UserQueries>();
+
+        // Infrastructure-owned read consumed directly by its controller (D77). Because
+        // DependencyInjectionTests reflects only over the Application assembly, this registration is
+        // pinned by its own explicit resolution test instead.
+        services.AddScoped<IUserDirectoryQueries, UserDirectoryQueries>();
         // Infrastructure-owned on both sides, unlike every registration above it: the interface as
         // well as the implementation lives here, because the record it reads is Infrastructure's
         // (D69) and Application cannot name its enums. See INotificationDeliveryQueries.

@@ -45,4 +45,18 @@ public interface IProjectQueries
     /// </para>
     /// </summary>
     Task<ProjectInvoiceBalanceDto?> GetInvoiceBalanceAsync(int projectId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Projects, newest first, optionally filtered by status — the list the Projekte workspace and
+    /// the Cockpit need. Before Phase 10 a Project was reachable only by id.
+    /// </summary>
+    /// <remarks>
+    /// <b>No scope parameter:</b> PermissionMatrix.md §5 grants Project reads to both roles
+    /// unscoped, so there is nothing to filter by. See <c>GetProjectsQueryHandler</c>.
+    /// </remarks>
+    Task<Common.PagedResult<ProjectListItemDto>> GetPagedAsync(
+        Domain.Enums.ProjectStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken);
 }

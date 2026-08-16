@@ -1,1 +1,31 @@
-/* You can add global styles to this file, and also import other style files */
+// The Dashboard's global stylesheet.
+//
+// Order matters: Material's theme first so its system tokens exist, then our tokens, then our base
+// layer — which is what overrides Material's defaults rather than being overridden by them (D75:
+// Material is the component foundation, its look is not shipped).
+@use '@angular/material' as mat;
+@use 'styles/tokens';
+@use 'styles/base';
+
+// One theme, light only. A dark theme is a real product decision with its own review, not a switch
+// to flip in passing — and every chart colour above is tuned for a light surface.
+html {
+  @include mat.theme((
+    color: (primary: mat.$azure-palette, tertiary: mat.$orange-palette),
+    typography: Inter,
+    density: -1,
+  ));
+
+  // Material's own surface tokens, pointed at ours so its components sit on our palette rather than
+  // introducing a second one alongside it.
+  --mat-sys-primary: var(--rt-brand);
+  --mat-sys-on-primary: #ffffff;
+  --mat-sys-surface: var(--rt-surface-raised);
+  --mat-sys-on-surface: var(--rt-text);
+  --mat-sys-background: var(--rt-surface-page);
+  --mat-sys-error: var(--rt-danger);
+  --mat-sys-outline: var(--rt-border-strong);
+  --mat-sys-outline-variant: var(--rt-border);
+
+  color-scheme: light;
+}

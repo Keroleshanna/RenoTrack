@@ -1,0 +1,98 @@
+// Wireframe E1 — the Project, its money, and its Invoices.
+
+:host {
+  display: block;
+  max-width: var(--rt-content-max);
+  margin: 0 auto;
+  padding-bottom: var(--rt-space-16);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-5);
+}
+
+.head__sub {
+  margin-top: var(--rt-space-2);
+}
+
+.head__sub a {
+  color: var(--rt-brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.head__sub a:hover {
+  text-decoration: underline;
+}
+
+.figures {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--rt-space-8);
+  margin-bottom: var(--rt-space-5);
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.figure__value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+// BR-3's warning, carried by colour *and* by the banner below — never by colour alone.
+.figure__value--warn {
+  color: var(--rt-money-overdue);
+}
+
+.banner {
+  margin: 0 0 var(--rt-space-5);
+  padding: var(--rt-space-3) var(--rt-space-4);
+  background: var(--rt-warning-bg);
+  border-radius: var(--rt-radius-md);
+  font-size: 13px;
+}
+
+.invoices__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--rt-space-5);
+  padding-top: var(--rt-space-4);
+  border-top: 1px solid var(--rt-border);
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--rt-space-2);
+}
+
+.strong {
+  font-weight: 650;
+}
+
+.stacked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-4);
+}
+
+@media (max-width: 599px) {
+  .figures {
+    flex-direction: column;
+    gap: var(--rt-space-4);
+  }
+  .invoices__foot button {
+    width: 100%;
+  }
+}

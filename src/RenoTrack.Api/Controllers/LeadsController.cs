@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Api.Leads.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
+using RenoTrack.Application.Leads.Commands.AssignLeadInspector;
 using RenoTrack.Application.Leads.Commands.CreateLead;
+using RenoTrack.Application.Leads.Commands.UpdateLeadContactDetails;
 using RenoTrack.Application.Leads.Dtos;
 using RenoTrack.Application.Leads.Queries.GetLeadById;
 using RenoTrack.Application.Leads.Queries.GetLeads;
@@ -35,6 +37,8 @@ namespace RenoTrack.Api.Controllers;
 [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
 public sealed class LeadsController(
     ICommandHandler<CreateLeadCommand, LeadDto> createLeadHandler,
+    ICommandHandler<UpdateLeadContactDetailsCommand, LeadDto> updateContactDetailsHandler,
+    ICommandHandler<AssignLeadInspectorCommand, LeadDto> assignInspectorHandler,
     IQueryHandler<GetLeadByIdQuery, LeadDto> getLeadByIdHandler,
     IQueryHandler<GetLeadsQuery, PagedResult<LeadDto>> getLeadsHandler) : ControllerBase
 {
@@ -80,6 +84,63 @@ public sealed class LeadsController(
 
         // Now that GetById exists (Slice 6), this carries a real Location header — deferred from
         // Slice 5 precisely because a Location pointing at a route that 404s is worse than none.
+        return CreatedAtAction(nameof(GetById), new { id = lead.Id }, lead);
+    }
+
+    /// <summary>
+    /// Creates a Lead the Admin logged by hand after a phone call or an email exchange
+    /// (SRS FR-2.1, Sequence Diagram §2, <c>PermissionMatrix.md</c> §1 "Create Lead manually
+    /// (phone/email) — Admin F").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A separate route from the public contact form, deliberately, and this deviates from
+    /// Sequence Diagram §2's depiction.</b> That diagram shows manual entry posting to
+    /// <c>POST /api/v1/leads</c> under <c>[Authorize(Roles="Admin")]</c> — but that route is the
+    /// anonymous contact form, and one route cannot be both anonymous and Admin-only. Serving both
+    /// from one action would mean an <c>[AllowAnonymous]</c> action branching on
+    /// <c>User.Identity.IsAuthenticated</c> to decide whether to trust a body-supplied
+    /// <c>Source</c> — a controller deciding something (CLAUDE.md §22), on the exact field D61
+    /// identifies as a security boundary, behind the fail-closed default D57 exists to protect.
+    /// The route is therefore split and the diagram corrected, per CLAUDE.md §15. See D86.
+    /// </para>
+    /// <para>
+    /// Admin-only, narrowing the class-level attribute: <c>PermissionMatrix.md</c> §1 marks this
+    /// row Admin <c>F</c>, Inspector <c>—</c>. It is an <c>F</c>, so no <c>IOwnershipValidator</c>
+    /// call belongs here (CLAUDE.md §16) — there is no existing record to own.
+    /// </para>
+    /// <para>
+    /// No notification is sent, and that is not an omission: FR-9.2's new-Lead notification exists
+    /// to tell an Admin something arrived while nobody was looking. <c>CreateLeadCommandHandler</c>
+    /// gates it on <c>Source == Website</c>, which <see cref="ManualLeadSource"/> cannot express.
+    /// </para>
+    /// </remarks>
+    [HttpPost("manual")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<LeadDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> CreateManually(
+        CreateLeadManuallyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var command = new CreateLeadCommand(
+            request.Name,
+            request.Phone,
+            request.Email,
+            // Translation, not a decision: ManualLeadSource has no Website value to reject.
+            Source: request.Source switch
+            {
+                ManualLeadSource.Phone => LeadSource.Phone,
+                _ => LeadSource.Email
+            },
+            request.Address,
+            request.Notes,
+            // Server-derived, never from the request body (D61) — this attributes the audit entry.
+            CreatedByUserId: CurrentUserId());
+
+        var lead = await createLeadHandler.HandleAsync(command, cancellationToken);
+
         return CreatedAtAction(nameof(GetById), new { id = lead.Id }, lead);
     }
 
@@ -135,6 +196,91 @@ public sealed class LeadsController(
     }
 
     /// <summary>
+    /// Corrects a Lead's contact details (<c>PermissionMatrix.md</c> §1 "Edit Lead contact details
+    /// — Admin F, Inspector S"). Admin: any Lead. Inspector: only their own assigned Leads,
+    /// enforced by <c>IOwnershipValidator</c> inside the handler — 403, not 404 (CLAUDE.md §16).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>PUT</c>, not <c>PATCH</c>: the body carries the complete set of contact fields and
+    /// replaces all four, so a field omitted from the request is a request to clear it, not to
+    /// leave it alone. <c>PATCH /api/v1/inspections/{id}</c> is a genuine partial update of one
+    /// field and correctly uses the other verb.
+    /// </para>
+    /// <para>
+    /// Both roles reach this action, so it keeps the class-level attribute rather than narrowing
+    /// it, and the scoping is decided by <see cref="RequestingInspectorId"/> — which fails secure,
+    /// refusing any caller who is neither role rather than defaulting them to unrestricted.
+    /// </para>
+    /// </remarks>
+    [HttpPut("{id:int}")]
+    [ProducesResponseType<LeadDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateContactDetails(
+        int id,
+        UpdateLeadContactDetailsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var lead = await updateContactDetailsHandler.HandleAsync(
+            new UpdateLeadContactDetailsCommand(
+                LeadId: id,
+                request.Name,
+                request.Phone,
+                request.Email,
+                request.Address,
+                // What the caller may reach (null = Admin, unrestricted) …
+                RequestingInspectorId: RequestingInspectorId(),
+                // … versus who they are, which the audit entry needs for an Admin too (D61).
+                PerformedByUserId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(lead);
+    }
+
+    /// <summary>
+    /// Assigns or reassigns the Inspector responsible for a Lead (<c>PermissionMatrix.md</c> §1
+    /// "Assign/reassign Inspector to a Lead — Admin F").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Admin-only, narrowing the class-level attribute. Marked <c>F</c>, so no ownership check
+    /// belongs here (CLAUDE.md §16).
+    /// </para>
+    /// <para>
+    /// <c>InspectorId</c> comes from the body deliberately — it names <em>who is acted upon</em>,
+    /// not who is acting, and deriving it from the token would make it impossible to assign anyone
+    /// but oneself (D61 as corrected in Phase 4 Slice 7). The acting Admin still comes from the JWT.
+    /// </para>
+    /// <para>
+    /// An id that names no active Inspector returns <b>404</b>, not 400 — the handler asks
+    /// <c>IUserQueries</c> the single business question "may work be assigned to this person?",
+    /// which a database FK could not answer for a deactivated or wrong-role account (D62).
+    /// </para>
+    /// </remarks>
+    [HttpPut("{id:int}/inspector")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<LeadDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AssignInspector(
+        int id,
+        AssignLeadInspectorRequest request,
+        CancellationToken cancellationToken)
+    {
+        var lead = await assignInspectorHandler.HandleAsync(
+            new AssignLeadInspectorCommand(
+                LeadId: id,
+                request.InspectorId,
+                AssignedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(lead);
+    }
+
+    /// <summary>
     /// The caller's own user id when they are an Inspector, or <c>null</c> when they are an Admin
     /// and therefore unrestricted ("F" in <c>PermissionMatrix.md</c> §1).
     /// </summary>
@@ -178,5 +324,15 @@ public sealed class LeadsController(
         }
 
         throw new ForbiddenException("This account has no role that grants access to Leads.");
+    }
+
+    /// <summary>The authenticated caller's user id, from the token's subject claim (D61).</summary>
+    private int CurrentUserId()
+    {
+        var subject = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        return int.TryParse(subject, out var userId)
+            ? userId
+            : throw new ForbiddenException("Authenticated principal has no usable subject claim.");
     }
 }

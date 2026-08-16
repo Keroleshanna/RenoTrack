@@ -111,6 +111,92 @@ public class LeadTests
         Assert.Equal(status, lead.Status);
     }
 
+    // ---- UpdateContactDetails --------------------------------------------
+    // Clerical correction, deliberately independent of LeadStatus for the same reason
+    // AssignInspector is (PermissionMatrix.md §1 places no timing restriction on it).
+
+    [Theory]
+    [MemberData(nameof(AllStatuses))]
+    public void UpdateContactDetails_WorksFromAnyStatusAndLeavesStatusUnchanged(LeadStatus status)
+    {
+        var lead = CreateLeadInStatus(status);
+
+        lead.UpdateContactDetails("Neuer Name", "+49 151 99999999", "neu@example.de", "Neue Straße 1");
+
+        Assert.Equal("Neuer Name", lead.Name);
+        Assert.Equal("+49 151 99999999", lead.Phone);
+        Assert.Equal("neu@example.de", lead.Email);
+        Assert.Equal("Neue Straße 1", lead.Address);
+        Assert.Equal(status, lead.Status);
+    }
+
+    [Fact]
+    public void UpdateContactDetails_TrimsEveryFieldLikeCreateDoes()
+    {
+        var lead = Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Phone);
+
+        lead.UpdateContactDetails("  Anna  ", "  +49 151 1  ", "  anna@example.de  ", "  Weg 2  ");
+
+        Assert.Equal("Anna", lead.Name);
+        Assert.Equal("+49 151 1", lead.Phone);
+        Assert.Equal("anna@example.de", lead.Email);
+        Assert.Equal("Weg 2", lead.Address);
+    }
+
+    [Fact]
+    public void UpdateContactDetails_AcceptsANullAddressBecauseAddressIsOptional()
+    {
+        var lead = Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Website, address: "Alte Straße 9");
+
+        lead.UpdateContactDetails(ValidName, ValidPhone, ValidEmail, address: null);
+
+        // A PUT replacing all four fields means an omitted address is a request to clear it.
+        Assert.Null(lead.Address);
+    }
+
+    [Theory]
+    [InlineData("", "+49 151 1", "a@example.de")]
+    [InlineData("   ", "+49 151 1", "a@example.de")]
+    [InlineData("Anna", "", "a@example.de")]
+    [InlineData("Anna", "   ", "a@example.de")]
+    [InlineData("Anna", "+49 151 1", "")]
+    [InlineData("Anna", "+49 151 1", "   ")]
+    public void UpdateContactDetails_RejectsBlankRequiredFields(string name, string phone, string email)
+    {
+        var lead = Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Website);
+
+        // The same three fields Create requires, because they are lifetime invariants rather than
+        // creation-time conditions — so both entry points must enforce them.
+        Assert.Throws<ArgumentException>(() => lead.UpdateContactDetails(name, phone, email, null));
+    }
+
+    [Fact]
+    public void UpdateContactDetails_LeavesTheRejectedLeadUntouched()
+    {
+        var lead = Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Website, "Alte Straße 9");
+
+        Assert.Throws<ArgumentException>(() => lead.UpdateContactDetails("Anna", "+49 151 1", "", null));
+
+        // Guards run before any assignment, so a refused correction cannot half-apply.
+        Assert.Equal(ValidName, lead.Name);
+        Assert.Equal(ValidPhone, lead.Phone);
+        Assert.Equal(ValidEmail, lead.Email);
+        Assert.Equal("Alte Straße 9", lead.Address);
+    }
+
+    [Fact]
+    public void UpdateContactDetails_DoesNotChangeSourceOrAssignedInspector()
+    {
+        var lead = Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Phone);
+        lead.AssignInspector(7);
+
+        lead.UpdateContactDetails("Anna", "+49 151 1", "anna@example.de", null);
+
+        // Correcting how to reach someone says nothing about where they came from or who owns them.
+        Assert.Equal(LeadSource.Phone, lead.Source);
+        Assert.Equal(7, lead.AssignedInspectorId);
+    }
+
     public static IEnumerable<object[]> AllStatuses() =>
         Enum.GetValues<LeadStatus>().Select(status => new object[] { status });
 

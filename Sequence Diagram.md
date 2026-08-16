@@ -67,7 +67,7 @@ sequenceDiagram
 
     AD->>DASH: Open "New Lead" form, choose source = Phone/Email
     AD->>DASH: Fill name, phone, email, address, notes
-    DASH->>API: POST /api/v1/leads (Authorization: Bearer <JWT>) { ..., source }
+    DASH->>API: POST /api/v1/leads/manual (Authorization: Bearer <JWT>) { ..., source }
     API->>API: [Authorize(Roles="Admin")]
     API->>APP: Send(CreateLeadCommand)
     APP->>REPO: AddAsync(lead)
@@ -78,6 +78,10 @@ sequenceDiagram
     API-->>DASH: 201 Created
     DASH-->>AD: Lead appears at top of pipeline (status = New)
 ```
+
+> **Route corrected in Phase 10 (`ARCHITECTURE_DECISIONS.md` D86).** Earlier drafts of this diagram showed `POST /api/v1/leads` for manual entry. That route is the anonymous website contact form (§1), and one action cannot be both `[AllowAnonymous]` and `[Authorize(Roles="Admin")]` — serving both would mean a controller branching on whether the caller is authenticated to decide whether to trust a body-supplied `source`, which is the one field gating FR-9.2's Admin notification. Manual entry is therefore its own Admin-only route, and `source` is typed so that `Website` is not expressible on it.
+>
+> **No notification step appears here, and that is deliberate**, not an omission of the kind corrected in §4: FR-9.2's new-Lead notification exists to tell an Admin something arrived unattended. An Admin logging a phone call is already at the keyboard.
 
 ---
 

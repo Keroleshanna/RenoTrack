@@ -90,6 +90,33 @@ public sealed class Inspection
         CompletedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Moves this Inspection to a different Inspector. PermissionMatrix.md §2: "Reassign an
+    /// Inspection to a different Inspector — Admin only."
+    ///
+    /// <para>
+    /// <b>Guarded by BR-10, unlike <c>Lead.AssignInspector</c> which has no guard at all.</b> The
+    /// asymmetry is real, not an inconsistency: a Lead is an open-ended pipeline record that stays
+    /// administratively editable for its whole life, whereas a completed Inspection is explicitly
+    /// immutable evidence of who was on site and what they found. Rewriting the Inspector on a
+    /// finished visit would falsify that record — the same reasoning that already stops notes and
+    /// photos changing after completion.
+    /// </para>
+    /// <para>
+    /// The Application layer is responsible for re-applying BR-13 to the Lead afterwards (its
+    /// <c>AssignedInspectorId</c> follows the visit), exactly as <see cref="Schedule"/> relies on
+    /// it to call <c>Lead.MarkInspectionScheduled()</c> — this aggregate has no knowledge of Lead
+    /// as a type. Whether the target is a real, active Inspector is likewise not checkable here;
+    /// that needs a query, so it belongs to the handler (CLAUDE.md §2's self-guards-only rule).
+    /// </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if this Inspection is already completed (BR-10).</exception>
+    public void Reassign(int inspectorId)
+    {
+        EnsureNotCompleted(nameof(Reassign));
+        InspectorId = inspectorId;
+    }
+
     private void EnsureNotCompleted(string actionName)
     {
         if (CompletedAt is not null)

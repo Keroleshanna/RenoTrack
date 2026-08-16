@@ -11,6 +11,7 @@ using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetAngebote;
 using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Angebote.Queries.GetPublicAngebotByToken;
@@ -26,22 +27,31 @@ using RenoTrack.Application.Invoices.Commands.CreateInvoice;
 using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
 using RenoTrack.Application.Invoices.Commands.VoidInvoice;
+using RenoTrack.Application.Invoices.Queries.GetInvoices;
+using RenoTrack.Application.Invoices.Queries.GetReceivables;
 using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
 using RenoTrack.Application.Invoices.Dtos;
 using RenoTrack.Application.Projects.Commands.CompleteProject;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
+using RenoTrack.Application.Projects.Commands.PutProjectOnHold;
+using RenoTrack.Application.Projects.Commands.ResumeProject;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
+using RenoTrack.Application.Projects.Queries.GetProjects;
 using RenoTrack.Application.Projects.Queries.GetProjectInvoiceBalance;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Inspections.Commands.CompleteInspection;
+using RenoTrack.Application.Inspections.Commands.ReassignInspection;
 using RenoTrack.Application.Inspections.Commands.ScheduleInspection;
 using RenoTrack.Application.Inspections.Commands.UpdateInspectionNotes;
 using RenoTrack.Application.Inspections.Commands.UploadInspectionPhoto;
 using RenoTrack.Application.Inspections.Dtos;
+using RenoTrack.Application.Leads.Commands.AssignLeadInspector;
 using RenoTrack.Application.Leads.Commands.CreateLead;
+using RenoTrack.Application.Leads.Commands.UpdateLeadContactDetails;
 using RenoTrack.Application.Leads.Dtos;
+using RenoTrack.Application.Inspections.Queries.GetInspections;
 using RenoTrack.Application.Leads.Queries.GetLeadById;
 using RenoTrack.Application.Leads.Queries.GetLeads;
 
@@ -121,8 +131,19 @@ public static class DependencyInjection
     private static void AddValidators(IServiceCollection services)
     {
         services.AddScoped<IValidator<CreateLeadCommand>, CreateLeadCommandValidator>();
+        services.AddScoped<IValidator<UpdateLeadContactDetailsCommand>, UpdateLeadContactDetailsCommandValidator>();
+        services.AddScoped<IValidator<AssignLeadInspectorCommand>, AssignLeadInspectorCommandValidator>();
+        services.AddScoped<IValidator<ReassignInspectionCommand>, ReassignInspectionCommandValidator>();
+        services.AddScoped<IValidator<PutProjectOnHoldCommand>, PutProjectOnHoldCommandValidator>();
+        services.AddScoped<IValidator<ResumeProjectCommand>, ResumeProjectCommandValidator>();
         services.AddScoped<IValidator<GetLeadByIdQuery>, GetLeadByIdQueryValidator>();
         services.AddScoped<IValidator<GetLeadsQuery>, GetLeadsQueryValidator>();
+        services.AddScoped<IValidator<GetAngeboteQuery>, GetAngeboteQueryValidator>();
+        services.AddScoped<IValidator<GetInvoicesQuery>, GetInvoicesQueryValidator>();
+        services.AddScoped<IValidator<GetProjectsQuery>, GetProjectsQueryValidator>();
+        services.AddScoped<IValidator<GetInspectionByIdQuery>, GetInspectionByIdQueryValidator>();
+        services.AddScoped<IValidator<GetInspectionScheduleQuery>, GetInspectionScheduleQueryValidator>();
+        services.AddScoped<IValidator<GetReceivablesQuery>, GetReceivablesQueryValidator>();
 
         services.AddScoped<IValidator<ScheduleInspectionCommand>, ScheduleInspectionCommandValidator>();
         services.AddScoped<IValidator<CompleteInspectionCommand>, CompleteInspectionCommandValidator>();
@@ -168,11 +189,14 @@ public static class DependencyInjection
     private static void AddCommandHandlers(IServiceCollection services)
     {
         services.AddScoped<ICommandHandler<CreateLeadCommand, LeadDto>, CreateLeadCommandHandler>();
+        services.AddScoped<ICommandHandler<UpdateLeadContactDetailsCommand, LeadDto>, UpdateLeadContactDetailsCommandHandler>();
+        services.AddScoped<ICommandHandler<AssignLeadInspectorCommand, LeadDto>, AssignLeadInspectorCommandHandler>();
 
         services.AddScoped<ICommandHandler<ScheduleInspectionCommand, InspectionDto>, ScheduleInspectionCommandHandler>();
         services.AddScoped<ICommandHandler<CompleteInspectionCommand, InspectionDto>, CompleteInspectionCommandHandler>();
         services.AddScoped<ICommandHandler<UploadInspectionPhotoCommand, PhotoDto>, UploadInspectionPhotoCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateInspectionNotesCommand, InspectionDto>, UpdateInspectionNotesCommandHandler>();
+        services.AddScoped<ICommandHandler<ReassignInspectionCommand, InspectionDto>, ReassignInspectionCommandHandler>();
 
         services.AddScoped<ICommandHandler<CreateAngebotCommand, AngebotDto>, CreateAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<AddAngebotSectionCommand, SectionDto>, AddAngebotSectionCommandHandler>();
@@ -198,6 +222,8 @@ public static class DependencyInjection
 
         // FR-7.3 / FR-8.6 — the Project's terminal transition, with the invoice guard and override.
         services.AddScoped<ICommandHandler<CompleteProjectCommand, ProjectDto>, CompleteProjectCommandHandler>();
+        services.AddScoped<ICommandHandler<PutProjectOnHoldCommand, ProjectDto>, PutProjectOnHoldCommandHandler>();
+        services.AddScoped<ICommandHandler<ResumeProjectCommand, ProjectDto>, ResumeProjectCommandHandler>();
 
         // FR-8.1 — the only path by which an Invoice may come into existence.
         services.AddScoped<ICommandHandler<CreateInvoiceCommand, InvoiceDto>, CreateInvoiceCommandHandler>();
@@ -216,6 +242,7 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetLeadsQuery, PagedResult<LeadDto>>, GetLeadsQueryHandler>();
 
         services.AddScoped<IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>, GetAngebotByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetAngeboteQuery, PagedResult<AngebotListItemDto>>, GetAngeboteQueryHandler>();
         services.AddScoped<IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>>, GetLeadAngeboteQueryHandler>();
         services.AddScoped<IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>>, GetAngebotReviewCommentsQueryHandler>();
 
@@ -226,10 +253,15 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<SearchCatalogItemsQuery, PagedResult<CatalogItemDto>>, SearchCatalogItemsQueryHandler>();
 
         services.AddScoped<IQueryHandler<GetProjectByIdQuery, ProjectDetailDto>, GetProjectByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetProjectsQuery, PagedResult<ProjectListItemDto>>, GetProjectsQueryHandler>();
         services.AddScoped<IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto>, GetProjectInvoiceBalanceQueryHandler>();
 
         // Last in the Invoice group, matching the Angebot group above: the customer's read is the
         // final step, after the document has been created and sent.
+        services.AddScoped<IQueryHandler<GetInvoicesQuery, PagedResult<InvoiceListItemDto>>, GetInvoicesQueryHandler>();
+        services.AddScoped<IQueryHandler<GetInspectionByIdQuery, InspectionDetailDto>, GetInspectionByIdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetInspectionScheduleQuery, IReadOnlyList<InspectionDetailDto>>, GetInspectionScheduleQueryHandler>();
+        services.AddScoped<IQueryHandler<GetReceivablesQuery, ReceivablesSummaryDto>, GetReceivablesQueryHandler>();
         services.AddScoped<IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto>, GetPublicInvoiceByTokenQueryHandler>();
     }
 

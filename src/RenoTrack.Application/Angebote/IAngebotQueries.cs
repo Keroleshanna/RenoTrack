@@ -33,4 +33,27 @@ public interface IAngebotQueries
     /// "F" for Inspectors, since the Catalog is shared company-wide rather than per-Lead.
     /// </remarks>
     Task<ItemDto?> GetItemAsync(int itemId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every Angebot in the system, optionally filtered by status — the cross-Lead read the Angebote
+    /// workspace and the Cockpit's decision queue need.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="GetForLeadAsync"/> rather than a generalisation of it, because the
+    /// two answer different questions and return different shapes: that one is a Lead's own bounded
+    /// history (unpaged, since StateMachine.md §2.4 allows one non-terminal Angebot per Lead), this
+    /// one is an open collection across every Lead and is therefore paged and carries the customer's
+    /// name.
+    /// </remarks>
+    /// <param name="requestingInspectorId">
+    /// The Inspector whose scope applies, or <see langword="null"/> for an Admin. Same rule as
+    /// <see cref="GetForLeadAsync"/>: scoping a collection is a <c>WHERE</c> clause, and the value
+    /// comes from the token rather than the caller (D61).
+    /// </param>
+    Task<Common.PagedResult<AngebotListItemDto>> GetPagedAsync(
+        Domain.Enums.AngebotStatus? status,
+        int? requestingInspectorId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken);
 }

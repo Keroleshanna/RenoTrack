@@ -649,6 +649,108 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
+    // ---- Hold / Resume (PermissionMatrix.md §5, StateMachine.md §4.3) -------
+
+    [Fact]
+    public async Task Admin_can_put_an_active_project_on_hold_and_resume_it()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var held = await admin.PostAsync($"/api/v1/projects/{projectId}/hold", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, held.StatusCode);
+        Assert.Equal("OnHold", (await held.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("status").GetString());
+
+        var resumed = await admin.PostAsync($"/api/v1/projects/{projectId}/resume", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, resumed.StatusCode);
+        Assert.Equal("Active", (await resumed.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Holding_a_project_twice_is_409()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/projects/{projectId}/hold", content: null);
+        var response = await admin.PostAsync($"/api/v1/projects/{projectId}/hold", content: null);
+
+        // Project.PutOnHold() guards Active-only; the handler calls it and lets it throw.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Resuming_an_active_project_is_409()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync($"/api/v1/projects/{projectId}/resume", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Holding_a_completed_project_is_409()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/complete",
+            new { forceOverride = true, reason = "Closed early." });
+
+        var response = await admin.PostAsync($"/api/v1/projects/{projectId}/hold", content: null);
+
+        // Completed is terminal — StateMachine.md §4.2 draws no edge out of it.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_on_hold_project_still_accepts_invoices()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        await admin.PostAsync($"/api/v1/projects/{projectId}/hold", content: null);
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+
+        // StateMachine.md §5 permits an Invoice against an Active *or* OnHold Project, so pausing
+        // must not disturb billing that is already in flight.
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Inspector_is_forbidden_from_holding_or_resuming()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var inspector = await InspectorClientAsync();
+
+        var held = await inspector.PostAsync($"/api/v1/projects/{projectId}/hold", content: null);
+        var resumed = await inspector.PostAsync($"/api/v1/projects/{projectId}/resume", content: null);
+
+        // §5 grants an Inspector Project *reads* only; every action row stays Admin-only.
+        Assert.Equal(HttpStatusCode.Forbidden, held.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, resumed.StatusCode);
+    }
+
+    [Fact]
+    public async Task Holding_an_unknown_project_is_404()
+    {
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsync("/api/v1/projects/999999/hold", content: null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     private async Task<int> CreateInvoiceAsync(int projectId, decimal gross)

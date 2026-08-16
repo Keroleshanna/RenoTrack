@@ -1,0 +1,253 @@
+// The Angebot document (Wireframes D1/D3).
+//
+// Sections read as pages of one document rather than as separate cards: one panel, hairline-divided,
+// so the eye follows a quote the way the printed version reads.
+
+:host {
+  display: block;
+  max-width: var(--rt-content-max);
+  margin: 0 auto;
+  padding-bottom: var(--rt-space-16);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-5);
+}
+
+.head__sub {
+  margin-top: var(--rt-space-2);
+}
+
+.head__lead {
+  color: var(--rt-brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.head__lead:hover {
+  text-decoration: underline;
+}
+
+.head__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.head__total {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+// Explains a state whose next step is not a button — never a disabled control with no account of why.
+.banner {
+  margin: 0 0 var(--rt-space-5);
+  padding: var(--rt-space-3) var(--rt-space-4);
+  background: var(--rt-warning-bg);
+  border-radius: var(--rt-radius-md);
+  color: var(--rt-text);
+  font-size: 13px;
+}
+
+.document {
+  margin-bottom: var(--rt-space-5);
+}
+
+.section {
+  padding-top: var(--rt-space-5);
+  border-top: 1px solid var(--rt-border);
+}
+
+.section:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-3);
+}
+
+.section__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  white-space: nowrap;
+}
+
+.section__subtotal {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.section__empty {
+  padding: var(--rt-space-4) 0;
+}
+
+.section__foot {
+  display: flex;
+  gap: var(--rt-space-2);
+  margin: var(--rt-space-3) 0 var(--rt-space-5);
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--rt-space-2);
+}
+
+.strong {
+  font-weight: 650;
+}
+
+.tag {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px var(--rt-space-2);
+  background: var(--rt-status-done-bg);
+  border-radius: var(--rt-radius-pill);
+  color: var(--rt-status-done-fg);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+// ---- Summary --------------------------------------------------------------------------------
+
+.summary {
+  margin-bottom: var(--rt-space-5);
+}
+
+.summary__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-2);
+  margin: var(--rt-space-4) 0 0;
+  margin-left: auto;
+  min-width: min(360px, 100%);
+}
+
+.summary__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--rt-space-6);
+  font-size: 13.5px;
+}
+
+.summary__row dt,
+.summary__row dd {
+  margin: 0;
+}
+
+.summary__row dd {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.summary__row--muted {
+  color: var(--rt-text-muted);
+}
+
+.summary__row--total {
+  padding-top: var(--rt-space-2);
+  border-top: 1px solid var(--rt-border-strong);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+// ---- Review ---------------------------------------------------------------------------------
+
+.review {
+  margin-bottom: var(--rt-space-5);
+}
+
+.comments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comment {
+  padding: var(--rt-space-3) var(--rt-space-4);
+  background: var(--rt-surface-sunken);
+  border-radius: var(--rt-radius-md);
+  border-left: 3px solid var(--rt-status-progress-border);
+}
+
+.comment__meta {
+  margin: 0 0 4px;
+}
+
+.comment__text {
+  margin: 0;
+  font-size: 13.5px;
+  white-space: pre-wrap;
+}
+
+// ---- Actions --------------------------------------------------------------------------------
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--rt-space-2);
+  flex-wrap: wrap;
+}
+
+// ---- Item form ------------------------------------------------------------------------------
+
+.item-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-4);
+}
+
+.item-form__source {
+  display: flex;
+  align-items: center;
+  gap: var(--rt-space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--rt-space-4);
+  border-bottom: 1px solid var(--rt-border);
+}
+
+.item-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rt-space-4);
+}
+
+.unit-toggle {
+  align-self: flex-start;
+}
+
+@media (max-width: 599px) {
+  .head__status {
+    align-items: flex-start;
+  }
+  .actions {
+    flex-direction: column-reverse;
+  }
+  .actions button {
+    width: 100%;
+  }
+  .item-form__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .summary__list {
+    min-width: 100%;
+  }
+}

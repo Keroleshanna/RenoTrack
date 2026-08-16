@@ -1,5 +1,7 @@
 using RenoTrack.Application.Angebote;
 using RenoTrack.Application.Angebote.Dtos;
+using RenoTrack.Application.Common;
+using RenoTrack.Domain.Enums;
 
 namespace RenoTrack.Application.Tests.Fakes;
 
@@ -27,4 +29,24 @@ public sealed class FakeAngebotQueries : IAngebotQueries
 
     public Task<ItemDto?> GetItemAsync(int itemId, CancellationToken cancellationToken) =>
         Task.FromResult(Items.GetValueOrDefault(itemId));
+
+    /// <summary>
+    /// Records the arguments the cross-Lead list was called with, for the same reason
+    /// <see cref="GetForLeadAsync"/> does: what matters is that an Admin arrives as null and an
+    /// Inspector as their own id, so a scoping regression fails a test rather than leaking data.
+    /// </summary>
+    public List<(AngebotStatus? Status, int? RequestingInspectorId, int Page, int PageSize)> PagedCalls { get; } = [];
+
+    public PagedResult<AngebotListItemDto> PagedResult { get; set; } = new([], 1, 25, 0);
+
+    public Task<PagedResult<AngebotListItemDto>> GetPagedAsync(
+        AngebotStatus? status,
+        int? requestingInspectorId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        PagedCalls.Add((status, requestingInspectorId, page, pageSize));
+        return Task.FromResult(PagedResult);
+    }
 }

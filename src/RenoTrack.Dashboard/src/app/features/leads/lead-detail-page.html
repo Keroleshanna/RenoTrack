@@ -1,0 +1,303 @@
+<a class="rt-back-link" routerLink="/leads">← {{ t().leadDetail.backToPipeline }}</a>
+
+@switch (loadState()) {
+  @case ('loading') {
+    <section class="rt-panel"><app-skeleton [lineCount]="8" /></section>
+  }
+  @case ('error') {
+    <section class="rt-panel">
+      <app-error-state [body]="loadError()" (retry)="load()" />
+    </section>
+  }
+  @default {
+    @if (lead(); as lead) {
+      <header class="head">
+        <div>
+          <p class="rt-label">{{ t().leadDetail.label }}</p>
+          <h1 class="rt-display">{{ lead.name }}</h1>
+          <p class="rt-body rt-muted head__sub">
+            {{ t().leadSource[lead.source] }}
+            <span aria-hidden="true"> · </span>
+            {{ lead.createdAt | date: t().formats.date : undefined : locale() }}
+          </p>
+        </div>
+        <app-status-chip kind="lead" [value]="lead.status" />
+      </header>
+
+      <section class="rt-panel contact">
+        <h2 class="rt-subtitle">{{ t().leadDetail.contact }}</h2>
+        <dl class="facts">
+          <div class="facts__row">
+            <dt>{{ t().leadDetail.phone }}</dt>
+            <dd><a [href]="'tel:' + lead.phone">{{ lead.phone }}</a></dd>
+          </div>
+          <div class="facts__row">
+            <dt>{{ t().leadDetail.email }}</dt>
+            <dd><a [href]="'mailto:' + lead.email">{{ lead.email }}</a></dd>
+          </div>
+          <div class="facts__row">
+            <dt>{{ t().leadDetail.address }}</dt>
+            <dd>{{ lead.address ?? '—' }}</dd>
+          </div>
+          <div class="facts__row">
+            <dt>{{ t().leadDetail.inspector }}</dt>
+            <dd>{{ assignedInspectorName() }}</dd>
+          </div>
+        </dl>
+
+        @if (lead.notes) {
+          <div class="notes">
+            <p class="rt-label">{{ t().leadDetail.notes }}</p>
+            <p class="notes__text">{{ lead.notes }}</p>
+          </div>
+        }
+
+        <footer class="contact__actions">
+          <!--
+            §1 grants contact editing Admin F / Inspector S. An Inspector only ever reaches this
+            screen for their own Lead — a non-owned one is refused by the read itself — so the
+            control needs no further condition here, and the server enforces the rule regardless.
+          -->
+          <button
+            type="button"
+            class="rt-button"
+            [disabled]="busy()"
+            (click)="openEditContact()"
+          >
+            {{ t().leadDetail.editContact }}
+          </button>
+
+          <!-- Assignment is Admin-only (§1). Wording changes with whether anyone holds it yet. -->
+          @if (isAdmin()) {
+            <button
+              type="button"
+              class="rt-button"
+              [disabled]="busy()"
+              (click)="openAssign()"
+            >
+              {{ lead.assignedInspectorId ? t().leadDetail.changeInspector : t().leadDetail.assignInspector }}
+            </button>
+          }
+
+          @if (canSchedule() || canCreateAngebot()) {
+            @if (canSchedule()) {
+              <button
+                type="button"
+                class="rt-button rt-button--primary"
+                [disabled]="busy()"
+                (click)="openSchedule()"
+              >
+                {{ t().leadDetail.scheduleInspection }}
+              </button>
+            }
+            @if (canCreateAngebot()) {
+              <button
+                type="button"
+                class="rt-button rt-button--primary"
+                [disabled]="busy()"
+                (click)="createAngebot()"
+              >
+                {{ t().leadDetail.createAngebot }}
+              </button>
+            }
+          }
+        </footer>
+      </section>
+
+      <section class="rt-panel">
+        <header class="rt-panel__head">
+          <div>
+            <h2 class="rt-subtitle">{{ t().leadDetail.angebote }}</h2>
+            <p class="rt-panel__sub">{{ t().leadDetail.angeboteHint }}</p>
+          </div>
+        </header>
+
+        @if (angebote().length === 0) {
+          <p class="rt-caption">{{ t().leadDetail.noAngebote }}</p>
+        } @else {
+          <div class="rt-table-wrap">
+            <table class="rt-table">
+              <thead>
+                <tr>
+                  <th>{{ t().angebote.columns.number }}</th>
+                  <th>{{ t().angebote.columns.status }}</th>
+                  <th class="rt-numeric">{{ t().angebote.columns.gross }}</th>
+                  <th class="rt-numeric">{{ t().angebote.columns.created }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (angebot of angebote(); track angebot.id) {
+                  <tr>
+                    <td class="rt-numeric">
+                      <a [routerLink]="['/angebote', angebot.id]">{{ angebot.angebotNumber }}</a>
+                    </td>
+                    <td><app-status-chip kind="angebot" [value]="angebot.status" /></td>
+                    <td class="rt-numeric strong">
+                      {{ angebot.grossTotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}
+                    </td>
+                    <td class="rt-numeric">
+                      {{ angebot.createdAt | date: t().formats.date : undefined : locale() }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </section>
+
+      <!-- Wireframe C2. BR-13 assigns the chosen Inspector to the Lead as well. -->
+      <app-dialog
+        [open]="scheduleOpen()"
+        [heading]="t().leadDetail.scheduleInspection"
+        [description]="t().leadDetail.scheduleHint"
+        (closed)="scheduleOpen.set(false)"
+      >
+        <form [formGroup]="scheduleForm" class="schedule-form">
+          <div class="rt-field">
+            <label class="rt-field__label" for="schedule-at">{{ t().leadDetail.dateTime }}</label>
+            <input
+              id="schedule-at"
+              class="rt-input"
+              type="datetime-local"
+              formControlName="scheduledAt"
+            />
+            @if (
+              scheduleForm.controls.scheduledAt.touched && scheduleForm.controls.scheduledAt.invalid
+            ) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="schedule-inspector">{{
+              t().leadDetail.inspector
+            }}</label>
+            <select id="schedule-inspector" class="rt-select" formControlName="inspectorId">
+              <option [ngValue]="null">{{ t().leadDetail.chooseInspector }}</option>
+              @for (inspector of inspectors(); track inspector.id) {
+                <option [ngValue]="inspector.id">{{ inspector.name }}</option>
+              }
+            </select>
+            @if (
+              scheduleForm.controls.inspectorId.touched && scheduleForm.controls.inspectorId.invalid
+            ) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="scheduleOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="schedule()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!--
+        §1's contact correction. Notes are absent on purpose — the permission covers contact
+        details, and no document grants an edit of the enquiry text itself.
+      -->
+      <app-dialog
+        [open]="editContactOpen()"
+        [heading]="t().leadForm.editTitle"
+        [description]="t().leadForm.editHint"
+        (closed)="editContactOpen.set(false)"
+      >
+        <form [formGroup]="contactForm">
+          <div class="rt-field">
+            <label class="rt-field__label" for="contact-name">{{ t().leadForm.name }}</label>
+            <input id="contact-name" type="text" class="rt-input" formControlName="name" />
+            @if (contactForm.controls.name.touched && contactForm.controls.name.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="contact-phone">{{ t().leadForm.phone }}</label>
+            <input id="contact-phone" type="tel" class="rt-input" formControlName="phone" />
+            @if (contactForm.controls.phone.touched && contactForm.controls.phone.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="contact-email">{{ t().leadForm.email }}</label>
+            <input id="contact-email" type="email" class="rt-input" formControlName="email" />
+            @if (contactForm.controls.email.touched && contactForm.controls.email.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="contact-address">
+              {{ t().leadForm.address }} ({{ t().leadForm.optional }})
+            </label>
+            <input id="contact-address" type="text" class="rt-input" formControlName="address" />
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="editContactOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="saveContact()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!-- §1, Admin only. Independent of scheduling, which assigns as a side effect (BR-13). -->
+      <app-dialog
+        [open]="assignOpen()"
+        [heading]="t().leadDetail.assignTitle"
+        [description]="t().leadDetail.assignHint"
+        (closed)="assignOpen.set(false)"
+      >
+        <form [formGroup]="assignForm">
+          <div class="rt-field">
+            <label class="rt-field__label" for="assign-inspector">
+              {{ t().leadDetail.inspector }}
+            </label>
+            <select id="assign-inspector" class="rt-select" formControlName="inspectorId">
+              <option [ngValue]="null">{{ t().leadDetail.chooseInspector }}</option>
+              @for (inspector of inspectors(); track inspector.id) {
+                <option [ngValue]="inspector.id">{{ inspector.name }}</option>
+              }
+            </select>
+            @if (assignForm.controls.inspectorId.touched && assignForm.controls.inspectorId.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="assignOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="assignInspector()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
+    }
+  }
+}

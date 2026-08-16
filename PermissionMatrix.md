@@ -15,10 +15,10 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 |---|---|---|---|
 | View Lead pipeline (all Leads) | F | — | Inspector's pipeline view is filtered server-side |
 | View Lead pipeline (own assigned Leads) | F | S | Inspector only sees Leads where `AssignedInspectorId == self` |
-| Create Lead manually (phone/email) | F | — | FR-2.1 — Admin-only per SRS |
-| Edit Lead contact details | F | S | Inspector may correct details on their own assigned Lead (e.g. wrong phone number found on-site) |
+| Create Lead manually (phone/email) | F | — | FR-2.1 — Admin-only per SRS. *Built in Phase 10 as `POST /api/v1/leads/manual`* — a separate route from the anonymous contact form, because one route cannot be both anonymous and Admin-only (`ARCHITECTURE_DECISIONS.md` **D86**). `source` is typed so only `Phone`/`Email` are expressible, which keeps FR-9.2's website-Lead notification unreachable from this path |
+| Edit Lead contact details | F | S | Inspector may correct details on their own assigned Lead (e.g. wrong phone number found on-site). *Built in Phase 10 as `PUT /api/v1/leads/{id}`*, scoped for the Inspector by `IOwnershipValidator`. **Covers name, phone, email and address only — not `Notes`** (**D87**): this row grants "contact details", and FR-2.1 lists notes as a separate field, so including it would widen the permission by assumption. Lead notes therefore remain writable only at creation, recorded as a known gap in `NEXT_STEPS.md`. No status guard applies — correction is not a lifecycle transition, so BR-7 is untouched |
 | Change Lead status directly | — | — | **No role may.** Status moves only through the named transitions in StateMachine.md §1.3, each performed by the command for the action that causes it (BR-7). This row previously read "F" for Admin while its own note said no free-standing edit exists; the "—" now matches the note, and Architecture.md §5.2's obsolete `PATCH /api/v1/leads/{id}/status` entry was removed to match. `Won`/`Lost` in particular are outcomes of the customer's token-link decision (§7 below, SRS FR-6.3/FR-6.5, StateMachine.md §5), never a staff action |
-| Assign/reassign Inspector to a Lead | F | — | Admin decision. Happens automatically whenever an Inspection is scheduled (BR-13) — this row covers standing this assignment up or changing it independently of scheduling a new Inspection |
+| Assign/reassign Inspector to a Lead | F | — | Admin decision. Happens automatically whenever an Inspection is scheduled (BR-13) — this row covers standing this assignment up or changing it independently of scheduling a new Inspection. *Built in Phase 10 as `PUT /api/v1/leads/{id}/inspector`*; `Lead.AssignInspector` had existed since Phase 1 and was simply unreachable. Never changes the Lead's status. A target that is not an active Inspector returns 404, which covers missing, deactivated and wrong-role alike (D62) |
 | Delete a Lead | — | — | Not supported in v1 — Leads are never hard-deleted (matches BR-9's spirit for Invoices; nothing legal requires it for Leads, but it keeps the audit trail intact) |
 | View Lead activity/audit timeline | F | S | Same scoping as the Lead itself |
 
@@ -33,7 +33,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Upload photos to an Inspection | — | S | Only the assigned Inspector; Admin can view but not add photos (keeps evidence chain-of-custody clear to "who was actually on site") |
 | Edit Inspection notes | — | S | Assigned Inspector only |
 | Mark Inspection complete | — | S | Assigned Inspector only |
-| Reassign an Inspection to a different Inspector | F | — | Admin only |
+| Reassign an Inspection to a different Inspector | F | — | Admin only. *Built in Phase 10 as `PUT /api/v1/inspections/{id}/inspector`.* **Re-applies BR-13**, so the Lead's assigned Inspector moves with the visit in the same commit — otherwise the outgoing Inspector would keep the Lead in their server-side-filtered pipeline (§1) while the incoming one could not see it. **Refused with 409 once the visit is completed**: BR-10 makes it immutable evidence of who was actually on site, which is why this transition is guarded where the Lead-level assignment above is not (`ARCHITECTURE_DECISIONS.md` **D89**) |
 
 ---
 
@@ -75,7 +75,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Mark Invoice Paid | F | — | Admin-only (FR-8.4) |
 | Void an Invoice | F | — | Admin-only, requires a reason (StateMachine.md §3) |
 | Mark Project Completed (incl. override) | F | — | Admin-only, override requires a reason (FR-8.6). *Built in Phase 8 Slice 6 as `POST /api/v1/projects/{id}/complete`.* The override bypasses the Invoice precondition only — never the Project's own `Active`-only state guard (StateMachine.md §4.4) |
-| Put Project On Hold / Resume | F | — | Admin-only |
+| Put Project On Hold / Resume | F | — | Admin-only. *Built in Phase 10 as `POST /api/v1/projects/{id}/hold` and `/resume`*; `Project.PutOnHold()`/`Resume()` had existed since Phase 7 and were unreachable. **Two named endpoints, not a status setter** — the free-standing status edit BR-7 forbids (**D90**). **No reason is accepted** despite StateMachine.md §4.3 mentioning one: `ERD.md` defines no column for it, and the only home would be a best-effort audit row (D50). Pausing does not block invoicing (StateMachine §5 permits an Invoice against `Active` *or* `OnHold`); a paused Project cannot be completed until it is resumed (§4.2 draws no such edge) |
 
 ---
 
