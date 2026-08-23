@@ -11,6 +11,7 @@ import { RenoTrackApi } from '../../core/api/renotrack-api';
 import { Auth } from '../../core/auth/auth';
 import {
   InspectionDetailDto,
+  MAX_SCHEDULE_WINDOW_DAYS,
   LEAD_STATUSES,
   LeadDto,
   LeadStatusDto,
@@ -308,11 +309,19 @@ export class LeadsPage extends WorkspacePage<LeadDto> {
   }
 
   private loadVisits(): void {
+    // The window must stay inside the API's MAX_SCHEDULE_WINDOW_DAYS or the request is a 400, not
+    // a truncated result. It asked for roughly 456 days (three months back, a year forward) and was
+    // rejected on every load -- and because the failure is caught below, the column silently read
+    // "not scheduled" for every Lead and looked like it was working. Found in browser QA by reading
+    // the network log, not by any test.
+    const BACK_DAYS = 90;
+    const FORWARD_DAYS = MAX_SCHEDULE_WINDOW_DAYS - BACK_DAYS - 1;
+
     const from = new Date();
-    from.setMonth(from.getMonth() - 3);
+    from.setDate(from.getDate() - BACK_DAYS);
 
     const to = new Date();
-    to.setFullYear(to.getFullYear() + 1);
+    to.setDate(to.getDate() + FORWARD_DAYS);
 
     this.api
       .inspections(from, to)

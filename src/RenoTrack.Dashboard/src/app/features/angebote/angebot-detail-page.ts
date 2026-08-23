@@ -12,7 +12,7 @@ import {
   CatalogItemDto,
   ItemDto,
   LeadDto,
-  MAX_PAGE_SIZE,
+  PAGE_SIZE_MAX,
   STANDARD_UNITS,
   SectionDetailDto,
   VAT_PERCENT,
@@ -530,7 +530,7 @@ export class AngebotDetailPage {
     // the user saw as an empty picker. An Inspector's own caseload is comfortably inside one page;
     // if that ever stops being true this needs real paging, not a bigger number.
     this.api
-      .leads({ page: 1, pageSize: MAX_PAGE_SIZE })
+      .leads({ page: 1, pageSize: PAGE_SIZE_MAX })
       .pipe(catchError(() => of({ items: [], page: 1, pageSize: 0, totalCount: 0 })))
       .subscribe((result) =>
         // The source Lead is excluded: this quote already belongs to it, so copying onto itself is

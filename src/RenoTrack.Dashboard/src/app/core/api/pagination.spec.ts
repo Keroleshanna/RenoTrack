@@ -1,5 +1,5 @@
 import { clampPageSize } from './renotrack-api';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './contracts';
+import { PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX } from './contracts';
 
 /**
  * The frontend must not be able to request a page size the API rejects.
@@ -13,14 +13,14 @@ describe('Page size contract', () => {
   it('passes an ordinary page size through untouched', () => {
     expect(clampPageSize(25)).toBe(25);
     expect(clampPageSize(1)).toBe(1);
-    expect(clampPageSize(MAX_PAGE_SIZE)).toBe(MAX_PAGE_SIZE);
+    expect(clampPageSize(PAGE_SIZE_MAX)).toBe(PAGE_SIZE_MAX);
   });
 
   it('clamps anything above the API maximum', () => {
     // The exact value that produced the 400 in QA.
-    expect(clampPageSize(200)).toBe(MAX_PAGE_SIZE);
-    expect(clampPageSize(101)).toBe(MAX_PAGE_SIZE);
-    expect(clampPageSize(Number.MAX_SAFE_INTEGER)).toBe(MAX_PAGE_SIZE);
+    expect(clampPageSize(200)).toBe(PAGE_SIZE_MAX);
+    expect(clampPageSize(101)).toBe(PAGE_SIZE_MAX);
+    expect(clampPageSize(Number.MAX_SAFE_INTEGER)).toBe(PAGE_SIZE_MAX);
   });
 
   it('clamps zero and negatives up to one', () => {
@@ -34,14 +34,14 @@ describe('Page size contract', () => {
   });
 
   it('falls back to the default when the value is not a number', () => {
-    expect(clampPageSize('viele')).toBe(DEFAULT_PAGE_SIZE);
-    expect(clampPageSize(Number.NaN)).toBe(DEFAULT_PAGE_SIZE);
-    expect(clampPageSize(Number.POSITIVE_INFINITY)).toBe(DEFAULT_PAGE_SIZE);
+    expect(clampPageSize('viele')).toBe(PAGE_SIZE_DEFAULT);
+    expect(clampPageSize(Number.NaN)).toBe(PAGE_SIZE_DEFAULT);
+    expect(clampPageSize(Number.POSITIVE_INFINITY)).toBe(PAGE_SIZE_DEFAULT);
   });
 
   it('mirrors the server constant, so drift is visible here', () => {
     // If Pagination.MaxPageSize ever changes, this is the line that has to change with it.
-    expect(MAX_PAGE_SIZE).toBe(100);
-    expect(DEFAULT_PAGE_SIZE).toBe(25);
+    expect(PAGE_SIZE_MAX).toBe(100);
+    expect(PAGE_SIZE_DEFAULT).toBe(25);
   });
 });

@@ -12,7 +12,7 @@ import {
   AngebotSummaryDto,
   CatalogItemDto,
   CatalogItemWrite,
-  DEFAULT_PAGE_SIZE,
+  PAGE_SIZE_DEFAULT,
   InspectionDetailDto,
   InspectionDto,
   InvoiceDto,
@@ -21,7 +21,7 @@ import {
   LeadDto,
   LeadStatusDto,
   ManualLeadSourceDto,
-  MAX_PAGE_SIZE,
+  PAGE_SIZE_MAX,
   NotificationDeliveryDto,
   NotificationDeliveryStatusDto,
   PagedResult,
@@ -564,7 +564,7 @@ function params(query: Record<string, unknown>): HttpParams {
  * Holds `pageSize` inside the range the API actually accepts.
  *
  * **This is a contract guard, not a convenience.** `Application.Common.Pagination` caps the page at
- * {@link MAX_PAGE_SIZE}, and the validators reject anything larger with a `ValidationException` —
+ * {@link PAGE_SIZE_MAX}, and the validators reject anything larger with a `ValidationException` —
  * which a screen experiences as a 400 and a user experiences as an empty list with no explanation.
  * A picker that asked for 200 rows did exactly that.
  *
@@ -578,10 +578,10 @@ export function clampPageSize(value: unknown): number {
   const requested = Number(value);
 
   if (!Number.isFinite(requested)) {
-    return DEFAULT_PAGE_SIZE;
+    return PAGE_SIZE_DEFAULT;
   }
 
-  return Math.min(Math.max(Math.trunc(requested), 1), MAX_PAGE_SIZE);
+  return Math.min(Math.max(Math.trunc(requested), 1), PAGE_SIZE_MAX);
 }
 
 /**

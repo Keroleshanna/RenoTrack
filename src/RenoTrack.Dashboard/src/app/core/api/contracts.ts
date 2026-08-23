@@ -258,18 +258,6 @@ export interface AngebotReviewCommentDto {
  * error. The form offers the standard codes for convenience and a free-text escape hatch for the
  * rest, exactly as the Angebot line-item form does.
  */
-/**
- * The API's paging limits, mirrored from `Application.Common.Pagination`.
- *
- * **These are the server's numbers, not the client's preference.** `GetLeadsQueryValidator` and its
- * siblings reject a `pageSize` above {@link MAX_PAGE_SIZE} with a `ValidationException`, and a
- * picker that asked for 200 produced exactly that — a 400 the user experienced as an empty list.
- * Anything needing more rows than this pages; it does not ask for a bigger page.
- */
-export const MAX_PAGE_SIZE = 100;
-
-export const DEFAULT_PAGE_SIZE = 25;
-
 export interface CatalogItemWrite {
   readonly title: string;
   readonly defaultUnitCode: string;
@@ -493,3 +481,14 @@ export interface NotificationDeliveryDto {
   readonly failureType: string | null;
   readonly failureMessage: string | null;
 }
+
+/**
+ * The widest schedule window `GET /api/v1/inspections` accepts, mirrored from
+ * `GetInspectionScheduleQueryValidator.MaxWindowDays`.
+ *
+ * **A window wider than this is a 400, not a truncated result.** The Leads page's appointment
+ * column asked for roughly 456 days and got rejected on every load; because the failure was
+ * caught and turned into an empty list, the column simply read "not scheduled" for every Lead and
+ * looked like it was working. Found by inspecting network traffic in browser QA, not by any test.
+ */
+export const MAX_SCHEDULE_WINDOW_DAYS = 366;
