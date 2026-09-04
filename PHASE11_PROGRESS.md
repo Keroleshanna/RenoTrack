@@ -169,7 +169,7 @@ It is deliberately small and fails closed: **empty allowlist by default**, in wh
 **New — tests:** `tests/RenoTrack.Website.Tests/` (project, `CustomerWebsiteFactory`, `PublicApi/{StubHttpMessageHandler, PublicAngebotClientTests, PublicApiOptionsTests, ClientAddressForwardingHandlerTests}`, `Security/TrustedForwardersOptionsTests`, `Pages/{AngebotModelTests, AngebotPageTests}`).
 **Modified:** `RenoTrack.slnx`, `.github/workflows/ci.yml`, `ARCHITECTURE_DECISIONS.md` (D97), `CLAUDE.md` (§24), `Architecture.md` (§2, §12), `PROJECT_STATE.md`, `NEXT_STEPS.md`.
 
-**Sixty-two tests**, all database-free and therefore running in CI's **Linux** job. Nothing was added to the Windows job.
+**Eighty test cases**, all database-free and therefore running in CI's **Linux** job. Nothing was added to the Windows job.
 
 ### 5.5 Deliberately not in this slice
 
@@ -179,7 +179,7 @@ Angebot rendering and details (Slice 3), Accept/Decline and `DecisionReason` (Sl
 
 **Unchanged from Slice 1: this environment has no .NET SDK** (`builds.dotnet.microsoft.com` is blocked by egress policy), so `dotnet build` and `dotnet test` were **not run** for Slice 2 either. Every file was reviewed by hand against the conventions above.
 
-CI is the gate, and for this slice it is a genuinely strong one: **all sixty-two new tests run in the Linux job**, which needs no LocalDB and is unaffected by the Windows Application Control policy that blocked local verification. A green `build-and-test` job therefore verifies essentially all of Slice 2.
+CI is the gate, and for this slice it is a genuinely strong one: **all eighty new test cases run in the Linux job**, which needs no LocalDB and is unaffected by the Windows Application Control policy that blocked local verification. A green `build-and-test` job therefore verifies essentially all of Slice 2.
 
 Most likely places for a compile error, since nothing was compiled: the Razor pages and layout (not type-checked by inspection), `WebApplicationFactory<Program>` resolving the Website's internal `Program`, the framework's `IPNetwork` overload in `TrustedForwardersOptions.Build` (deliberately written as a target-typed `new` to survive either namespace), and `RemoveAll<IPublicAngebotClient>` in the test factory.
 
@@ -210,3 +210,38 @@ error ASPDEPR005: 'ForwardedHeadersOptions.KnownNetworks' is obsolete:
 **A behaviour improvement fell out of it, and it is pinned rather than left implicit.** The hand-rolled `Split('/')` parser accepted a non-canonical network such as `10.0.0.1/8`, which is not a network and would then have been matched against something the operator did not write. `IPNetwork.TryParse` rejects it, and `A_malformed_network_fails_startup_naming_the_key` gained that case plus the empty string.
 
 **Nothing else changed.** No production behaviour was altered beyond that stricter rejection, and no Slice 2 design decision was reopened.
+
+### 5.8 CI round 2 — build green, 21 test failures, one defect, fixed
+
+**Run [33877314864](https://github.com/Keroleshanna/RenoTrack/actions/runs/33877314864), commit `d83ac5b`.**
+
+| Job | Result |
+|---|---|
+| `build-and-test` (ubuntu-latest) | ❌ **failure** — build **succeeded**, `RenoTrack.Website.Tests` failed |
+| `database-backed-tests` (windows-latest) | ⏭️ **skipped** — still gated on `needs: build-and-test` |
+
+`Failed! - Failed: 21, Passed: 59, Skipped: 0, Total: 80, Duration: 681 ms — RenoTrack.Website.Tests.dll`
+
+The round-1 fix worked: **0 errors, 0 warnings**, and `Domain.Tests` and `Application.Tests` both ran and passed before `Website.Tests` was reached (the step is one `bash -e` script, so a failure in either would have stopped it). All 21 failures were `AngebotPageTests` — every test that boots the host — and all 59 non-host tests passed.
+
+**One defect, and it was a real production bug rather than a test-harness problem:**
+
+```
+System.InvalidOperationException : Configuration value 'Defence in depth alongside
+Program.cs's RemoveAllLoggers(). …' is not supported.
+   at Microsoft.Extensions.Logging.LoggerFilterConfigureOptions.TryGetSwitch(String value, LogLevel& level)
+   …
+   at Program.<Main>$(…) in src/RenoTrack.Website/Program.cs:line 52
+```
+
+Slice 2 added `"//Microsoft.AspNetCore"` and `"//System.Net.Http.HttpClient"` explanatory keys **inside `Logging:LogLevel`**. That section is enumerated as category-to-level pairs, so **every** key under it must parse as a `LogLevel`; a `"//"` comment key throws at `builder.Build()`. **The Website would not have started in any environment** — this was never merely a test failure.
+
+**The `"//"` convention is used correctly elsewhere in this repository** — `RateLimiting`, `TokenLink`, `Email`, `Database`, and Slice 2's own `PublicApi`, `CompanyIdentity` and `TrustedForwarders` — because all of those are bound with `.Get<T>()`, which ignores unknown keys. That is exactly why it read as universally safe. **The rule is now in `CLAUDE.md` §24.**
+
+**Fix:** the notes moved to a `"//Logging"` sibling key outside the `Logging` section; `Logging:LogLevel` now contains only `Default`, `Microsoft.AspNetCore` and `System.Net.Http.HttpClient`, all real levels. **No logging behaviour changed** — the levels themselves and `RemoveAllLoggers()` are untouched.
+
+**Every `appsettings.json` in the repository was audited** for the same defect class; only this one was affected. The API's is clean (its Slice 2 addition, `TrustedForwarders`, is `.Get<T>()`-bound).
+
+**No new test was added.** The 21 `AngebotPageTests` already pin it — they boot the real application against the real `appsettings.json`, which is precisely why they failed — and a second, path-dependent test would add fragility for no extra coverage.
+
+**A count correction:** this slice's tests were reported as "62". That was the number of test *methods*; xUnit expands the theories to **80 cases**. Corrected throughout.
