@@ -182,3 +182,31 @@ Angebot rendering and details (Slice 3), Accept/Decline and `DecisionReason` (Sl
 CI is the gate, and for this slice it is a genuinely strong one: **all sixty-two new tests run in the Linux job**, which needs no LocalDB and is unaffected by the Windows Application Control policy that blocked local verification. A green `build-and-test` job therefore verifies essentially all of Slice 2.
 
 Most likely places for a compile error, since nothing was compiled: the Razor pages and layout (not type-checked by inspection), `WebApplicationFactory<Program>` resolving the Website's internal `Program`, the framework's `IPNetwork` overload in `TrustedForwardersOptions.Build` (deliberately written as a target-typed `new` to survive either namespace), and `RemoveAll<IPublicAngebotClient>` in the test factory.
+
+### 5.7 CI round 1 — build failed, one defect, fixed
+
+**PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), run [33876907649](https://github.com/Keroleshanna/RenoTrack/actions/runs/33876907649), commit `af3ce86`.**
+
+| Job | Result |
+|---|---|
+| `build-and-test` (ubuntu-latest) | ❌ **failure** — `Build FAILED. 0 Warning(s), 4 Error(s)` |
+| `database-backed-tests` (windows-latest) | ⏭️ **skipped** — gated on `needs: build-and-test` |
+
+**No test executed.** `restore` succeeded for all ten projects; `Domain`, `Domain.Tests`, `Application`, `Application.Tests`, `Infrastructure` and `Infrastructure.Tests` all built. `RenoTrack.Website` and `RenoTrack.Api` failed, which stopped `Api.Tests` and `Website.Tests` from building at all.
+
+**One defect, four occurrences:**
+
+```
+error ASPDEPR005: 'ForwardedHeadersOptions.KnownNetworks' is obsolete:
+'Please use KnownIPNetworks instead.'
+```
+
+`Security/TrustedForwardersOptions.cs` in both the Website and the API, two sites each. `ForwardedHeadersOptions.KnownNetworks` is deprecated in .NET 10 in favour of `KnownIPNetworks`, which takes `System.Net.IPNetwork` rather than the older `Microsoft.AspNetCore.HttpOverrides` type — and `TreatWarningsAsErrors` (solution-wide, `Directory.Build.props`) correctly turns the obsoletion into a build error.
+
+**The code carried a comment reasoning about exactly this area and reached the wrong conclusion.** It said a target-typed `new` would "keep this compiling either way instead of pinning a namespace that may move" — but the hazard was never the type's namespace, it was the *property* being deprecated, which no amount of target-typing addresses. The comment has been replaced with what is actually true.
+
+**Fix:** `KnownIPNetworks` throughout, populated via `System.Net.IPNetwork.TryParse` (fully qualified, since `IPNetwork` also exists in the `Microsoft.AspNetCore.HttpOverrides` namespace this file imports for the `ForwardedHeaders` flags). **No suppression was added** — `WarningsNotAsErrors` still lists only `NU1903`.
+
+**A behaviour improvement fell out of it, and it is pinned rather than left implicit.** The hand-rolled `Split('/')` parser accepted a non-canonical network such as `10.0.0.1/8`, which is not a network and would then have been matched against something the operator did not write. `IPNetwork.TryParse` rejects it, and `A_malformed_network_fails_startup_naming_the_key` gained that case plus the empty string.
+
+**Nothing else changed.** No production behaviour was altered beyond that stricter rejection, and no Slice 2 design decision was reopened.

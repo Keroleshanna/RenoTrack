@@ -30,7 +30,7 @@ public sealed class TrustedForwardersOptionsTests
         var built = new TrustedForwardersOptions().Build();
 
         Assert.Empty(built.KnownProxies);
-        Assert.Empty(built.KnownNetworks);
+        Assert.Empty(built.KnownIPNetworks);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public sealed class TrustedForwardersOptionsTests
     {
         var built = new TrustedForwardersOptions { KnownNetworks = ["10.0.0.0/8"] }.Build();
 
-        Assert.Single(built.KnownNetworks);
+        Assert.Equal(System.Net.IPNetwork.Parse("10.0.0.0/8"), Assert.Single(built.KnownIPNetworks));
         Assert.True(new TrustedForwardersOptions { KnownNetworks = ["10.0.0.0/8"] }.IsConfigured);
     }
 
@@ -83,11 +83,19 @@ public sealed class TrustedForwardersOptionsTests
         Assert.Contains(nameof(TrustedForwardersOptions.KnownProxies), exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <c>10.0.0.1/8</c> is included deliberately: it looks plausible and is not a network. Parsing
+    /// through <c>System.Net.IPNetwork</c> rejects an address with bits set beyond the prefix, where
+    /// a hand-rolled split on <c>/</c> would have accepted it and then matched against something the
+    /// operator did not write.
+    /// </summary>
     [Theory]
     [InlineData("10.0.0.0")]
     [InlineData("10.0.0.0/notanumber")]
     [InlineData("garbage/8")]
     [InlineData("10.0.0.0/8/9")]
+    [InlineData("10.0.0.1/8")]
+    [InlineData("")]
     public void A_malformed_network_fails_startup_naming_the_key(string network)
     {
         var exception = Assert.Throws<InvalidOperationException>(

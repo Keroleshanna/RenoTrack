@@ -66,7 +66,7 @@ public sealed class TrustedForwardersOptions
         // The framework pre-trusts loopback. Cleared, so the only trusted forwarders are the ones
         // configuration names.
         options.KnownProxies.Clear();
-        options.KnownNetworks.Clear();
+        options.KnownIPNetworks.Clear();
 
         foreach (var proxy in KnownProxies)
         {
@@ -82,21 +82,23 @@ public sealed class TrustedForwardersOptions
 
         foreach (var network in KnownNetworks)
         {
-            var parts = network.Split('/');
-            if (parts.Length != 2
-                || !IPAddress.TryParse(parts[0], out var prefix)
-                || !int.TryParse(parts[1], out var prefixLength))
+            // System.Net.IPNetwork.TryParse, fully qualified: `IPNetwork` also exists in
+            // Microsoft.AspNetCore.HttpOverrides (imported here for the ForwardedHeaders flags), and
+            // that older type is what the now-obsolete KnownNetworks property held. KnownIPNetworks
+            // is its replacement and takes the System.Net type.
+            //
+            // TryParse rather than hand-splitting on '/': it rejects a non-canonical network such as
+            // "10.0.0.1/8" that a manual parse would silently accept and then mis-apply, and there is
+            // no reason to keep a second, weaker CIDR parser in this codebase.
+            if (!System.Net.IPNetwork.TryParse(network, out var parsed))
             {
                 throw new InvalidOperationException(
                     $"Configuration '{SectionName}:{nameof(KnownNetworks)}' contains '{network}', which is not a " +
-                    "valid CIDR network, e.g. '10.0.0.0/8'.");
+                    "valid CIDR network, e.g. '10.0.0.0/8'. The address must be the network itself, with no bits " +
+                    "set beyond the prefix length.");
             }
 
-            // Target-typed `new`, deliberately: `IPNetwork` exists in both `System.Net` and
-            // `Microsoft.AspNetCore.HttpOverrides`, and which one `KnownNetworks` holds has changed
-            // across framework versions. Letting the collection's element type decide keeps this
-            // compiling either way instead of pinning a namespace that may move.
-            options.KnownNetworks.Add(new(prefix, prefixLength));
+            options.KnownIPNetworks.Add(parsed);
         }
 
         return options;
