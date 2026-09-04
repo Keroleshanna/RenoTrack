@@ -207,7 +207,7 @@ error ASPDEPR005: 'ForwardedHeadersOptions.KnownNetworks' is obsolete:
 
 **Fix:** `KnownIPNetworks` throughout, populated via `System.Net.IPNetwork.TryParse` (fully qualified, since `IPNetwork` also exists in the `Microsoft.AspNetCore.HttpOverrides` namespace this file imports for the `ForwardedHeaders` flags). **No suppression was added** — `WarningsNotAsErrors` still lists only `NU1903`.
 
-**A behaviour improvement fell out of it, and it is pinned rather than left implicit.** The hand-rolled `Split('/')` parser accepted a non-canonical network such as `10.0.0.1/8`, which is not a network and would then have been matched against something the operator did not write. `IPNetwork.TryParse` rejects it, and `A_malformed_network_fails_startup_naming_the_key` gained that case plus the empty string.
+~~**A behaviour improvement fell out of it…** `IPNetwork.TryParse` rejects it…~~ — **this claim was wrong and is corrected in §5.10.** `IPNetwork.TryParse` does *not* reject a non-canonical network; it normalises silently. The assertion added here failed in CI round 3, and the rejection is now enforced by application-level validation instead. The empty-string case added at the same time was correct and stands.
 
 **Nothing else changed.** No production behaviour was altered beyond that stricter rejection, and no Slice 2 design decision was reopened.
 
@@ -245,3 +245,40 @@ Slice 2 added `"//Microsoft.AspNetCore"` and `"//System.Net.Http.HttpClient"` ex
 **No new test was added.** The 21 `AngebotPageTests` already pin it — they boot the real application against the real `appsettings.json`, which is precisely why they failed — and a second, path-dependent test would add fragility for no extra coverage.
 
 **A count correction:** this slice's tests were reported as "62". That was the number of test *methods*; xUnit expands the theories to **80 cases**. Corrected throughout.
+
+### 5.9 CI round 3 — build green, 2 test failures
+
+**Run [33877784971](https://github.com/Keroleshanna/RenoTrack/actions/runs/33877784971), commit `73b3b45`.**
+
+| Job | Result |
+|---|---|
+| `build-and-test` (ubuntu-latest) | ❌ **failure** — build succeeded; 2 Website tests failed |
+| `database-backed-tests` (windows-latest) | ⏭️ **skipped** — gated on `needs: build-and-test` |
+
+| Project | Failed | Passed | Skipped | Total |
+|---|---|---|---|---|
+| `RenoTrack.Domain.Tests` | 0 | **372** | 0 | 372 |
+| `RenoTrack.Application.Tests` | 0 | **441** | 0 | 441 |
+| `RenoTrack.Website.Tests` | **2** | 78 | 0 | 80 |
+
+Both failures were **wrong expectations in tests written for this slice**, not production defects. Website failures across the three rounds: build error → 21 → 2.
+
+### 5.10 The `IPNetwork` canonicality question, and what was actually verified
+
+The second round-3 failure — `A_malformed_network_fails_startup_naming_the_key("10.0.0.1/8")`, "no exception was thrown" — was **not corrected by editing the test**, because the correct action depended on a security question nobody had established: *what does the current implementation actually trust?*
+
+**Verified by reading `dotnet/runtime` at tag `v10.0.11`** (the runtime CI reports installed, confirmed byte-identical to `release/10.0`), plus `aspnetcore/release/10.0`'s `ForwardedHeadersMiddleware`:
+
+- **`IPNetwork.TryParse("10.0.0.1/8")` returns `true`**, with `BaseAddress = 10.0.0.0`, `PrefixLength = 8`. The constructor calls `ClearNonZeroBitsAfterNetworkPrefix`, which masks the host bits away. **There is no throw path for non-canonical input anywhere.**
+- **.NET's own documentation says the opposite.** The type remark claims "the constructor and the parsing methods will throw in case there are non-zero bits after the prefix", and the constructor declares an `ArgumentException` that is never raised. **Trusting that written contract over the implementation is exactly what produced the wrong assertion.**
+- `ForwardedHeadersMiddleware.CheckKnownAddress` iterates `KnownIPNetworks` calling `Contains`, which masks the candidate and compares to the normalised base. So `10.0.0.0/8` contains `10.0.0.1`, `10.0.0.50`, `10.255.255.255`; it does not contain `11.0.0.1`.
+
+**Effective trust before the fix:** `KnownNetworks: ["10.0.0.1/8"]` trusted **16,777,216 addresses**. Blast radius is bounded — `X-Forwarded-For` affects only rate-limit partitioning and the request scheme, and is never an authentication or authorisation input — so the worst case is rate-limit bypass from inside the over-trusted range, not privilege escalation. It is still a silent widening of a security boundary, which D97 exists to prevent.
+
+**Decision (Product Owner, Option B):** enforce canonicality in the application. After `TryParse`, the parsed `BaseAddress` is compared against the address the operator supplied; a mismatch **fails startup**, naming the key, the range that would have been trusted, and `KnownProxies` as the right home for a single host. Deliberately unchanged: the fail-closed-when-unconfigured behaviour, `KnownProxies` (exact-match, no CIDR), and the forwarded-header trust mechanism itself.
+
+**Coverage added:** three non-canonical rejections (`10.0.0.1/8`, `192.168.1.5/24`, `172.16.5.1/12`) asserting the message names all three things; five canonical acceptances including a `/32` host network and an IPv6 network; seven containment assertions pinning exactly what `10.0.0.0/8` trusts; and loopback proven untrusted despite the framework defaulting to it.
+
+**`0.0.0.0/0` is deliberately not covered.** It is canonical and would be accepted, and it trusts every address on the internet. Rejecting it would be a new production rule beyond Option B's approved scope, and a test asserting acceptance would enshrine something questionable — so neither was written. **Recorded as a follow-up in `NEXT_STEPS.md`.**
+
+**The other failure** — `PublicApiOptionsTests.A_relative_base_url_fails_startup("/api/v1")` — was a wrong expectation about *which* guard fires. `/api/v1` is refused either way, but on Unix `Uri.TryCreate(…, UriKind.Absolute, …)` succeeds with the `file` scheme, so the HTTPS guard rejects it, while on Windows the absolute-URL guard does. **Neither branch is pinned:** the test now asserts only that the value is refused and that the message names the key, both true on every OS. Pinning the Linux branch would have passed in CI and failed on a contributor's Windows machine — the exact failure mode `CLAUDE.md` §22 records for `Path.GetInvalidFileNameChars()`.

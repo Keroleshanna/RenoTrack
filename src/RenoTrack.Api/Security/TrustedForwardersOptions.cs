@@ -39,7 +39,12 @@ public sealed class TrustedForwardersOptions
     /// <summary>Individual proxy addresses, e.g. <c>10.0.0.7</c>.</summary>
     public string[] KnownProxies { get; init; } = [];
 
-    /// <summary>Proxy networks in CIDR form, e.g. <c>10.0.0.0/8</c>.</summary>
+    /// <summary>
+    /// Proxy networks in CIDR form, e.g. <c>10.0.0.0/8</c>. The address must be the canonical
+    /// network address for its prefix: <c>10.0.0.1/8</c> is refused at startup rather than
+    /// silently widened to <c>10.0.0.0/8</c>. A single host belongs in
+    /// <see cref="KnownProxies"/>.
+    /// </summary>
     public string[] KnownNetworks { get; init; } = [];
 
     /// <summary>Whether any forwarder is trusted at all.</summary>
@@ -86,16 +91,45 @@ public sealed class TrustedForwardersOptions
             // Microsoft.AspNetCore.HttpOverrides (imported here for the ForwardedHeaders flags), and
             // that older type is what the now-obsolete KnownNetworks property held. KnownIPNetworks
             // is its replacement and takes the System.Net type.
-            //
-            // TryParse rather than hand-splitting on '/': it rejects a non-canonical network such as
-            // "10.0.0.1/8" that a manual parse would silently accept and then mis-apply, and there is
-            // no reason to keep a second, weaker CIDR parser in this codebase.
             if (!System.Net.IPNetwork.TryParse(network, out var parsed))
             {
                 throw new InvalidOperationException(
                     $"Configuration '{SectionName}:{nameof(KnownNetworks)}' contains '{network}', which is not a " +
-                    "valid CIDR network, e.g. '10.0.0.0/8'. The address must be the network itself, with no bits " +
-                    "set beyond the prefix length.");
+                    "valid CIDR network, e.g. '10.0.0.0/8'.");
+            }
+
+            // Canonicality is enforced here because the framework does not enforce it, despite
+            // documenting that it does. `System.Net.IPNetwork`'s own type remark claims "the
+            // constructor and the parsing methods will throw in case there are non-zero bits after
+            // the prefix", and its constructor declares an ArgumentException for exactly that. The
+            // shipped implementation does neither: it calls ClearNonZeroBitsAfterNetworkPrefix and
+            // silently normalises. Verified by reading dotnet/runtime at tag v10.0.11 — the version
+            // CI installs — not inferred from the documentation, which is what got this wrong once
+            // already.
+            //
+            // The consequence is a silent widening: TryParse("10.0.0.1/8") succeeds with
+            // BaseAddress 10.0.0.0, so an operator who wrote a host address with a network prefix
+            // would trust all 16,777,216 addresses in 10.0.0.0/8 rather than the one host they
+            // meant. D97's principle is that a trust list must mean exactly what it says — "a list
+            // that silently shrinks yields a limiter that looks configured and is not", and silently
+            // *widening* is the same failure pointed the other way, with the worse blast radius.
+            // Refusing at startup is the only reading under which the configuration is honest.
+            //
+            // A single host belongs in KnownProxies, which is exact-match and unaffected by this.
+            var separatorIndex = network.LastIndexOf('/');
+            var suppliedAddress = separatorIndex >= 0 ? network[..separatorIndex] : network;
+
+            // TryParse succeeded above on this same slice, so this parse cannot fail; it is written
+            // as a condition rather than an assumption so a future change to either side surfaces
+            // as a refusal rather than as a silently skipped check.
+            if (!IPAddress.TryParse(suppliedAddress, out var supplied) || !supplied.Equals(parsed.BaseAddress))
+            {
+                throw new InvalidOperationException(
+                    $"Configuration '{SectionName}:{nameof(KnownNetworks)}' contains '{network}', whose address is " +
+                    $"not the canonical network address for a /{parsed.PrefixLength} prefix. It would silently be " +
+                    $"widened to '{parsed.BaseAddress}/{parsed.PrefixLength}', trusting every address in that " +
+                    "range. Write the network address itself, with no bits set beyond the prefix length — or, to " +
+                    $"trust a single host, put it in '{SectionName}:{nameof(KnownProxies)}' instead.");
             }
 
             options.KnownIPNetworks.Add(parsed);

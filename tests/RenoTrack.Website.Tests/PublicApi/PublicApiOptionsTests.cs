@@ -30,14 +30,40 @@ public sealed class PublicApiOptionsTests
         Assert.Contains($"{PublicApiOptions.SectionName}:{nameof(PublicApiOptions.BaseUrl)}", exception.Message, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("api.example.de")]
-    [InlineData("/api/v1")]
-    public void A_relative_base_url_fails_startup(string baseUrl)
+    [Fact]
+    public void A_relative_base_url_fails_startup()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() => With(baseUrl).Validate());
+        var exception = Assert.Throws<InvalidOperationException>(() => With("api.example.de").Validate());
 
         Assert.Contains("absolute URL", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A leading-slash path is refused, and this test deliberately asserts only that — not which of
+    /// the two guards reports it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Which branch fires is operating-system dependent.</b> On Unix,
+    /// <c>Uri.TryCreate("/api/v1", UriKind.Absolute, …)</c> <i>succeeds</i>, yielding the
+    /// <c>file</c> scheme, so the HTTPS guard rejects it; on Windows it is not an absolute URI at
+    /// all and the absolute-URL guard rejects it instead. An earlier version of this test pinned the
+    /// absolute-URL branch and failed on CI's Linux runner.
+    ///
+    /// Pinning the Linux branch instead would only move the problem: this suite runs on Linux in CI
+    /// but a contributor runs it on Windows, and a test that passes in one place and fails in the
+    /// other is exactly the failure mode <c>CLAUDE.md</c> §22 records for
+    /// <c>Path.GetInvalidFileNameChars()</c>. What matters to the caller — the value is refused, and
+    /// the message names the key at fault — is true on every OS, so that is what is asserted.
+    /// </remarks>
+    [Fact]
+    public void A_leading_slash_path_is_refused_on_every_operating_system()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => With("/api/v1").Validate());
+
+        Assert.Contains(
+            $"{PublicApiOptions.SectionName}:{nameof(PublicApiOptions.BaseUrl)}",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
