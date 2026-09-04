@@ -392,3 +392,17 @@ Fixed by removing the block opener. The comment left inaccurate by the round-1 r
 
 **Both rounds were the templating layer, not the C#, and neither was visible to review** — the same class of finding as Slice 2's `Logging:LogLevel` comment keys. In an environment with no SDK, a Razor view is the part of a change with the least local verification available and the most syntax that is not C#, and it is worth reading in full rather than patching by line number. This round-2 fix was made that way: the whole file was read before anything was touched.
 
+### 6.9 CI round 3 — Razor clean, one test-authoring defect
+
+**Run [33907629207](https://github.com/Keroleshanna/RenoTrack/actions/runs/33907629207), commit `a093bb6`. `0 Warning(s), 1 Error(s)`.**
+
+**`RenoTrack.Website` compiled** — the Razor work is done. The remaining error was in the new test file:
+
+```
+CustomerFormattingTests.cs(69,6): error xUnit1025: Theory method
+'Quantity_trims_trailing_zeros_and_uses_a_german_decimal_separator' has InlineData duplicate(s).
+```
+
+**The analyser was right about more than it said.** The rows were `[InlineData(10, "10")]` next to `[InlineData(10.00, "10")]`, written to prove that a quantity's trailing zeros are trimmed. They cannot prove that: an `InlineData` argument is a compile-time constant passed as `int` or `double`, and neither carries a scale — only `decimal` does. So `10.00` arrived as the same value as `10`, and the rows were not merely redundant, they were **testing something other than what they appeared to test.**
+
+Fixed by removing the redundant rows and adding a separate `[Fact]` using real `decimal` literals (`10.00m`, `2.50m`, `0.7500m`), with an assertion first that those literals really do carry their scale — so the test proves its own premise rather than assuming it. Every other theory in the slice's new tests was swept for numerically-equal rows; none.

@@ -64,15 +64,37 @@ public sealed class CustomerFormattingTests
     /// </summary>
     [Theory]
     [InlineData(10, "10")]
-    [InlineData(10.00, "10")]
     [InlineData(2.5, "2,5")]
-    [InlineData(2.50, "2,5")]
     [InlineData(0.75, "0,75")]
     [InlineData(0, "0")]
     [InlineData(1250, "1250")]
     public void Quantity_trims_trailing_zeros_and_uses_a_german_decimal_separator(decimal quantity, string expected)
     {
         Assert.Equal(expected, CustomerFormatting.Quantity(quantity));
+    }
+
+    /// <summary>
+    /// The same rule against a <see cref="decimal"/> that actually carries trailing zeros.
+    /// </summary>
+    /// <remarks>
+    /// <b>This cannot be expressed as <c>InlineData</c>, which is why it is a separate fact.</b>
+    /// A <c>decimal</c> preserves its scale — <c>10.00m</c> renders as "10.00" by default while
+    /// <c>10m</c> renders as "10" — but an <c>InlineData</c> argument is a compile-time constant
+    /// passed as <c>int</c> or <c>double</c>, and neither carries a scale. Rows for <c>10.00</c> and
+    /// <c>2.50</c> were therefore not merely duplicates of <c>10</c> and <c>2.5</c> (which is what
+    /// xUnit1025 reported); they were testing something other than what they appeared to test. The
+    /// literals here are real decimals, so the scale reaches the method.
+    /// </remarks>
+    [Fact]
+    public void Quantity_trims_a_decimals_own_trailing_zeros()
+    {
+        // Guards the premise: without formatting, these would render their scale.
+        Assert.Equal("10.00", 10.00m.ToString(CultureInfo.InvariantCulture));
+        Assert.Equal("2.50", 2.50m.ToString(CultureInfo.InvariantCulture));
+
+        Assert.Equal("10", CustomerFormatting.Quantity(10.00m));
+        Assert.Equal("2,5", CustomerFormatting.Quantity(2.50m));
+        Assert.Equal("0,75", CustomerFormatting.Quantity(0.7500m));
     }
 
     [Fact]
