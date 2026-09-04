@@ -79,6 +79,14 @@ public sealed class AngebotPageTests : IClassFixture<CustomerWebsiteFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("ANG-2026-00042", html, StringComparison.Ordinal);
+
+        // The document itself, not just the <title>. This assertion previously passed while the
+        // page rendered nothing but its layout and title, because the Angebot number appears in
+        // both — a caught-looking success over a feature that was entirely broken, which is the
+        // failure mode CLAUDE.md §23 records. Anchoring it to the document container means a page
+        // that renders only its chrome fails here.
+        Assert.Contains("customer-document", html, StringComparison.Ordinal);
+        Assert.Contains("Zusammenfassung", html, StringComparison.Ordinal);
     }
 
     [Theory]

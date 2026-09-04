@@ -12,15 +12,23 @@
     ({base}/angebot/{token}, D4.1) — the email is already written and already sends customers here,
     so this page is what makes a link that has existed since Phase 6 resolve to something.
 
-    Slice 2 is the skeleton: every state the customer can land in, and nothing else. The priced
-    document is Slice 3 and the decision buttons are Slice 4.
+    Slice 2 built every state the customer can land in; Slice 3 fills in the Available branch with
+    the priced document and the current decision state. The decision buttons are Slice 4's.
 *@
 
 @switch (Model.Outcome)
 {
     case CustomerAngebotOutcome.Available:
-        @* The document and its decision state. The decision *buttons* are Slice 4's. *@
-        @await Html.PartialAsync("_AngebotDocument", Model.Angebot!)
+        @*
+            The document and its decision state. The decision buttons are Slice 4's.
+
+            RenderPartialAsync, never "@await Html.PartialAsync(...)": inside a switch case body
+            Razor is in code context, where PartialAsync's returned IHtmlContent is simply
+            discarded — the partial executes and nothing reaches the page, with no error and no
+            warning. RenderPartialAsync writes straight to the output instead. Caught by CI, not by
+            review: the page rendered its layout and its title, and every content assertion failed.
+        *@
+        await Html.RenderPartialAsync("_AngebotDocument", Model.Angebot!);
         break;
 
     case CustomerAngebotOutcome.NotFound:

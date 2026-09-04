@@ -406,3 +406,17 @@ CustomerFormattingTests.cs(69,6): error xUnit1025: Theory method
 **The analyser was right about more than it said.** The rows were `[InlineData(10, "10")]` next to `[InlineData(10.00, "10")]`, written to prove that a quantity's trailing zeros are trimmed. They cannot prove that: an `InlineData` argument is a compile-time constant passed as `int` or `double`, and neither carries a scale — only `decimal` does. So `10.00` arrived as the same value as `10`, and the rows were not merely redundant, they were **testing something other than what they appeared to test.**
 
 Fixed by removing the redundant rows and adding a separate `[Fact]` using real `decimal` literals (`10.00m`, `2.50m`, `0.7500m`), with an assertion first that those literals really do carry their scale — so the test proves its own premise rather than assuming it. Every other theory in the slice's new tests was swept for numerically-equal rows; none.
+
+### 6.10 CI round 4 — build clean, the partial rendered nothing
+
+**Run [33907803685](https://github.com/Keroleshanna/RenoTrack/actions/runs/33907803685), commit `eeec2ca`.** Build clean; `Failed: 13, Passed: 165, Total: 178` in `RenoTrack.Website.Tests`.
+
+Every failure was the same symptom: the page returned 200 and rendered `<!DOCTYPE html><html lang="de">…`, and **none of the document was in it** — no section title, no `m²`, no subtotal.
+
+**Cause: `@await Html.PartialAsync(...)` inside a `@switch` case body.** A case body is *code* context, not markup, so the `IHtmlContent` the call returns is simply discarded. The partial executed and nothing reached the page. **No error, no warning, and the build was clean** — the failure is invisible to everything except an assertion on the rendered content.
+
+Fixed with `await Html.RenderPartialAsync(...)`, which writes straight to the output.
+
+**The Slice 2 test that should have caught it did not, and it has been strengthened.** `An_available_angebot_shows_its_number` asserted only that the Angebot number appears somewhere in the HTML — and it does, in the `<title>`, which the page still set. It therefore passed while the feature was entirely broken. It now also anchors on the document container and the summary heading, so a page rendering only its chrome fails. This is precisely the pattern `CLAUDE.md` §23 already records from Phase 10: *"a caught error must not be able to make a broken feature look healthy"* — here it was a weak assertion rather than a swallowed exception, with the same result.
+
+**Three rounds, three different Razor context rules** — a directive collision, a code block reopened inside a code block, and a return value discarded in code context. None was visible in review, none is C#, and only the third produced no build error at all.
