@@ -216,6 +216,112 @@ public sealed class PublicAngebotDecisionEndpointTests(RenoTrackApiFactory facto
         Assert.Empty(await context.AngebotReviewComments.Where(c => c.AngebotId == angebotId).ToListAsync());
     }
 
+    // ---- Concurrency (D96) -------------------------------------------------
+
+    /// <summary>
+    /// Two simultaneous decisions on the same link — the customer double-clicking, or answering
+    /// from two tabs — resolve to exactly one 200 and one 409, and the recorded state is coherent.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The two requests deliberately disagree</b> (one Approve, one Reject), because that is the
+    /// interleaving that used to corrupt state rather than merely duplicate work. Before D96 both
+    /// requests read <c>UsedAt</c> as null, both passed <c>MarkUsed()</c>'s in-memory guard, and
+    /// both committed against separate <c>DbContext</c> instances — so the link was consumed twice,
+    /// two audit rows and two Admin emails were produced, and <c>Angebot</c> and <c>Lead</c> could
+    /// finish in states that contradict each other (<c>CustomerApproved</c> with <c>Lost</c>),
+    /// since neither of those rows carries a concurrency token of its own.
+    /// </para>
+    /// <para>
+    /// <b>The 409 is deterministic whichever way the two requests interleave</b>, which is why this
+    /// test has no flaky branch to tolerate. If they genuinely race, the loser's
+    /// <c>UPDATE … WHERE UsedAt IS NULL</c> matches no row and <c>UnitOfWork</c> translates EF
+    /// Core's <c>DbUpdateConcurrencyException</c> into <c>ConflictException</c>. If the host happens
+    /// to serialize them, the second request reloads a consumed link and <c>TokenLink.MarkUsed()</c>
+    /// refuses with <c>InvalidOperationException</c>. Both map to 409 (CLAUDE.md §22), so the
+    /// caller-visible contract is identical and this asserts that contract rather than which guard
+    /// fired.
+    /// </para>
+    /// <para>
+    /// Repeated, per CLAUDE.md §14: a concurrency test that passes once proves only that the race
+    /// <i>can</i> resolve correctly. Each case re-seeds its own Angebot, so the iterations share no
+    /// state.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task Two_simultaneous_opposite_decisions_resolve_to_one_success_and_one_conflict(int attempt)
+    {
+        // The parameter exists only to make xUnit run this three times as three distinct cases; it
+        // is read here so the "theory does not use its parameter" analyzer stays satisfied.
+        _ = attempt;
+
+        var (token, angebotId, leadId) = await SentAngebotAsync();
+
+        using var approver = factory.CreateClient();
+        using var rejecter = factory.CreateClient();
+
+        // An asynchronous gate, so both requests are released together without either occupying a
+        // pool thread while it waits.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<HttpResponseMessage> DecideAsync(HttpClient client, string decision)
+        {
+            await gate.Task;
+            return await client.PostAsJsonAsync(
+                $"/api/v1/public/angebote/{token}/decision", new { decision });
+        }
+
+        var approving = DecideAsync(approver, "Approve");
+        var rejecting = DecideAsync(rejecter, "Reject");
+        gate.SetResult();
+
+        var responses = await Task.WhenAll(approving, rejecting);
+
+        try
+        {
+            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+
+            var conflict = responses.Single(response => response.StatusCode == HttpStatusCode.Conflict);
+            Assert.Equal("application/problem+json", conflict.Content.Headers.ContentType?.MediaType);
+
+            // The loser's body must not disclose the credential, whichever guard produced it.
+            var problem = await conflict.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(token, problem, StringComparison.Ordinal);
+
+            using var scope = factory.Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+            var link = await context.TokenLinks.SingleAsync(t => t.Token == token);
+            Assert.NotNull(link.UsedAt);
+
+            // The decisive assertion: Angebot and Lead agree. Before D96 they could not be relied on
+            // to, because two committing transactions wrote them independently.
+            var angebotStatus = (await context.Angebote.SingleAsync(a => a.Id == angebotId)).Status;
+            var leadStatus = (await context.Leads.SingleAsync(l => l.Id == leadId)).Status;
+
+            var expectedLeadStatus = angebotStatus switch
+            {
+                AngebotStatus.CustomerApproved => LeadStatus.Won,
+                AngebotStatus.CustomerRejected => LeadStatus.Lost,
+                _ => throw new InvalidOperationException(
+                    $"The Angebot finished in {angebotStatus}, which no decision can produce."),
+            };
+
+            Assert.Equal(expectedLeadStatus, leadStatus);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     private async Task ExpireTokenAsync(string token)

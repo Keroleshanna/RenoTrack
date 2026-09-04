@@ -34,7 +34,27 @@ public sealed class TokenLinkConfiguration : IEntityTypeConfiguration<TokenLink>
         builder.Property(t => t.Token).IsRequired().HasMaxLength(200);
 
         builder.Property(t => t.ExpiresAt).IsRequired();
-        builder.Property(t => t.UsedAt);
+
+        // Optimistic concurrency, and the whole reason BR-4 is enforceable rather than merely
+        // intended (D96). UsedAt is the only column any code path ever mutates on this table
+        // (TokenLink.MarkUsed is the aggregate's one mutator), so making it the concurrency token
+        // costs nothing anywhere else and turns the decision UPDATE into
+        // "UPDATE TokenLinks SET UsedAt = @now WHERE Id = @id AND UsedAt IS NULL".
+        //
+        // Without it, two simultaneous decisions on the same link both read UsedAt as null, both
+        // pass MarkUsed()'s in-memory guard, and both commit — consuming the link twice, writing
+        // two audit rows, sending two Admin emails, and (when the two callers chose differently)
+        // leaving Angebot and Lead in states that contradict each other, since neither of those
+        // rows carries a token of its own. With it, the loser's UPDATE matches no row, EF Core
+        // throws DbUpdateConcurrencyException, and its *entire* batch is rolled back — so the
+        // Angebot and Lead writes it had queued never land either. That batch-level atomicity is
+        // what makes a token on this one column sufficient to protect all three aggregates.
+        //
+        // The same shape as RefreshToken.RevokedAt (D60), for the same reason: a nullable
+        // "consumed at" timestamp is a natural compare-and-set, needing no rowversion column and
+        // therefore no schema change.
+        builder.Property(t => t.UsedAt).IsConcurrencyToken();
+
         builder.Property(t => t.CreatedAt).IsRequired();
 
         // ERD.md §3: "Token (unique) — public token-link lookup is the hottest unauthenticated read

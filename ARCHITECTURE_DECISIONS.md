@@ -1980,6 +1980,54 @@ Four LocalDB integration tests pin it against the real constraint, including tha
 
 ---
 
+## D96 — `TokenLinks.UsedAt` Is an Optimistic-Concurrency Token, and `UnitOfWork` Translates the Loss
+
+**Date:** 2026-09-04 (Phase 11, Slice 1). **Status:** Accepted. **Migration #11 `AddTokenLinkConcurrencyToken` (empty `Up`/`Down` — snapshot only).**
+
+### Context
+
+BR-4 says a token link is single-use for decisions, and `TokenLink.MarkUsed()` enforces it — but only against the state that one `DbContext` happens to have loaded. `RecordAngebotDecisionCommandHandler` reads the link, checks `UsedAt`, mutates three aggregates and commits them in one `SaveChangesAsync`. Nothing made that read-then-write atomic across requests.
+
+So two simultaneous decisions on the same link — a customer double-clicking, or answering from two tabs — both read `UsedAt` as null, both passed the in-memory guard, and **both committed**. `TokenLinks` had no concurrency token; only `RefreshToken.RevokedAt` did.
+
+The visible damage was not merely a duplicate: `Angebot` and `Lead` carry no concurrency token either, and the two transactions wrote them independently. An Approve racing a Reject could therefore leave `Angebot = CustomerApproved` with `Lead = Lost` — the one pair of rows StateMachine.md §5 exists to keep in agreement — plus two audit rows and two Admin notification emails for a decision the customer made once.
+
+This was found by reading the code during the Phase 11 assessment, not by a failing test. Every existing test drove the decision endpoint sequentially, where `MarkUsed()`'s guard is sufficient.
+
+### Decision
+
+**`TokenLinks.UsedAt` is an EF Core optimistic-concurrency token.** The decision `UPDATE` becomes `UPDATE TokenLinks SET UsedAt = @now WHERE Id = @id AND UsedAt IS NULL`. The loser matches no row, EF Core throws `DbUpdateConcurrencyException`, and **its entire batch rolls back** — so the `Angebot` and `Lead` writes it had queued never land either.
+
+**`UnitOfWork.SaveChangesAsync` catches `DbUpdateConcurrencyException` and rethrows `ConflictException`**, which the API already maps to 409. `ConflictException` gained an inner-exception overload so the real cause survives for D59's Warning-with-stack-trace logging.
+
+### Why this shape
+
+**A token on one column protects all three aggregates**, because EF Core wraps the batch in a transaction — so `Angebot` and `Lead` need no tokens of their own, and none was added. The token link is the gate for this path; nothing else can reach those two transitions (StateMachine.md §5).
+
+**`UsedAt` is the natural token because it is the only column anything ever mutates on this table** — `MarkUsed()` is the aggregate's one mutator. There is no cost anywhere else, and no `rowversion` column, and therefore **no schema change**: a non-`rowversion` concurrency token is client-side `WHERE`-clause behaviour. This is exactly the shape `RefreshToken.RevokedAt` already uses (D60).
+
+**The translation had to live in `UnitOfWork`, not in the handler.** `DbUpdateConcurrencyException` is an EF Core type and `RenoTrack.Application` references FluentValidation and two Microsoft.Extensions abstractions packages and nothing else (CLAUDE.md §22) — a handler cannot name the type it would need to catch. Infrastructure referencing Application is the permitted direction, so Infrastructure is the only layer that can name both sides. This is D60's boundary — business rules in Application, mechanisms in Infrastructure — applied to a failure mode rather than to a service.
+
+**The translation is blanket rather than token-specific.** A lost optimistic-concurrency race always means the same thing and 409 is always the honest answer, so there is nothing for a per-entity branch to decide — and any concurrency token added later is mapped correctly the day it is added, instead of surfacing as an unmapped 500 until someone notices. **Only `DbUpdateConcurrencyException` is caught, never its `DbUpdateException` base:** a unique-index or foreign-key violation is a defect, not a conflict a caller should be invited to retry, and must keep surfacing as a 500 with its stack trace intact.
+
+**The message names nothing.** The first caller to reach this path is the anonymous public decision endpoint, where the loser is a real customer holding a token link, and a mapped exception's message becomes the ProblemDetails `detail` (D59). No row id, table, timestamp or token appears in it.
+
+**No new arm was added to `ProblemDetailsExceptionHandler`.** Mapping `DbUpdateConcurrencyException` there would have pushed a persistence mechanism into the presentation layer's mapping table — the very thing §22 already records as an accepted *risk* for `ArgumentException`/`InvalidOperationException` rather than as a pattern to extend.
+
+**`TokenService` is unaffected.** It saves through `DbContext` directly, never through `IUnitOfWork`, and already catches `DbUpdateConcurrencyException` itself for refresh-token reuse detection. The authentication path's behaviour is unchanged.
+
+### Consequences
+
+**The 409 is deterministic whichever way two decisions interleave**, and that is the property the tests assert rather than which guard fired. A genuine race loses at the database and surfaces as `ConflictException`; a serialized second request reloads a consumed link and loses to `MarkUsed()`'s `InvalidOperationException`. Both map to 409, so the caller-visible contract is identical — which is also why these tests have no flaky branch to tolerate.
+
+Ten tests pin it: five repeated LocalDB races on the aggregate, four on `UnitOfWork`'s translation (including that the message discloses nothing and that a constraint violation is *not* translated), and three repeated end-to-end races through the real HTTP endpoint with the two requests deliberately disagreeing. **Repetition is not decoration** — D55 is the precedent: a race proof that passed when written then failed about two runs in three once it was actually repeated.
+
+**Migration #11 has empty `Up`/`Down` and that is the correct product of the model.** The column, its type and its nullability are unchanged; the migration exists only because `RenoTrackDbContextModelSnapshot` records `.IsConcurrencyToken()`, and without it `dotnet ef migrations has-pending-model-changes` would report a pending change forever. It must still be applied, because startup verification compares migration history in both directions (D63). The migration count moves from ten to **eleven**.
+
+**Known, deliberately unfixed in this slice:** the *sequential* second decision still surfaces `MarkUsed()`'s own message, which names the token link's row id and the first use's timestamp. That is a pre-existing disclosure on the anonymous surface, narrower than a credential but wider than it needs to be. It is recorded in `NEXT_STEPS.md` rather than fixed here, because changing a Domain guard's message is not what this slice is for.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -2157,4 +2205,7 @@ Four LocalDB integration tests pin it against the real constraint, including tha
 | An ordinal `> InspectionScheduled` comparison instead of a status set | D93 | `Lost` sits last in the enum but is a terminal branch, not a later stage, so the comparison would be true for the wrong reason |
 | A separate reopen event on Angebot to reach `Draft` from `ChangesRequested` | D94 | Adds a transition the documents do not define, to reach a state the Inspector is already in |
 | Cascade delete on `CreatedFromAngebotItemId` | D95 | Would delete a shared Catalog entry as collateral damage of a draft edit, which BR-12 exists to prevent |
+| Concurrency tokens on `Angebot` and `Lead` as well as `TokenLink` | D96 | Redundant — EF Core rolls back the loser's whole batch, so a token on the one row that gates the path already protects all three |
+| Mapping `DbUpdateConcurrencyException` in `ProblemDetailsExceptionHandler` | D96 | Pushes a persistence mechanism into the presentation layer's mapping table; §22 records that shape as an accepted risk, not a pattern to extend |
+| Catching `DbUpdateException` (the base) in `UnitOfWork` | D96 | A constraint violation is a defect, not a conflict — dressing it up as a retryable 409 would hide it |
 | Refusing to remove a line that had been saved to the Catalog | D95 | Invents a rule no document states, and contradicts CLAUDE.md §2's "a draft line is unsent working material" |
