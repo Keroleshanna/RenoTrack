@@ -325,3 +325,31 @@ Three checkpoints on one branch: **3a** ordering + its test, **3b** the mirrored
 ### 6.5 Out of scope
 
 Accept/Decline and `DecisionReason` (Slice 4–5), link re-issue (6), company and legal identity and the A3 logo (7), PDF (Phase 14, gap `G-4`), the contact form (Phase 13). No unrelated refactors.
+
+### 6.6 Implementation record
+
+**Branch:** `claude/customer-workflow-phase-rvh4rj`, restarted from `main` at `78a8406` (PR #18 merged, so the branch is reused for fresh work rather than stacked on merged history).
+
+| Checkpoint | Commit | Scope |
+|---|---|---|
+| — | `5d757c8` | The approved design and the Q4 reversal, recorded before any code |
+| **3a** | `b2144c1` | Deterministic item ordering + 3 Application tests |
+| **3b + 3c** | `8662a1f` | The mirrored contract, the document, formatting, styles + Website tests |
+
+**Files changed**
+
+*Application (the only production change outside the Website):* `Angebote/Dtos/PublicAngebotDto.cs` — `.OrderBy(item => item.Id)`.
+
+*Website:* `PublicApi/CustomerAngebot.cs` (grown to `CustomerAngebot` + `CustomerSection` + `CustomerItem` + `CustomerVatLine` + `CustomerAngebotDecision`), `PublicApi/PublicAngebotClient.cs` (usability guard widened to null collections), `Rendering/CustomerFormatting.cs` (new), `Pages/Shared/_AngebotDocument.cshtml` (new), `Pages/Angebot.cshtml`, `wwwroot/css/customer.css`.
+
+*Tests:* `Application.Tests/Angebote/Dtos/PublicAngebotMappingTests.cs` (new), `Website.Tests/CustomerAngebotBuilder.cs` (new), `Website.Tests/Rendering/CustomerFormattingTests.cs` (new), `Website.Tests/Pages/AngebotDocumentTests.cs` (new), plus updates to `PublicAngebotClientTests`, `AngebotPageTests`, `AngebotModelTests` and `CustomerWebsiteFactory` for the grown contract.
+
+**Decisions taken while building, none of them reopening an approved one**
+
+- **`decisionAt` is not mirrored into the Website's type at all.** The status message says what the customer did without it, and rendering a UTC value as a German date raises a timezone-policy question no project document answers. Unknown JSON properties are ignored on deserialization, so omitting it costs nothing.
+- **An unrecognised `decision` value is an outage, not a `Pending` Angebot.** Defaulting would tell a customer their recorded answer was never taken — a wrong statement about their own decision is worse than an honest "not available right now".
+- **A 200 whose `sections` or `vatBreakdown` is `null` is an outage.** The API always emits an array, so `[]` arrives as an empty list; `null` means the two sides disagree about the contract. An empty list stays a legitimate document.
+- **Only `m2` is rewritten** (to `m²`) — the one standard code whose storage form is an ASCII compromise. Everything else, including any custom label, passes through untouched.
+- **A section with no lines renders with a zero `Zwischensumme` rather than being suppressed.** Only one section needs items for an Angebot to be submittable, so this is reachable, and the Inspector put the section in the document.
+
+**Not done, and it is a stated completion gate:** the browser QA pass (desktop, mobile, print). This environment has no .NET SDK, so the application cannot be launched here — see §6.7.
