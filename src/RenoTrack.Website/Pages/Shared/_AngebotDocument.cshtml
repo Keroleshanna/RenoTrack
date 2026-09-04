@@ -8,9 +8,14 @@
     subtotal or computes a VAT amount — BR-11's rounding belongs to the Domain, and recomputing in
     the page is how a rendered quote starts disagreeing with the quote the company sent.
 
-    All free text (@item.Description, @item.Specification, @section.Title) is written with Razor's
-    default @-expressions, which HTML-encode. There is deliberately no Html.Raw anywhere on a
-    customer page: these strings are typed by an Inspector and rendered to an anonymous reader.
+    All free text — the item description, the item specification and the section title — is written
+    with Razor's default @-expressions, which HTML-encode. There is deliberately no Html.Raw anywhere
+    on a customer page: these strings are typed by an Inspector and rendered to an anonymous reader.
+
+    The loop variable is `angebotSection`, never `section`: `@section` is Razor's own directive, so
+    `@angebotSection.Title` is parsed as a section directive rather than as a property access and fails the
+    build. Naming it away is more durable than escaping each use with `@(section.Title)`, which would
+    leave the same trap set for the next property added here.
 *@
 
 @if (Model.Decision != CustomerAngebotDecision.Pending)
@@ -23,8 +28,15 @@
         The document itself still follows, because BR-4 explicitly keeps viewing open after a
         decision: "a customer who has approved must still be able to re-read what they agreed to".
     *@
-    <aside class="customer-status customer-status-@(Model.Decision == CustomerAngebotDecision.Approved ? "approved" : "rejected")"
-           role="status">
+    @{
+        // Built as a local rather than inline: an @(...) expression containing double-quoted string
+        // literals sits inside a double-quoted attribute value, which is exactly the kind of nesting
+        // Razor's attribute parser handles least predictably. A local keeps the markup unambiguous.
+        var statusClass = Model.Decision == CustomerAngebotDecision.Approved
+            ? "customer-status-approved"
+            : "customer-status-rejected";
+    }
+    <aside class="customer-status @statusClass" role="status">
         @if (Model.Decision == CustomerAngebotDecision.Approved)
         {
             <p class="customer-status-headline">Sie haben dieses Angebot angenommen.</p>
@@ -44,21 +56,21 @@
 
     @for (var sectionIndex = 0; sectionIndex < Model.Sections.Count; sectionIndex++)
     {
-        var section = Model.Sections[sectionIndex];
+        var angebotSection = Model.Sections[sectionIndex];
 
         <section class="customer-position">
             <h2 class="customer-position-title">
                 <span class="customer-position-number">Pos. @CustomerFormatting.SectionNumber(sectionIndex)</span>
-                @section.Title
+                @angebotSection.Title
             </h2>
 
-            @if (section.Items.Count > 0)
+            @if (angebotSection.Items.Count > 0)
             {
                 @* Wide content scrolls inside its own container so the page body never scrolls. *@
                 <div class="customer-table-scroll">
                     <table class="customer-items">
                         <caption class="customer-visually-hidden">
-                            Positionen zu @section.Title
+                            Positionen zu @angebotSection.Title
                         </caption>
                         <thead>
                             <tr>
@@ -71,9 +83,9 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @for (var itemIndex = 0; itemIndex < section.Items.Count; itemIndex++)
+                            @for (var itemIndex = 0; itemIndex < angebotSection.Items.Count; itemIndex++)
                             {
-                                var item = section.Items[itemIndex];
+                                var item = angebotSection.Items[itemIndex];
                                 <tr>
                                     <td class="customer-col-pos" data-label="Pos.">
                                         @CustomerFormatting.PositionNumber(sectionIndex, itemIndex)
@@ -111,7 +123,7 @@
             *@
             <p class="customer-subtotal">
                 <span class="customer-subtotal-label">Zwischensumme</span>
-                <span class="customer-subtotal-value">@CustomerFormatting.Money(section.Subtotal)</span>
+                <span class="customer-subtotal-value">@CustomerFormatting.Money(angebotSection.Subtotal)</span>
             </p>
         </section>
     }

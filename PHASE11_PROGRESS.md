@@ -353,3 +353,26 @@ Accept/Decline and `DecisionReason` (Slice 4–5), link re-issue (6), company an
 - **A section with no lines renders with a zero `Zwischensumme` rather than being suppressed.** Only one section needs items for an Angebot to be submittable, so this is reachable, and the Inspector put the section in the document.
 
 **Not done, and it is a stated completion gate:** the browser QA pass (desktop, mobile, print). This environment has no .NET SDK, so the application cannot be launched here — see §6.7.
+
+### 6.7 CI round 1 — Razor build failure, one root cause, fixed
+
+**Run [33906802660](https://github.com/Keroleshanna/RenoTrack/actions/runs/33906802660), commit `d38eed2`, PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19).**
+
+| Job | Result |
+|---|---|
+| `build-and-test` (ubuntu-latest) | ❌ **failure** — `0 Warning(s), 3 Error(s)` |
+| `database-backed-tests` (windows-latest) | ⏭️ **skipped** — gated on `needs: build-and-test` |
+
+```
+_AngebotDocument.cshtml(52,25): error RZ1011: The 'section' directives value(s) must be separated by whitespace.
+_AngebotDocument.cshtml(61,44): error RZ2005: The 'section' directive must appear at the start of the line.
+_AngebotDocument.cshtml(61,51): error RZ1011: The 'section' directives value(s) must be separated by whitespace.
+```
+
+**One root cause: the loop variable was named `section`, so `@section.Title` parses as Razor's `@section` directive** rather than as a property access. Nothing about the C# is wrong; the identifier simply collides with a language construct in the templating layer.
+
+**Fixed by renaming the variable to `angebotSection`, not by escaping each use as `@(section.Title)`.** Escaping fixes the two call sites and leaves the same trap armed for the next property anyone adds to this partial; renaming removes it.
+
+**A second hazard was found and fixed in the same push**, before it could cost another cycle: the decision banner's class was built inline as `class="customer-status-@(… ? "approved" : "rejected")"` — double-quoted string literals inside an `@(...)` expression inside a double-quoted attribute value, which is the nesting Razor's attribute parser handles least predictably. Hoisted to a local. The whole partial was also swept for every other Razor directive keyword used in property-access position; none remained.
+
+**The general lesson, now in `CLAUDE.md` §24:** a Razor view is not C# — an identifier that is perfectly ordinary in a handler can collide with a directive in a template, and it fails at build rather than at review.
