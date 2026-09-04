@@ -1,0 +1,89 @@
+<!-- The receivables band. A list says what exists; the split says what it means. -->
+@if (receivables(); as r) {
+  <section class="rt-panel money">
+    <header class="rt-panel__head">
+      <div>
+        <h2 class="rt-subtitle">{{ t().cockpit.money.heading }}</h2>
+        <p class="rt-panel__sub">{{ t().cockpit.money.subheading }}</p>
+      </div>
+      <div class="rt-panel__aside">
+        <span class="rt-label">{{ t().cockpit.money.total }}</span>
+        <span class="rt-panel__aside-value">{{ money(r.invoicedGross) }}</span>
+      </div>
+    </header>
+    <app-segmented-bar [segments]="segments()" [caption]="t().cockpit.money.heading" />
+  </section>
+}
+
+<app-workspace-chrome
+  [title]="t().invoices.title"
+  [subtitle]="t().invoices.subtitle"
+  [headlineLabel]="t().invoices.count"
+  [headlineValue]="total().toString()"
+  [filters]="filters()"
+  [filterLegend]="t().filters.status"
+  [active]="statusFilter()"
+  [state]="chromeState()"
+  [errorMessage]="errorMessage() ?? ''"
+  [showing]="showingLabel()"
+  [hasPrevious]="hasPrevious()"
+  [hasNext]="hasNext()"
+  [previousLabel]="t().paging.previous"
+  [nextLabel]="t().paging.next"
+  (statusChange)="applyStatus($event)"
+  (pageChange)="goToPage($event)"
+  (reload)="load()"
+>
+  <div class="rt-table-wrap">
+    <table class="rt-table">
+      <thead>
+        <tr>
+          <th>{{ t().invoices.columns.number }}</th>
+          <th>{{ t().invoices.columns.customer }}</th>
+          <th>{{ t().invoices.columns.status }}</th>
+          <th class="rt-numeric">{{ t().invoices.columns.due }}</th>
+          <th class="rt-numeric">{{ t().invoices.columns.gross }}</th>
+          <th class="rt-numeric">{{ t().invoices.columns.paid }}</th>
+          <th><span class="rt-visually-hidden">{{ t().invoices.columns.project }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (invoice of rows(); track invoice.id) {
+          <tr>
+            <td class="rt-numeric">{{ invoice.invoiceNumber }}</td>
+            <td>{{ invoice.customerName }}</td>
+            <td>
+              <app-status-chip kind="invoice" [value]="invoice.status" />
+              @if (isOverdue(invoice)) {
+                <span class="overdue">{{ t().invoices.overdueBadge }}</span>
+              }
+            </td>
+            <td class="rt-numeric">
+              {{ invoice.dueDate | date: t().formats.date : undefined : locale() }}
+            </td>
+            <td class="rt-numeric strong">
+              {{ invoice.grossAmount | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}
+            </td>
+            <td class="rt-numeric">
+              @if (invoice.paidAt) {
+                {{ invoice.paidAt | date: t().formats.date : undefined : locale() }}
+              } @else {
+                &mdash;
+              }
+            </td>
+            <!--
+              Every Invoice action lives on its Project (Wireframe E1), because creating one needs
+              BR-3's remaining balance and that figure exists only there. One place for the workflow,
+              rather than two that can drift.
+            -->
+            <td class="rt-numeric">
+              <a class="row-link" [routerLink]="['/projekte', invoice.projectId]">{{
+                t().invoices.openProject
+              }}</a>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</app-workspace-chrome>

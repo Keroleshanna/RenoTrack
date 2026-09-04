@@ -171,4 +171,62 @@ public class CompleteInspectionCommandHandlerTests
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
     }
+
+    // ---- Re-completion after a BR-10 reopen -------------------------------
+
+    /// <summary>
+    /// A visit reopened under BR-10 must be closable again.
+    ///
+    /// <para>
+    /// <b>This is the regression browser QA caught and every existing test missed.</b> The handler
+    /// drove <c>Lead.MarkInspectionDone()</c> unconditionally, but that transition only runs from
+    /// <c>InspectionScheduled</c> — and after the first completion the Lead has already moved.
+    /// Re-completing therefore threw and surfaced as a 409, leaving a corrected visit permanently
+    /// open with no way to close it. The Domain test passed throughout, because the aggregate alone
+    /// is perfectly happy to complete twice; the defect lived in the cross-aggregate step.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_CanCompleteAgainAfterAReopen()
+    {
+        var (lead, inspection) = SeedScheduledInspection();
+        var command = new CompleteInspectionCommand(inspection.Id, AssignedInspectorId);
+
+        await _handler.HandleAsync(command, CancellationToken.None);
+        inspection.Reopen();
+
+        var result = await _handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.NotNull(result.CompletedAt);
+
+        // The Lead stays where it already got to; it does not move twice and does not rewind.
+        Assert.Equal(LeadStatus.InspectionDone, lead.Status);
+    }
+
+    [Fact]
+    public async Task HandleAsync_AuditsEveryCompletionIncludingTheSecond()
+    {
+        var (_, inspection) = SeedScheduledInspection();
+        var command = new CompleteInspectionCommand(inspection.Id, AssignedInspectorId);
+
+        await _handler.HandleAsync(command, CancellationToken.None);
+        inspection.Reopen();
+        await _handler.HandleAsync(command, CancellationToken.None);
+
+        // Two real events, so two rows: the trail reads done, reopened, done again.
+        Assert.Equal(2, _auditService.Calls.Count(e => e.Action == AuditAction.InspectionDone));
+    }
+
+    [Fact]
+    public async Task HandleAsync_StillRefusesASecondCompletionWithoutAReopen()
+    {
+        var (_, inspection) = SeedScheduledInspection();
+        var command = new CompleteInspectionCommand(inspection.Id, AssignedInspectorId);
+
+        await _handler.HandleAsync(command, CancellationToken.None);
+
+        // The conditional above must not have weakened the aggregate's own guard.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _handler.HandleAsync(command, CancellationToken.None));
+    }
 }

@@ -176,11 +176,87 @@ public sealed class Angebot
         RecalculateTotals();
     }
 
-    /// <summary>StateMachine.md §2.3: <c>Draft → InReview</c>.</summary>
-    /// <exception cref="InvalidOperationException">Thrown if not currently Draft, or if no section has at least one item.</exception>
+    /// <summary>
+    /// Corrects an existing line's values, in place.
+    ///
+    /// <para>
+    /// <b>Added in Phase 10 on an explicit Product-Owner requirement</b>, after QA found that a
+    /// typo in a hand-written line could only be fixed by deleting and re-entering it. CLAUDE.md §2
+    /// previously recorded that no update existed because "no document mentions it, and add+remove
+    /// already covers correction" — the second half of that reasoning is what did not survive real
+    /// use: delete-and-recreate loses the line's position and its identity, and with it any Catalog
+    /// entry contributed from it (FR-4.10), which is a real cost for fixing a spelling mistake.
+    /// This is the same shape as BR-10's origin: a rule reconsidered on stated evidence, not on
+    /// inference.
+    /// </para>
+    /// <para>
+    /// Takes both the section and the item for the same reason <see cref="AddItemToSection"/> and
+    /// <see cref="RemoveItem"/> do — the aggregate verifies the section is its own, and the
+    /// Application layer resolves both instances from the already-loaded tree.
+    /// </para>
+    /// <para>
+    /// <b>Catalog-sourced lines are editable too, and their provenance link survives.</b> BR-8's
+    /// copy-on-create makes the line independent the instant it exists, so there is no Catalog
+    /// invariant to protect here; see <c>AngebotItem.Update</c> for why the link records origin
+    /// rather than equivalence.
+    /// </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The Angebot is not editable, the section does not belong to it, or the item does not belong to the section.</exception>
+    public void UpdateItem(
+        AngebotSection section,
+        AngebotItem item,
+        string description,
+        decimal quantity,
+        ItemUnit unit,
+        Money unitPrice,
+        VatRate vatRate,
+        string? specification = null)
+    {
+        EnsureEditable();
+
+        if (!_sections.Contains(section))
+            throw new InvalidOperationException($"The given section does not belong to Angebot {Id}.");
+
+        if (!section.Items.Contains(item))
+            throw new InvalidOperationException($"The given item does not belong to section {section.Id}.");
+
+        item.Update(description, quantity, unit, unitPrice, vatRate, specification);
+
+        // Non-negotiable: a price or quantity change moves the document's money, and the totals are
+        // stored fields. Skipping this is how a quote starts disagreeing with itself.
+        RecalculateTotals();
+    }
+
+    /// <summary>
+    /// StateMachine.md §2.3: <c>Draft → InReview</c>, and <c>ChangesRequested → InReview</c>.
+    ///
+    /// <para>
+    /// <b>Accepting <c>ChangesRequested</c> as a source state was added in Phase 10, and it fixes a
+    /// real workflow dead end.</b> §2.3 originally routed a returned quote back to <c>Draft</c>
+    /// only as an implicit side effect of editing it ("Inspector edits items — no explicit state
+    /// event"), so submitting required a mutation first. An Inspector who read the Admin's comment
+    /// and concluded that nothing needed changing therefore had no way to send it back: the UI
+    /// offered no Submit button, and the aggregate would have refused one. The workaround people
+    /// actually reach for — adding and deleting a section to "unlock" it — is a state change made
+    /// solely to satisfy a guard, which is exactly the kind of thing a state machine should not
+    /// require.
+    /// </para>
+    /// <para>
+    /// Nothing is weakened by this: the "at least one section with at least one item" guard still
+    /// applies, and <c>ChangesRequested</c> is already an editable state by §2.4, so a caller that
+    /// may edit may equally resubmit. The alternative — a separate <c>Reopen</c> event — would add
+    /// a transition the documents do not define, to reach a state the Inspector is already in.
+    /// </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if not currently editable, or if no section has at least one item.</exception>
     public void SubmitForReview()
     {
-        EnsureStatus(AngebotStatus.Draft, nameof(SubmitForReview));
+        if (Status is not (AngebotStatus.Draft or AngebotStatus.ChangesRequested))
+        {
+            throw new InvalidOperationException(
+                $"Cannot perform '{nameof(SubmitForReview)}': Angebot {Id} is in status '{Status}', " +
+                $"expected '{AngebotStatus.Draft}' or '{AngebotStatus.ChangesRequested}'.");
+        }
 
         if (!_sections.Any(s => s.Items.Count > 0))
         {

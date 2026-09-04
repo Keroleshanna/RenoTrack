@@ -14,11 +14,13 @@ public class GetAngebotByIdQueryHandlerTests
     private const int OtherInspectorId = 6;
 
     private readonly FakeAngebotRepository _angebotRepository = new();
+    private readonly FakeCatalogItemQueries _catalogItemQueries = new();
     private readonly GetAngebotByIdQueryHandler _handler;
 
     public GetAngebotByIdQueryHandlerTests()
     {
-        _handler = new GetAngebotByIdQueryHandler(_angebotRepository, new OwnershipValidator());
+        _handler = new GetAngebotByIdQueryHandler(
+            _angebotRepository, _catalogItemQueries, new OwnershipValidator());
     }
 
     /// <summary>Two sections with mixed VAT rates, so the breakdown has something to prove.</summary>

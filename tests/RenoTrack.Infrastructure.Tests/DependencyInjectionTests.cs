@@ -3,9 +3,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using RenoTrack.Application.CatalogItems;
+using RenoTrack.Application.Inspections;
+using RenoTrack.Application.Invoices;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.FileStorage;
+using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Queries;
 using RenoTrack.Infrastructure.Persistence.Repositories;
@@ -94,6 +97,12 @@ public sealed class DependencyInjectionTests
         Assert.IsType<AngebotReviewCommentRepository>(services.GetRequiredService<IAngebotReviewCommentRepository>());
         Assert.IsType<CatalogItemRepository>(services.GetRequiredService<ICatalogItemRepository>());
         Assert.IsType<CatalogItemQueries>(services.GetRequiredService<ICatalogItemQueries>());
+
+        // Phase 10 reads. The last of these is Infrastructure-OWNED (D77): the Application-assembly
+        // reflection test cannot see it, so this line is the only thing pinning its registration.
+        Assert.IsType<InvoiceQueries>(services.GetRequiredService<IInvoiceQueries>());
+        Assert.IsType<InspectionQueries>(services.GetRequiredService<IInspectionQueries>());
+        Assert.IsType<UserDirectoryQueries>(services.GetRequiredService<IUserDirectoryQueries>());
         Assert.IsType<UnitOfWork>(services.GetRequiredService<IUnitOfWork>());
         Assert.IsType<AuditService>(services.GetRequiredService<IAuditService>());
         Assert.IsType<NumberGeneratorService>(services.GetRequiredService<INumberGeneratorService>());

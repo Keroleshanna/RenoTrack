@@ -1,4 +1,5 @@
 using RenoTrack.Application.Angebote.Dtos;
+using RenoTrack.Application.CatalogItems;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Common.Interfaces;
@@ -27,6 +28,7 @@ namespace RenoTrack.Application.Angebote.Queries.GetAngebotById;
 /// </remarks>
 public sealed class GetAngebotByIdQueryHandler(
     IAngebotRepository angebotRepository,
+    ICatalogItemQueries catalogItemQueries,
     IOwnershipValidator ownershipValidator) : IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto>
 {
     public async Task<AngebotDetailDto> HandleAsync(GetAngebotByIdQuery query, CancellationToken cancellationToken)
@@ -41,6 +43,16 @@ public sealed class GetAngebotByIdQueryHandler(
             ownershipValidator.EnsureAngebotOwnership(angebot, inspectorId);
         }
 
-        return angebot.ToDetailDto();
+        // Which lines have already been contributed to the Catalog (FR-4.10). One batched query for
+        // the whole document rather than one per line — and it cannot come from the aggregate,
+        // because CatalogItem is independent and related by id only (CLAUDE.md §2).
+        var itemIds = angebot.Sections.SelectMany(section => section.Items).Select(item => item.Id).ToList();
+
+        var savedToCatalog = itemIds.Count == 0
+            ? new HashSet<int>()
+            : (HashSet<int>)await catalogItemQueries
+                .GetAngebotItemIdsWithCatalogEntryAsync(itemIds, cancellationToken);
+
+        return angebot.ToDetailDto(savedToCatalog);
     }
 }

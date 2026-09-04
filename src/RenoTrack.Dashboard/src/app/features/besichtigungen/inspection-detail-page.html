@@ -1,0 +1,268 @@
+<a class="rt-back-link" routerLink="/besichtigungen">← {{ t().inspectionDetail.backToSchedule }}</a>
+
+@switch (loadState()) {
+  @case ('loading') {
+    <section class="rt-panel"><app-skeleton [lineCount]="6" /></section>
+  }
+  @case ('error') {
+    <section class="rt-panel">
+      <app-error-state [body]="loadError()" (retry)="load()" />
+    </section>
+  }
+  @default {
+    @if (inspection(); as inspection) {
+      <header class="head">
+        <div>
+          <p class="rt-label">{{ t().inspectionDetail.label }}</p>
+          <h1 class="rt-display">{{ inspection.leadName }}</h1>
+          <p class="rt-body rt-muted head__sub">
+            {{ inspection.scheduledAt | date: t().formats.dateTime : undefined : locale() }}
+          </p>
+        </div>
+        <span class="state" [class.state--done]="inspection.completedAt">
+          {{ inspection.completedAt ? t().inspections.done : t().inspections.open }}
+        </span>
+      </header>
+
+      <section class="rt-panel block">
+        <h2 class="rt-subtitle">{{ t().inspectionDetail.onSite }}</h2>
+        <dl class="facts">
+          <div class="facts__row">
+            <dt>{{ t().leadDetail.address }}</dt>
+            <dd>{{ inspection.leadAddress ?? '—' }}</dd>
+          </div>
+          <div class="facts__row">
+            <dt>{{ t().leadDetail.phone }}</dt>
+            <dd>{{ inspection.leadPhone }}</dd>
+          </div>
+        </dl>
+
+        <!--
+          The screen that most needs these: someone standing outside the building, on a phone.
+          Directions and a call are one tap rather than a copy-paste into another app.
+        -->
+        <app-contact-actions [phone]="inspection.leadPhone" [address]="inspection.leadAddress" />
+
+        <a class="rt-button open-lead" [routerLink]="['/leads', inspection.leadId]">
+          {{ t().inspectionDetail.openLead }}
+        </a>
+      </section>
+
+      <!--
+        Photos are counted, not shown: no endpoint serves a stored file back (CLAUDE.md §13 records
+        the gap), and a broken image per photo would present that gap as a fault.
+      -->
+      <section class="rt-panel block">
+        <header class="rt-panel__head">
+          <div>
+            <h2 class="rt-subtitle">{{ t().inspections.photos }}</h2>
+            <p class="rt-panel__sub">{{ t().inspectionDetail.photosHint }}</p>
+          </div>
+          <div class="rt-panel__aside">
+            <span class="rt-label">{{ t().inspections.photos }}</span>
+            <span class="rt-panel__aside-value">{{ inspection.photoCount }}</span>
+          </div>
+        </header>
+
+        @if (capabilities().canUploadPhoto) {
+          <div class="upload">
+            <!--
+              Two inputs, because they are two different actions on a phone. The library picker is
+              `multiple` and carries no `capture`, so the OS offers the gallery; the camera one
+              carries `capture="environment"`, which is what makes a tap open the rear camera
+              directly instead of a chooser. One input cannot be both — `capture` suppresses the
+              gallery, which is exactly what someone selecting five existing photos does not want.
+            -->
+            <label class="rt-button upload__pick">
+              {{ t().inspectionDetail.choosePhotos }}
+              <input
+                class="rt-visually-hidden"
+                type="file"
+                accept="image/*"
+                multiple
+                (change)="chooseFiles($event)"
+              />
+            </label>
+
+            <label class="rt-button upload__pick">
+              {{ t().inspectionDetail.takePhoto }}
+              <input
+                class="rt-visually-hidden"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                (change)="chooseFiles($event)"
+              />
+            </label>
+
+            @if (pendingFiles().length) {
+              <p class="rt-caption upload__pending">
+                {{ pendingLabel() }}
+              </p>
+
+              <button
+                type="button"
+                class="rt-button rt-button--primary"
+                [disabled]="busy()"
+                (click)="uploadPhotos()"
+              >
+                {{ t().inspectionDetail.addPhoto }}
+              </button>
+            }
+
+            @if (uploadProgress(); as progress) {
+              <p class="rt-caption upload__pending" role="status">{{ progress }}</p>
+            }
+          </div>
+        }
+      </section>
+
+      <section class="rt-panel block">
+        <h2 class="rt-subtitle">{{ t().leadDetail.notes }}</h2>
+
+        @if (capabilities().canEditNotes) {
+          <form [formGroup]="notesForm" class="notes-form">
+            <textarea class="rt-textarea" formControlName="notes"></textarea>
+            <button
+              type="button"
+              class="rt-button"
+              [disabled]="busy()"
+              (click)="saveNotes()"
+            >
+              {{ t().actions.save }}
+            </button>
+          </form>
+        } @else {
+          <p class="notes__text">{{ inspection.notes ?? '—' }}</p>
+        }
+      </section>
+
+      @if (capabilities().canComplete || capabilities().canReassign) {
+        <footer class="actions">
+          <!-- §2, Admin only, and refused once BR-10 closes the visit. -->
+          @if (capabilities().canReassign) {
+            <button type="button" class="rt-button" [disabled]="busy()" (click)="openReassign()">
+              {{ t().inspectionDetail.reassign }}
+            </button>
+          }
+          @if (capabilities().canComplete) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="confirmingComplete.set(true)"
+            >
+              {{ t().inspectionDetail.markComplete }}
+            </button>
+          }
+        </footer>
+      }
+      @if (inspection.completedAt) {
+        <!--
+          BR-10 keeps a completed visit immutable, and that stays true. What the rule itself names
+          as the remedy is an explicit reopen — so the screen says the visit is closed *and* offers
+          the deliberate way to correct it, rather than leaving a dead end.
+        -->
+        <div class="banner">
+          <p>{{ t().inspectionDetail.completedHint }}</p>
+
+          @if (capabilities().canReopen) {
+            <button
+              type="button"
+              class="rt-button rt-button--small"
+              [disabled]="busy()"
+              (click)="reopenOpen.set(true)"
+            >
+              {{ t().inspectionDetail.reopen }}
+            </button>
+          }
+        </div>
+      }
+
+      <app-dialog
+        [open]="confirmingComplete()"
+        [heading]="t().inspectionDetail.confirmTitle"
+        [description]="t().inspectionDetail.confirmBody"
+        (closed)="confirmingComplete.set(false)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="confirmingComplete.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="complete()"
+          >
+            {{ t().actions.confirm }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!--
+        Confirmed, because reopening reverses a workflow gate and is recorded in the audit trail —
+        a consequence outside this screen (D83).
+      -->
+      <app-dialog
+        [open]="reopenOpen()"
+        [heading]="t().inspectionDetail.reopenTitle"
+        [description]="t().inspectionDetail.reopenBody"
+        (closed)="reopenOpen.set(false)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="reopenOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="reopen()"
+          >
+            {{ t().inspectionDetail.reopen }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!-- §2. BR-13 moves the Lead's assignment with the visit, which the hint says plainly. -->
+      <app-dialog
+        [open]="reassignOpen()"
+        [heading]="t().inspectionDetail.reassignTitle"
+        [description]="t().inspectionDetail.reassignHint"
+        (closed)="reassignOpen.set(false)"
+      >
+        <form [formGroup]="reassignForm">
+          <div class="rt-field">
+            <label class="rt-field__label" for="reassign-inspector">
+              {{ t().leadDetail.inspector }}
+            </label>
+            <select id="reassign-inspector" class="rt-select" formControlName="inspectorId">
+              <option [ngValue]="null">{{ t().leadDetail.chooseInspector }}</option>
+              @for (candidate of inspectors(); track candidate.id) {
+                <option [ngValue]="candidate.id">{{ candidate.name }}</option>
+              }
+            </select>
+            @if (reassignForm.controls.inspectorId.touched && reassignForm.controls.inspectorId.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="reassignOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="reassign()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
+    }
+  }
+}

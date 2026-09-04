@@ -4,6 +4,7 @@ using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Inspections.Dtos;
 using RenoTrack.Domain.Entities;
+using RenoTrack.Domain.Enums;
 
 namespace RenoTrack.Application.Inspections.Commands.CompleteInspection;
 
@@ -41,7 +42,21 @@ public sealed class CompleteInspectionCommandHandler(
             ?? throw new NotFoundException(nameof(Lead), inspection.LeadId);
 
         inspection.Complete();
-        lead.MarkInspectionDone();
+
+        // Only on the *first* completion. A visit reopened under BR-10 (Inspection.Reopen) has
+        // already driven the Lead to InspectionDone, and MarkInspectionDone only runs from
+        // InspectionScheduled -- so re-completing a corrected visit threw and surfaced as a 409,
+        // leaving the visit permanently open. Found by driving reopen in the browser; the Domain
+        // test passed because it exercises the aggregate alone, never this cross-aggregate step.
+        //
+        // This is CLAUDE.md §6's sanctioned "an if that decides which side effect to trigger",
+        // not a duplicated guard: Inspection.Complete() above still runs unconditionally and still
+        // refuses a second completion on its own. What is conditional is the *Lead* transition,
+        // which is a pipeline milestone that happens once.
+        if (!LeadHasAlreadyPassedTheVisit(lead.Status))
+        {
+            lead.MarkInspectionDone();
+        }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -55,4 +70,26 @@ public sealed class CompleteInspectionCommandHandler(
 
         return inspection.ToDto();
     }
+    /// <summary>
+    /// Whether this Lead has already moved past the site visit in the pipeline.
+    ///
+    /// <para>
+    /// Deliberately an explicit set rather than an ordinal comparison: <c>Lost</c> sits last in the
+    /// enum but is a terminal branch, not a later stage, so "greater than InspectionScheduled" would
+    /// be true for the wrong reason. Listing the states says what is meant.
+    /// </para>
+    /// <para>
+    /// A Lead that has <em>not</em> reached the visit is deliberately absent from this set, so
+    /// <c>MarkInspectionDone()</c> still runs and still throws for it -- that combination means the
+    /// Inspection and its Lead genuinely disagree, which BR-13 makes unreachable in production and
+    /// which should fail loudly rather than be skipped.
+    /// </para>
+    /// </summary>
+    private static bool LeadHasAlreadyPassedTheVisit(LeadStatus status) => status is
+        LeadStatus.InspectionDone
+        or LeadStatus.AngebotInProgress
+        or LeadStatus.AngebotSent
+        or LeadStatus.Won
+        or LeadStatus.Lost;
+
 }

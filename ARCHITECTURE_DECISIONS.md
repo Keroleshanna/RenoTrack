@@ -1443,6 +1443,543 @@ A single configured address satisfies FR-9.2's singular reading exactly; making 
 
 ---
 
+## D72 — The Dashboard Is a Working Surface Built Around a Cockpit, Not a CRUD Skin Over the API
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+`PROJECT_ROADMAP.md`'s Phase 10 entry describes login, the Lead pipeline and the Inspection screens. `Architecture.md` §1 says something stronger: *"The dashboard is the primary deliverable."* A screen-per-endpoint dashboard satisfies the first sentence and not the second — it produces a competent table for every resource and no answer to "what should I do now", which is the question a Handwerksbetrieb's owner actually opens the application with.
+
+### Decision
+
+**`/cockpit` is the landing page**, not the Lead pipeline. It carries the headline figures, a queue of what is waiting on the signed-in user, the pipeline as a funnel, and the day's site visits. The Lead pipeline is one workspace among several, reached from the navigation like any other.
+
+**Role changes priority, not product.** Verwaltung and Bauleitung see *the same screen with different content in the same slots*, never two dashboards. What differs is decided by `PermissionMatrix.md`, and it decides more than emphasis: §5 gives Bauleitung no Invoice permission, so their Cockpit **does not request** the money reads at all — a 403 avoided by not asking rather than handled after the fact.
+
+**German is the primary language throughout** (with D79's runtime switch to English), because the users are a German company's office and site staff.
+
+### Why
+
+The commercial value SRS §1.1 claims — replacing a 3–4 hour manual Word/Excel job — is only visible if the Dashboard shows the state of the business and routes into the work. Every Cockpit tile and queue entry therefore navigates somewhere real, and an empty queue is omitted rather than rendered as a zero (D78).
+
+### Consequences
+
+- Two more read endpoints existed as permissions but not as routes before Phase 10 (D76), because a Cockpit needs cross-resource figures the per-Lead reads could not answer.
+- The Lead pipeline lost its status as "the app", which is what makes room for Angebote, Rechnungen and Projekte to be first-class workspaces rather than sub-pages.
+
+---
+
+## D73 — The Access Token Lives in Memory; the Refresh Token Lives in `sessionStorage`; Exactly One Refresh Is Ever in Flight
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+D60 returns both tokens in the login response body, rotates refresh tokens on every use, and revokes the whole chain on reuse. Where the client keeps them was never decided, and there is deliberately no logout endpoint.
+
+### Decision
+
+- **The access token is held in memory only.** No script arriving later can read it back, and no restart resurrects it.
+- **The refresh token is held in `sessionStorage`, never `localStorage`.** `localStorage` would leave a credential valid for `RefreshTokenDays` (default 7) readable by any injected script *and* surviving browser restarts — which would also make D60's client-side-only logout close to meaningless. `sessionStorage` dies with the tab.
+- **Cookies were rejected for Phase 10**: they would change `AuthController`, add CSRF surface, and contradict D60's body-returned token. **No backend change was made for any of this.**
+- **Concurrent 401s share one refresh** (`shareReplay({ refCount: false })`) and replay on success. **The refresh request is itself never retried** — presenting an already-revoked token *is* reuse, and reuse revokes the chain.
+
+### Why
+
+The shared in-flight refresh is not about protecting the server: `TokenService.RotateAsync` already treats a lost race as a race rather than as reuse. It exists so the losing 401 is not read by the user as "your session ended".
+
+### Consequences
+
+- Closing the tab ends the session. That is the intended trade, and it is what makes the absence of a logout endpoint acceptable.
+- The role mapping (`Admin` → `admin`, anything else → `inspector`) **fails secure**, mirroring `LeadsController.RequestingInspectorId()`: the wider role is only ever reached by matching it explicitly.
+
+---
+
+## D74 — The Dashboard Calls Relative `/api/v1/...` Paths; the Port Gap Is a Development-Only Proxy
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+Every call the Dashboard makes is a **relative path**. There is no configured API base URL, no environment file naming a host, and no build-time substitution. `proxy.conf.json` bridges `ng serve` (4200) and Kestrel (5294) **in development only**, and is not read by `ng build`.
+
+### Why
+
+`Architecture.md` §13 keeps same-origin hosting open — the Dashboard served by the API, or by a reverse proxy in front of it. Relative paths work unchanged under that arrangement, need no CORS configuration, and remove an entire class of "which environment am I pointed at" defect. A base-URL setting would have to be decided per deployment for a benefit no requirement asks for.
+
+### Consequences
+
+Cross-origin hosting would require a real decision (CORS policy, and where the origin is configured), rather than being reachable by editing a settings file. That is the intended cost.
+
+---
+
+## D75 — Angular Material Is the Component and Accessibility Foundation; Its Default Look Is Not Shipped
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+`@angular/material` and `@angular/cdk` are dependencies and supply component behaviour and accessibility primitives (focus management, overlays, a11y utilities). **The visual layer is the project's own** — a token file (`styles/_tokens.scss`) and a base layer (`styles/_base.scss`) define the palette, the type ramp, the surfaces, the tables and the buttons, and Material's system tokens are pointed at ours so its components sit on our palette rather than introducing a second one.
+
+**No second UI dependency is added without an explicit decision** — no chart library, no icon package, no component kit, no translation library, no date library. Where Phase 10 needed one of those it built the narrow thing it actually needed (the Cockpit's funnel and segmented bar; the typed i18n dictionary of D79).
+
+### Why
+
+A default Material dashboard looks like an admin template, and this is a commercial product for a company whose customers see its documents. Conversely, reimplementing focus trapping, overlays and keyboard semantics is exactly how an internal tool becomes unusable with a keyboard. Taking behaviour and refusing the look is the split that gets both.
+
+### Consequences
+
+Every new UI need is a build-or-adopt decision on the record, not an `npm install`. The one new-behaviour need in the second Phase 10 session (a modal) was met with the **native `<dialog>` element** plus `cdkTrapFocus` from the CDK already present — no new package.
+
+---
+
+## D76 — Phase 10's Backend Work Is Reads Only: New Query Endpoints Where a Documented Permission Had No Route, and No New Write Endpoint or Schema Change
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+Phases 4–9 built every command the workflow needs. Several **reads**, however, existed as permissions in `PermissionMatrix.md` with no endpoint to serve them: there was no cross-Lead Angebot list, no Invoice list at all (the only Invoice read in the system was the anonymous token-link page), no Project list, no Inspection schedule or single-Inspection read, and no way to list staff for an Inspector picker.
+
+### Decision
+
+Phase 10 adds **queries only**. Every screen is built on commands that already existed, and where a screen needed data no endpoint served, the gap was closed with a read that a documented permission already implied — never with a new write, never with a new column, and never with a migration. **The migration count is unchanged at nine.**
+
+`IUserDirectoryQueries` is **Infrastructure-owned end to end**, applying D77's rule.
+
+### Why
+
+A UI phase that quietly grows the write surface is a UI phase that has stopped being reviewable against the documents. Holding the line at reads means every mutation the Dashboard performs is one whose rules were already agreed, tested and audited — and it is what makes "authorization is enforced by the backend, not by Angular" true rather than aspirational.
+
+### Consequences
+
+- Two capabilities the Dashboard could plausibly want do **not** exist and were not invented: a per-Lead Inspection list (so a new Angebot is created with `inspectionId: null` — D84) and an audit-log read (so no Activity Timeline is rendered — D85).
+- `GET /api/v1/invoices/{id}` still does not exist. No document defines it, and the list plus the Project detail read cover every screen built.
+
+---
+
+## D77 — An Identity-Backed Read Is Infrastructure-Owned End to End, Like `INotificationDeliveryQueries`
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Extends D60's exception; applies D69's precedent.**
+
+### Decision
+
+`IUserDirectoryQueries` — the staff list behind the Inspector picker — lives in `RenoTrack.Infrastructure.Identity`, interface, DTO and implementation, and its controller consumes it directly rather than through the CQRS pipeline.
+
+### Why
+
+It is D60's own test applied a third time: no aggregate, no Domain invariant, no state transition, no audit milestone. The data lives in `AspNetUsers`, which is Identity's table and not part of this project's Domain at all. An Application-side query would exist purely so a layer with no business rules about user accounts could appear to own them.
+
+**Do not "fix" this asymmetry with the other `*Queries` interfaces** — those return Domain-derived DTOs and correctly live in Application.
+
+### Consequences
+
+Because the reflection-driven registration safety net in `DependencyInjectionTests` only discovers types in the Application assembly, this registration is pinned by its own explicit resolution test — exactly as D69's is.
+
+---
+
+## D78 — The Cockpit Reports Exact Counts and Omits Empty Queues; It Never Computes a Figure the API Can Answer
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+- **Every per-status count is a `pageSize=1` request read from `totalCount`**, never a client-side bucketing of a fetched page. A page-bucketed count is silently wrong past page one, and a cockpit's whole value is that its numbers are trustworthy.
+- **An empty queue is not rendered as a zero.** A cockpit lists work; "0 overdue invoices" is the absence of work, not work.
+- **No figure is invented.** The funnel attaches money only to the stage the API can actually attribute it to; the Angebote workspace labels its own sum as *this page's* value rather than presenting it as company quote volume; and the Angebot document reads its totals and VAT breakdown from the server rather than summing rows in the browser (BR-11's rounding is the Domain's).
+
+### Why
+
+Every one of these is the same rule seen three times: a number on a management screen is a claim, and a claim that is *nearly* right is worse than an absent one, because it will be acted on.
+
+---
+
+## D79 — Runtime Bilingual UI via a Typed Dictionary; German Is Primary and URLs Are Never Translated
+
+**Date:** 2026-08-15 (Phase 10). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+- **A typed dictionary (`de.ts` / `en.ts`), not Angular's `$localize`.** `$localize` compiles one bundle per locale and cannot switch at runtime, which is exactly what a `DE | EN` toggle in the header needs. A translation library would be a second UI dependency, which D75 forbids without an explicit decision.
+- **German is the source of truth.** `Strings` is *derived* from the German dictionary, and `en.ts` is annotated with it — so **a German key with no English translation is a compile error**, not an English word appearing in a German UI.
+- **URLs are never translated.** Route segments are German (`/angebote`, `/rechnungen`, `/besichtigungen`) in both languages: a URL is an address, not a string a user reads.
+- **Date and time *patterns* live in the dictionary, not only the locale.** German writes `04.08.2026`, English `4 Aug 2026`; passing the active locale to a pipe translates the words but not the order or the separators.
+- **Money is never in the dictionary.** The currency is always EUR and only its formatting changes with the language. The value is the same value.
+- **A backend `ProblemDetails` `detail` is never rendered.** Server messages are English and phrased for an API caller; the Dashboard maps the *status code* (or a validation `errors` field key) onto its own wording.
+
+### Consequences
+
+A spec asserts that no English value is byte-identical to its German counterpart except on an explicit allowlist (language codes, format patterns, words German borrowed from English, and "Pos."), which is what catches a key copied across without being translated.
+
+---
+
+## D80 — The Angebot Builder and the Admin Review Are One Route; Capability Is Derived, Not Duplicated
+
+**Date:** 2026-08-16 (Phase 10, commercial workflows). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+Wireframe D1 is the Inspector's builder; D3 is the Admin's review screen. D3 describes itself as *"the same read view as D1, but read-only for Admin"*.
+
+### Decision
+
+**One route, `/angebote/:id`, and one component.** What differs between the two wireframes is *capability*, and capability is a pure function of role and status in `angebot-capabilities.ts`, derived directly from `PermissionMatrix.md` §3–§4 and `StateMachine.md` §2.4.
+
+### Why
+
+Two components would mean two renderings of the same commercial document, each free to disagree with the other about what a subtotal is. Extracting the permission table instead makes it **exhaustively testable over every status** — which is where a permission rule actually goes wrong, and which a template scattered with `@if (role === …)` cannot be.
+
+### Consequences
+
+- `canEdit` is true only for Inspector in `Draft`/`ChangesRequested`; Admin is `R` on a draft and never edits one, so a change goes through Request Changes.
+- `canSubmitForReview` is true only in `Draft`, because a `ChangesRequested` quote returns to `Draft` **by being edited** (`Angebot.EnsureEditable()`), and no reopen endpoint exists. The screen therefore *explains* that state rather than offering a disabled button (`awaitingRework`).
+- This is presentation only. Deleting the file would make the screen ruder, not less secure.
+
+---
+
+## D81 — Every Angebot Mutation Re-Reads the Document; Command Responses Are Not Merged Into Client State
+
+**Date:** 2026-08-16 (Phase 10, commercial workflows). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+After any successful mutation the screen **re-reads `GET /api/v1/angebote/{id}`** and replaces its state wholesale. The response bodies — `AngebotDto`, `SectionDto`, `AddAngebotItemResult`, `AngebotSummaryDto` — are used only to know the call succeeded.
+
+### Why
+
+Those four shapes are all different, deliberately (CLAUDE.md §7), and **none carries the whole tree plus the VAT breakdown**. Merging partial shapes is how a screen begins to disagree with the server about what a document contains — and here the disagreement would be about money. Sequence Diagram §4 prescribes the same thing in its own words: totals are "recalculated on every change" by calling the API.
+
+### Consequences
+
+One extra round trip per edit, on a document a single user is building. That is the cheapest possible price for the totals on screen always being the totals in the database.
+
+---
+
+## D82 — The Invoice Write Workflow Lives on the Project Screen; the Invoice List Links to It
+
+**Date:** 2026-08-16 (Phase 10, commercial workflows). **Status:** Accepted. **Supersedes nothing.**
+
+### Context
+
+Invoice creation is `POST /api/v1/projects/{projectId}/invoices` — Project-scoped. Send, mark-paid and void are id-scoped and could technically be driven from anywhere.
+
+### Decision
+
+**All four Invoice actions live on the Project detail screen** (Wireframes E1–E3). The Rechnungen workspace stays a receivables view and links each row to its Project.
+
+### Why
+
+BR-3's *remaining balance* — the one figure that tells an Admin what to invoice next — exists only in a Project's context. Creating an invoice from a flat list would mean choosing a Project first, with no balance in sight. And putting the three id-scoped actions in both places would be two implementations of one workflow, free to drift; the requirement was explicit that competing implementations are not wanted.
+
+### Consequences
+
+- The invoice list gains a link column rather than an action column.
+- The Invoice action rules are extracted to `invoice-capabilities.ts` and tested exhaustively over every status, exactly as D80's are — including the assertion that Bauleitung, who may *read* a Project's invoices (§5 `R`), gets no action in any state.
+
+---
+
+## D83 — Actions With a Consequence Outside the Screen Are Confirmed; the Completion Override Is Offered Only After a Real Refusal
+
+**Date:** 2026-08-16 (Phase 10, commercial workflows). **Status:** Accepted. **Supersedes nothing.**
+
+### Decision
+
+- **Submit for review, approve, send an Angebot, convert to a Project, send an Invoice, mark it paid, void it, and complete a Project each open a confirmation** naming what will happen. Adding a section or a line item does not — it is reversible from the same screen.
+- **Every completed write raises a notice.** A screen that merely re-renders with different data tells the user that something is different, not that *their action happened*.
+- **Project completion tries the ordinary call first.** The override dialog (FR-8.6's reason) opens **only** after the server has actually answered 409.
+
+### Why
+
+The confirmations track a real distinction: each confirmed action either emails a customer, burns a number, or moves a document out of its author's hands. The override rule is stricter than it looks — the API rejects `forceOverride` when nothing is blocking, precisely so a false justification cannot enter the audit trail (D67), so offering the override speculatively would be offering a 400.
+
+---
+
+## D84 — A New Angebot Is Created With `inspectionId: null`, Because No Per-Lead Inspection Read Exists and None Was Invented
+
+**Date:** 2026-08-16 (Phase 10, commercial workflows). **Status:** Accepted. **Consistent with D76.**
+
+### Context
+
+`CreateAngebotRequest.InspectionId` is optional in both the request and the aggregate. The only Inspection reads are a **date-window** schedule and a single-Inspection read by id — neither answers "which Inspection belongs to this Lead".
+
+### Decision
+
+The Dashboard sends `inspectionId: null` when an Inspector starts a quote from a Lead.
+
+### Why
+
+The two alternatives were both worse than an honest null. Scanning a date window and guessing would attach the wrong site visit as readily as the right one, on a field whose entire purpose is traceability. Adding `GET /api/v1/leads/{id}/inspections` would be a new endpoint no document defines, in a phase that deliberately added no capability beyond serving a documented permission (D76).
+
+### Consequences
+
+`Angebot.InspectionId` is null for quotes created through the Dashboard. **Revisit trigger:** if the Inspection link is ever needed on a screen or a document, add the read endpoint deliberately and populate it — do not infer it.
+
+---
+
+## D85 — The Lead Detail Screen Renders No Activity Timeline
+
+**Date:** 2026-08-16 (Phase 10, commercial workflows). **Status:** Accepted. **Consistent with D76.**
+
+### Decision
+
+Wireframe C1's "Activity Timeline (audit trail)" is **not** rendered. The Lead detail shows contact details, notes, and the real Angebot history for that Lead.
+
+### Why
+
+No audit-log read endpoint exists. `PermissionMatrix.md` §8 assigns the Audit Log to Admin and `PROJECT_ROADMAP.md` puts that screen in Phase 15. Rendering the section would require either inventing a read endpoint (D76) or assembling a plausible-looking history from the Lead's own fields — a fabricated audit trail, which is worse than an absent one on the one surface whose purpose is to be believed.
+
+### Consequences
+
+The gap is recorded here and in `NEXT_STEPS.md` rather than papered over. C1 is served in part, and the part that is missing is missing for a stated reason.
+
+---
+
+## D86 — Manual Lead Entry Is Its Own Admin-Only Route, and Its Source Is a Narrower Type Rather Than a Validated Field
+
+**Date:** 2026-08-16 (Phase 10, operational completion). **Status:** Accepted. **Amends the depiction in Sequence Diagram §2.**
+
+### Context
+
+`PermissionMatrix.md` §1 grants "Create Lead manually (phone/email)" to Admin as `F`, and SRS FR-2.1 names the fields. `CreateLeadCommand` was built for both paths from the start — it carries `Source` and a nullable `CreatedByUserId`, and `CreateLeadRequest`'s own remarks anticipated the manual endpoint "when that endpoint is built". Only the API surface was missing.
+
+**Sequence Diagram §2 depicts manual entry posting to `POST /api/v1/leads` under `[Authorize(Roles="Admin")]`.** That is not implementable: the same route and verb is the anonymous website contact form, and one action cannot be both `[AllowAnonymous]` and Admin-only.
+
+### Decision
+
+1. Manual entry is **`POST /api/v1/leads/manual`**, Admin-only. The anonymous contact form keeps `POST /api/v1/leads` unchanged.
+2. Its request carries **`ManualLeadSource`**, an API-layer enum with exactly two members, `Phone` and `Email`.
+
+### Why
+
+**On the route split.** Serving both from one action would mean an `[AllowAnonymous]` action branching on `User.Identity.IsAuthenticated` to decide whether to trust a body-supplied `Source`. That puts a decision in a controller (CLAUDE.md §22), on precisely the field D61 identifies as a security boundary, behind the fail-closed default D57 exists to protect. A separate route keeps the anonymous surface exactly as small as it was.
+
+**On the narrower enum.** `Source` gates the FR-9.2 Admin notification: `CreateLeadCommandHandler` sends it only when `Source == Website`. A manually-entered Lead must never be able to claim it arrived through a form nobody filled in. Expressing that as a type rather than a validator rule means no rule can be forgotten, no controller `if` is needed, and an invalid value fails at model binding as a 400 — CLAUDE.md §2's "structurally impossible to construct in an invalid state", applied at the API boundary.
+
+### Consequences
+
+`Sequence Diagram.md` §2 and `Architecture.md` §5.2 are corrected to name the real route. No notification is sent on this path, deliberately: an Admin typing a Lead in is already at the keyboard.
+
+---
+
+## D87 — `Lead.UpdateContactDetails` Covers Four Fields and Deliberately Excludes `Notes`
+
+**Date:** 2026-08-16 (Phase 10, operational completion). **Status:** Accepted.
+
+### Context
+
+`PermissionMatrix.md` §1 grants "Edit Lead contact details" as Admin `F` / Inspector `S`, with the example of an Inspector correcting a wrong phone number found on-site. No Domain method and no endpoint existed. SRS defines no FR for editing a Lead at all, so §1 is the sole authority.
+
+### Decision
+
+`Lead.UpdateContactDetails(name, phone, email, address)` — four fields, replaced wholesale by a `PUT`. **`Notes` is not editable.** No `LeadStatus` guard applies.
+
+### Why
+
+§1 grants editing of *contact details*, and FR-2.1 lists `notes` separately from name/phone/email/address. Including it would widen a documented permission by assumption rather than evidence — the same discipline CLAUDE.md §2 applies to child-entity update methods, and the discipline whose absence caused the `AngebotItem.Remove` mistake recorded in that section.
+
+No status guard, for the same reason `Lead.AssignInspector` has none: this is clerical correction, not a lifecycle transition. StateMachine.md defines no event for it and §1 places no timing restriction, so refusing it in a terminal state would invent a rule. A wrong phone number is worth fixing on a `Won` Lead too — the `Customer` record copied at conversion is unaffected either way.
+
+### Consequences
+
+Lead `Notes` remain writable only at creation. Recorded in `NEXT_STEPS.md` as a known gap rather than quietly closed. `PUT` semantics mean an omitted address clears it, which the screen states.
+
+---
+
+## D88 — Two Id Parameters Where a Command Is Both Scoped and Audited
+
+**Date:** 2026-08-16 (Phase 10, operational completion). **Status:** Accepted. **Refines D61.**
+
+### Context
+
+`UpdateLeadContactDetailsCommand` is the first command whose permission is split `F`/`S` *and* which writes an audit entry. The established scoping shape (`GetLeadByIdQuery.RequestingInspectorId`) uses `null` to mean "Admin, unrestricted".
+
+### Decision
+
+Such a command carries **both** `RequestingInspectorId` (nullable — the scope) and `PerformedByUserId` (non-null — the actor).
+
+### Why
+
+They answer different questions and collapsing them breaks one. The scoping value's `null` is load-bearing: it is how Admin's `F` access is expressed, so it cannot also carry the Admin's identity. Deriving the audit actor from it would leave every Admin-made correction attributed to nobody — a silent hole in the trail, on exactly the surface Wireframe C1 exists to render. Both still come from the JWT and neither is accepted from the body, so D61 is unchanged; this only says which of the two a given parameter is.
+
+---
+
+## D89 — Reassignment Is Guarded by BR-10 on an Inspection and Unguarded on a Lead
+
+**Date:** 2026-08-16 (Phase 10, operational completion). **Status:** Accepted.
+
+### Context
+
+`PermissionMatrix.md` §1 and §2 grant an Admin reassignment of a Lead and of an Inspection respectively. `Lead.AssignInspector` already existed, unguarded and unreachable; `Inspection` had no equivalent.
+
+### Decision
+
+`Inspection.Reassign(inspectorId)` is guarded by `EnsureNotCompleted` (BR-10). `Lead.AssignInspector` stays unguarded. Reassigning an Inspection also re-applies BR-13, moving the Lead's `AssignedInspectorId` in the same `SaveChangesAsync`.
+
+### Why
+
+The asymmetry is real, not an inconsistency. A Lead is an open-ended pipeline record that stays administratively editable for its whole life. A completed Inspection is explicitly immutable *evidence of who was on site and what they found* — rewriting the Inspector on a finished visit would falsify that record, which is the same reasoning that already stops notes and photos changing after completion.
+
+BR-13 must follow the visit or the Lead keeps pointing at a colleague who is no longer going. That is not merely stale data: §1's pipeline is filtered server-side, so the outgoing Inspector would keep seeing the Lead while the incoming one could not.
+
+---
+
+## D90 — Project Hold and Resume Are Two Named Endpoints With No Reason Field
+
+**Date:** 2026-08-16 (Phase 10, operational completion). **Status:** Accepted.
+
+### Context
+
+`PermissionMatrix.md` §5 grants "Put Project On Hold / Resume" to Admin. `Project.PutOnHold()`/`Resume()` existed with correct guards and were unreachable through the API. StateMachine.md §4.3's row notes "Reason optional/free text".
+
+### Decision
+
+`POST /api/v1/projects/{id}/hold` and `POST /api/v1/projects/{id}/resume`, Admin-only, **no request body**, audited as `ProjectPutOnHold`/`ProjectResumed`.
+
+### Why
+
+**Two named endpoints, not one status setter.** BR-7's reasoning for Leads applies here: this codebase names every transition, and Architecture.md §5.2 records the removal of `PATCH /leads/{id}/status` for exactly this reason. A status-setting endpoint would be the free-standing status edit the project has already refused once.
+
+**No reason field**, despite §4.3's note. `ERD.md`'s `PROJECT` defines no column for one, and `Project.PutOnHold()` accepts none. Taking a reason would either discard it silently or force it into `AuditLog.details` as its only home — and D50 makes audit writes best-effort and swallowed, so that is not storage a caller can rely on. `CompleteProjectCommand`'s override reason lives there only because FR-8.6 makes it mandatory; nothing makes this one mandatory, so no storage is invented for it.
+
+### Consequences
+
+Pausing does not disturb invoicing: StateMachine §5 permits an Invoice against an `Active` *or* `OnHold` Project, and an API test pins it. A paused Project cannot be completed (§4.2 draws no such edge), which the screen explains rather than showing a disabled control.
+
+---
+
+## D91 — No Customers Workspace, and No Read Endpoint Invented for One
+
+**Date:** 2026-08-16 (Phase 10, operational completion). **Status:** Accepted. **Consistent with D76.**
+
+### Context
+
+`Customer` is a real aggregate, created at Project conversion. A Customers workspace was considered as part of the operational scope.
+
+### Decision
+
+No Customers workspace and no `GET /api/v1/customers`. Customer identity surfaces where it is acted on — on the Project detail, the Invoice list, and the originating Lead.
+
+### Why
+
+`PermissionMatrix.md` has **no Customers section at all**, and SRS names no functional requirement for managing one — §3.7's only customer operation is FR-7.1's carry-over at conversion. The aggregate has **zero commands**: nothing in the system edits, retires or otherwise acts on a Customer after creation. A workspace would therefore be a read-only list existing because an entity exists, which is precisely what a workspace must not be, and it would require a new endpoint justified by nothing but its own screen.
+
+### Consequences
+
+Recorded so the absence reads as a decision rather than an oversight. **Revisit trigger:** the first documented requirement that lets someone *act* on a Customer.
+
+---
+
+## D92 — BR-10's Immutability Keeps a Named Escape Hatch: `Inspection.Reopen`
+
+**Date:** 2026-08-16 (Phase 10, QA round 2). **Status:** Accepted. **Implements BR-10's own stated remedy; does not weaken it.**
+
+### Context
+
+QA found a completed site visit was a dead end: a typo in the notes, or a photo taken after the Inspector tapped "complete", could never be corrected. The screen said so plainly and that was the end of it.
+
+The obvious reading is that BR-10 is too strict. It is not. Its changelog records it as **requested by the Product Owner** during Phase 1, and its rationale is real: a completed Inspection is the evidentiary basis the Angebot is built from (FR-3.4), so silent edits would blur exactly what evidence a quote rests on.
+
+**BR-10's own text already names the way out:** "Any future need to change a completed Inspection's record requires a distinct, explicit action (e.g. a 'reopen' use case), not implicit editing."
+
+### Decision
+
+`Inspection.Reopen()` clears `CompletedAt`, and `POST /api/v1/inspections/{id}/reopen` exposes it to the **assigned Inspector only**. `AddPhoto`, `UpdateNotes` and `Reassign` still refuse outright while the visit is complete — nothing about the lock changed. Reopening is audited as `InspectionReopened`.
+
+### Why this shape
+
+**Inspector, not Admin.** `PermissionMatrix.md` §2 marks photos, notes and completion Inspector `S` / Admin `—`, deliberately, so the evidence chain-of-custody points at whoever was on site. The action that *re-enables* those edits belongs to the same person.
+
+**The Lead does not rewind.** It stays at `InspectionDone`: the visit did happen, and any Angebot already built on it remains valid. Reopening corrects evidence; it does not reverse the pipeline.
+
+**The completion is not erased.** Clearing `CompletedAt` is what unlocks the aggregate, but the audit trail is what preserves the history — it reads `InspectionDone → InspectionReopened → InspectionDone`. The field is the lock; the log is the record.
+
+### Consequences
+
+`BusinessRules.md` BR-10 now records that the anticipated action exists. A visit can be completed, corrected and completed again — which is what made D93 necessary.
+
+---
+
+## D93 — Completing a Reopened Visit Must Not Re-Drive the Lead Transition
+
+**Date:** 2026-08-23 (Phase 10, browser QA). **Status:** Accepted. **Fixes a defect introduced by D92.**
+
+### Context
+
+D92 made a completed visit reopenable. Browser QA then found it could not be **closed again**: `POST /inspections/{id}/complete` returned 409 on the second attempt, leaving the visit permanently open and defeating the entire point of reopening.
+
+`CompleteInspectionCommandHandler` drove `Lead.MarkInspectionDone()` unconditionally, and that transition runs only from `InspectionScheduled`. After the first completion the Lead has already moved, so the second call threw.
+
+**Every test suite passed throughout.** The Domain test exercises the aggregate alone, which is perfectly happy to complete twice. The defect lived in the cross-aggregate step, which no unit test touched and no API test covered.
+
+### Decision
+
+The Lead transition fires only when the Lead has **not already moved past the visit**, expressed as an explicit status set: `InspectionDone`, `AngebotInProgress`, `AngebotSent`, `Won`, `Lost`.
+
+### Why this shape
+
+**An explicit set, not an ordinal comparison.** `Lost` sits last in `LeadStatus` but is a terminal branch, not a later stage — "greater than `InspectionScheduled`" would be true for the wrong reason.
+
+**A Lead that has *not* reached the visit is deliberately absent from the set**, so `MarkInspectionDone()` still runs and still throws for it. That combination means the Inspection and its Lead genuinely disagree, which BR-13 makes unreachable in production and which should fail loudly rather than be skipped. An existing test pins exactly that case.
+
+**This is CLAUDE.md §6's sanctioned "an `if` that decides which side effect to trigger", not a duplicated guard.** `Inspection.Complete()` still runs unconditionally and still refuses a second completion on its own; what is conditional is the *Lead* transition, a pipeline milestone that happens once.
+
+### Consequences
+
+Verified in the browser with the Lead at `Won` — well past the visit — where complete, reopen and complete again all succeed and the Lead does not move. Three Application-layer tests pin it, which is the layer the bug was actually in.
+
+---
+
+## D94 — `SubmitForReview` Accepts `ChangesRequested` as Well as `Draft`
+
+**Date:** 2026-08-16 (Phase 10, QA round 1). **Status:** Accepted. **Amends StateMachine.md §2.3.**
+
+### Context
+
+`StateMachine.md` §2.3 routed a returned quote back to `Draft` only as an implicit side effect of editing it — "Inspector edits items — no explicit state event" — and `SubmitForReview` guarded on `Draft` alone.
+
+That left a dead end QA hit immediately: an Inspector who read the Admin's comment and concluded **nothing needed changing** had no way to send the quote back. The UI offered no Submit button and the aggregate would have refused one. The only workaround was to add and delete a section purely to trip `EnsureEditable()` — a state change made solely to satisfy a guard.
+
+### Decision
+
+`Angebot.SubmitForReview()` accepts `Draft` **or** `ChangesRequested`. `StateMachine.md` §2.3 gains the `ChangesRequested → InReview` row.
+
+### Why
+
+Nothing is weakened. The "at least one section with at least one item" guard still applies, and §2.4 already treats `ChangesRequested` as an editable state — so a caller who may edit may equally resubmit. The rejected alternative, a separate reopen event on Angebot, would add a transition the documents do not define in order to reach a state the Inspector is already in.
+
+### Consequences
+
+The exhaustive state-machine test now pins a transition with **two** legal source states, which is why its helper takes a set rather than a single status. `angebot-capabilities.ts` mirrors it, so the screen and the aggregate still agree.
+
+---
+
+## D95 — `CatalogItems.CreatedFromAngebotItemId` Is `SetNull`, Not `Restrict`
+
+**Date:** 2026-08-16 (Phase 10, QA round 1). **Status:** Accepted. **Migration #10 `RelaxCatalogItemOriginFkToSetNull`.**
+
+### Context
+
+Removing a draft line that had been contributed to the Catalog (FR-4.10) failed with a `DbUpdateException` on `FK_CatalogItems_AngebotItems_CreatedFromAngebotItemId`, surfacing to the user as an unmapped **500**.
+
+That contradicted CLAUDE.md §2, which states plainly that sections and items in a `Draft`/`ChangesRequested` Angebot are unsent working material and may be removed — the edit-lock is what separates them from records.
+
+### Decision
+
+The relationship is `DeleteBehavior.SetNull`. The line is removed, the Catalog entry survives, and its `CreatedFromAngebotItemId` becomes `NULL`.
+
+### Why
+
+`CreatedFromAngebotItemId` is a **provenance trace** (BR-8) and nothing branches on it, so it must never be able to veto an unrelated operation. BR-12 keeps the *Catalog entry* alive; it says nothing about the draft line that entry was copied from, which BR-8's copy-on-create semantics make independent the instant it exists. A `NULL` is the honest record of an entry whose origin no longer exists.
+
+**Cascade was never a candidate** — it would delete a shared library entry as collateral damage of a draft edit (BR-12). **Restrict's only other alternative** was refusing the removal, which invents a rule no document states.
+
+### Consequences
+
+Four LocalDB integration tests pin it against the real constraint, including that the surviving entry keeps its title and is not retired. This is the only schema change in Phase 10; the migration count moves from nine to **ten**.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -1584,3 +2121,40 @@ A single configured address satisfies FR-9.2's singular reading exactly; making 
 | Deriving Admin notification recipients from the Identity Admin role | D71 / Phase 9 design | Invents a distribution policy from documentary silence, needs a new lookup, fans one notification into N, and fails open by silently sending nothing when no active Admin exists |
 | Automatic retry, backoff, or an attempt cap for failed notifications | D70 / Phase 9 design | The Admin triggering the retry is the rate limiter; automatic retry needs a scheduler the architecture deliberately does not have |
 | Message-ID deduplication to eliminate ambiguous-failure duplicates | D70 / Phase 9 design | Every notification is content-idempotent, so a duplicate is a second identical email, never a second business effect |
+| `localStorage` for the refresh token | D73 | Leaves a week-long credential readable by any injected script and surviving browser restarts, and makes the client-side-only logout close to meaningless |
+| Cookie-based auth for the Dashboard | D73 | Would change `AuthController`, add CSRF surface, and contradict D60's body-returned token — a backend change for a phase that made none |
+| Retrying the refresh request itself after a failure | D73 | Presenting an already-revoked token *is* reuse, and reuse revokes the entire chain |
+| A configured API base URL / per-environment host setting | D74 | Relative paths already work under §13's same-origin option, need no CORS, and remove the "which environment am I pointed at" class of defect |
+| A chart library, icon package, component kit or i18n library | D75 | Each is a second UI dependency for a need the project met with a narrow, owned implementation; adopting one is a decision on the record, not an `npm install` |
+| Angular's `$localize` for the bilingual UI | D79 | Compiles one bundle per locale and cannot switch at runtime, which is exactly what the header toggle needs |
+| Translating route segments into English | D79 | A URL is an address, not prose; two URL vocabularies would make every link language-dependent |
+| Rendering the backend's `ProblemDetails` `detail` to the user | D79 / CLAUDE.md §23 | Server messages are English and phrased for an API caller — correct for a developer, useless to a Handwerksbetrieb's office |
+| Client-side bucketing of a fetched page to produce Cockpit counts | D78 | Silently under-counts past page one, on the one screen whose value is that its numbers can be trusted |
+| Showing an empty decision queue as a zero | D78 | A cockpit lists work; the absence of work is not work |
+| Summing line items in the browser to render Angebot totals | D78 / D81 | Produces a second answer to a question with an authoritative one, and BR-11's rounding is the Domain's, not JavaScript's |
+| Two components for Wireframes D1 and D3 | D80 | D3 *is* D1's read view; two renderings of one commercial document are free to disagree about what a subtotal is |
+| A disabled "Submit" button on a `ChangesRequested` quote | D80 | Editing is what reopens the draft (`EnsureEditable`), and there is no reopen endpoint — the state needs an explanation, not a dead control |
+| Merging command responses into the Angebot screen's state | D81 | The four response shapes differ deliberately and none carries the tree plus the VAT breakdown; merging them makes the screen disagree with the server about money |
+| Invoice actions on the Rechnungen list as well as the Project screen | D82 | Two implementations of one workflow, free to drift — and creating an invoice needs BR-3's remaining balance, which exists only on a Project |
+| Offering the project-completion override before the server refuses | D83 | The API rejects `forceOverride` when nothing is blocking (D67), so a speculative offer is an offer of a 400 |
+| Guessing a Lead's Inspection from the date-window schedule read | D84 | Attaches the wrong site visit as readily as the right one, on a field whose whole purpose is traceability |
+| Adding `GET /api/v1/leads/{id}/inspections` to populate `inspectionId` | D84 | A new endpoint no document defines, in a phase that deliberately added no capability beyond serving a documented permission (D76) |
+| Rendering Wireframe C1's Activity Timeline from the Lead's own fields | D85 | A fabricated audit trail on the one surface whose entire purpose is to be believed; the real read is Phase 15 |
+| Serving manual Lead entry from the anonymous `POST /api/v1/leads` | D86 | One route cannot be both `[AllowAnonymous]` and Admin-only; the alternative is a controller branching on `IsAuthenticated` to decide whether to trust the one field that gates a notification |
+| A validator rule forbidding `Source = Website` on manual entry | D86 | A rule can be forgotten; a type with no such member cannot. Model binding rejects it before any handler runs |
+| Letting the Lead contact edit also write `Notes` | D87 | §1 grants "contact details" and FR-2.1 lists notes separately — widening a documented permission by assumption is the mistake CLAUDE.md §2 already records once |
+| A `LeadStatus` guard on contact correction | D87 | Clerical correction is not a lifecycle transition; StateMachine defines no event and §1 no timing restriction, so a guard would invent a rule |
+| Deriving the audit actor from the nullable scoping id | D88 | `null` means "Admin, unrestricted" — reusing it for identity attributes every Admin-made change to nobody |
+| Guarding `Lead.AssignInspector` with a status check, for symmetry with `Inspection.Reassign` | D89 | A Lead stays administratively editable for life; only the Inspection is immutable evidence, and only BR-10 says so |
+| Leaving the Lead's `AssignedInspectorId` behind when an Inspection is reassigned | D89 | §1's pipeline is filtered server-side, so the outgoing Inspector keeps seeing the Lead while the incoming one cannot — a scoping bug, not stale data |
+| One `PATCH /projects/{id}` taking the target status | D90 | The free-standing status edit BR-7 forbids, and the one Architecture §5.2 already removed for Leads |
+| Accepting a hold reason because StateMachine §4.3 mentions one | D90 | No ERD column stores it; the only home would be a best-effort audit row (D50), which is not storage a caller can rely on |
+| A Customers workspace and a `GET /api/v1/customers` to feed it | D91 | No PermissionMatrix section, no SRS requirement, and zero commands on the aggregate — a list existing because an entity exists |
+| Relaxing BR-10 so a completed Inspection stays editable | D92 | BR-10 was Product-Owner-requested and protects the evidence a quote rests on; the rule already named an explicit reopen as the remedy |
+| Letting an Admin reopen a completed visit | D92 | §2 gives Admin `—` on photos, notes and completion, so the action that re-enables those edits belongs to the Inspector who was on site |
+| Rewinding the Lead to `InspectionScheduled` on reopen | D92 | The visit did happen and an Angebot may already exist on it; reopening corrects evidence, it does not reverse the pipeline |
+| Skipping the Lead transition whenever it is not `InspectionScheduled` | D93 | Too broad — it would also silently skip for a Lead that never reached the visit, masking a genuinely inconsistent Inspection/Lead pair |
+| An ordinal `> InspectionScheduled` comparison instead of a status set | D93 | `Lost` sits last in the enum but is a terminal branch, not a later stage, so the comparison would be true for the wrong reason |
+| A separate reopen event on Angebot to reach `Draft` from `ChangesRequested` | D94 | Adds a transition the documents do not define, to reach a state the Inspector is already in |
+| Cascade delete on `CreatedFromAngebotItemId` | D95 | Would delete a shared Catalog entry as collateral damage of a draft edit, which BR-12 exists to prevent |
+| Refusing to remove a line that had been saved to the Catalog | D95 | Invents a rule no document states, and contradicts CLAUDE.md §2's "a draft line is unsent working material" |

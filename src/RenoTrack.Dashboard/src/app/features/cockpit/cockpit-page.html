@@ -1,0 +1,238 @@
+<header class="head">
+  <div>
+    <h1 class="rt-display">
+      {{ greeting() }}@if (user(); as user) {, {{ user.name }}}
+    </h1>
+    <p class="rt-body rt-muted head__subtitle">{{ subtitle() }}</p>
+  </div>
+
+  <div class="head__actions">
+    @if (loadedAt(); as at) {
+      <span class="rt-caption">
+        {{ t().cockpit.updatedAt }} {{ at | date: t().formats.time : undefined : locale() }}
+      </span>
+    }
+    <button type="button" class="head__refresh" (click)="load()">{{ t().actions.refresh }}</button>
+  </div>
+</header>
+
+@switch (state().kind) {
+  @case ('loading') {
+    <div class="rt-panel"><app-skeleton [lineCount]="10" /></div>
+  }
+
+  @case ('error') {
+    <div class="rt-panel">
+      <app-error-state [body]="errorMessage() ?? ''" (retry)="load()" />
+    </div>
+  }
+
+  @case ('ready') {
+    @if (cockpit(); as c) {
+      <!-- 1 · The state of the business. Every tile links to the work behind the figure. -->
+      <section class="kpis" [attr.aria-label]="t().nav.cockpit">
+        @for (kpi of c.kpis; track kpi.id) {
+          @if (kpi.route) {
+            <a
+              class="kpi"
+              [class]="'kpi--' + kpi.tone"
+              [routerLink]="kpi.route"
+              [queryParams]="kpi.queryParams"
+            >
+              <span class="rt-label">{{ kpi.label }}</span>
+              <span class="kpi__value">{{ kpi.value }}</span>
+              <span class="kpi__hint">{{ kpi.hint }}</span>
+            </a>
+          } @else {
+            <div class="kpi" [class]="'kpi--' + kpi.tone">
+              <span class="rt-label">{{ kpi.label }}</span>
+              <span class="kpi__value">{{ kpi.value }}</span>
+              <span class="kpi__hint">{{ kpi.hint }}</span>
+            </div>
+          }
+        }
+      </section>
+
+      <div class="grid">
+        <!-- 2 · What needs a decision — the only accented surface on the page. -->
+        <section class="rt-panel panel--decisions">
+          <header class="rt-panel__head">
+            <div>
+              <h2 class="rt-subtitle">{{ t().cockpit.decisions.heading }}</h2>
+              <p class="rt-panel__sub">{{ t().cockpit.decisions.subheading }}</p>
+            </div>
+          </header>
+
+          @if (c.decisions.length) {
+            <ul class="decisions">
+              @for (item of c.decisions; track item.id) {
+                <li>
+                  <a
+                    class="decision"
+                    [class]="'decision--' + item.severity"
+                    [routerLink]="item.route"
+                    [queryParams]="item.queryParams"
+                  >
+                    <span class="decision__count">{{ item.count }}</span>
+                    <span class="decision__body">
+                      <span class="decision__title">{{ item.title }}</span>
+                      <span class="decision__hint">{{ item.hint }}</span>
+                    </span>
+                    @if (item.value) {
+                      <span class="decision__value">{{ item.value }}</span>
+                    }
+                  </a>
+                </li>
+              }
+            </ul>
+          } @else {
+            <app-empty-state
+              [title]="t().cockpit.decisions.nothing"
+              [body]="t().cockpit.decisions.nothingBody"
+            />
+          }
+        </section>
+
+        <!-- 3 · Where the business loses momentum. -->
+        <section class="rt-panel">
+          <header class="rt-panel__head">
+            <div>
+              <h2 class="rt-subtitle">{{ t().cockpit.funnel.heading }}</h2>
+              <p class="rt-panel__sub">{{ t().cockpit.funnel.subheading }}</p>
+            </div>
+          </header>
+
+          @if (c.funnel.length) {
+            <app-funnel-chart [rows]="c.funnel" />
+            <!--
+              States outright that this is a distribution, not a cohort followed over time. Each
+              row's percentage already names its own denominator; this says what the chart as a
+              whole is, so the stages are not read as a running total.
+            -->
+            <p class="rt-caption funnel-summary">{{ t().cockpit.funnel.snapshotHint }}</p>
+            @if (c.funnelSummary) {
+              <p class="funnel-summary">{{ c.funnelSummary }}</p>
+            }
+            <a class="rt-panel__link" routerLink="/leads">{{ t().actions.showAll }} →</a>
+          } @else {
+            <app-empty-state [title]="t().cockpit.funnel.empty" body="" />
+          }
+        </section>
+
+        <!-- 4 · Money. Admin only — Bauleitung has no Invoice permission, so it is never requested. -->
+        @if (isAdmin()) {
+          <section class="rt-panel">
+            <header class="rt-panel__head">
+              <div>
+                <h2 class="rt-subtitle">{{ t().cockpit.money.heading }}</h2>
+                <p class="rt-panel__sub">{{ t().cockpit.money.subheading }}</p>
+              </div>
+              @if (c.money) {
+                <div class="rt-panel__aside">
+                  <span class="rt-label">{{ t().cockpit.money.total }}</span>
+                  <span class="rt-panel__aside-value">{{ c.moneyTotal }}</span>
+                </div>
+              }
+            </header>
+
+            @if (c.money) {
+              <app-segmented-bar [segments]="c.money" [caption]="t().cockpit.money.heading" />
+              <a class="rt-panel__link" routerLink="/rechnungen">{{ t().actions.showAll }} →</a>
+            } @else {
+              <app-empty-state [title]="t().cockpit.money.empty" body="" />
+            }
+          </section>
+        }
+
+        <!-- 5 · The day. -->
+        <section class="rt-panel panel--day">
+          <header class="rt-panel__head">
+            <div>
+              <h2 class="rt-subtitle">{{ t().cockpit.schedule.heading }}</h2>
+              <p class="rt-panel__sub">{{ t().cockpit.schedule.subheading }}</p>
+            </div>
+          </header>
+
+          <p class="day__label">{{ t().cockpit.schedule.today }}</p>
+          @for (slot of c.today; track slot.id) {
+            <a
+              class="slot"
+              [class.slot--done]="slot.done"
+              [routerLink]="['/besichtigungen', slot.id]"
+            >
+              <span class="slot__time">{{ slot.time }}</span>
+              <span class="slot__body">
+                <span class="slot__customer">{{ slot.customer }}</span>
+                <span class="slot__address">{{ slot.address }}</span>
+              </span>
+              @if (slot.done) {
+                <span class="slot__done">{{ t().cockpit.schedule.done }}</span>
+              }
+            </a>
+          } @empty {
+            <p class="day__empty">{{ t().cockpit.schedule.empty }}</p>
+          }
+
+          <div class="day--next">
+            <p class="day__label">{{ t().cockpit.schedule.tomorrow }}</p>
+            @for (slot of c.tomorrow; track slot.id) {
+              <a class="slot" [routerLink]="['/besichtigungen', slot.id]">
+                <span class="slot__time">{{ slot.time }}</span>
+                <span class="slot__body">
+                  <span class="slot__customer">{{ slot.customer }}</span>
+                  <span class="slot__address">{{ slot.address }}</span>
+                </span>
+              </a>
+            } @empty {
+              <p class="day__empty">{{ t().cockpit.schedule.empty }}</p>
+            }
+          </div>
+
+          <a class="rt-panel__link" routerLink="/besichtigungen">{{ t().actions.showAll }} →</a>
+        </section>
+
+        <!-- 6 · Projects under way. -->
+        <section class="rt-panel panel--wide">
+          <header class="rt-panel__head">
+            <div>
+              <h2 class="rt-subtitle">{{ t().cockpit.projects.heading }}</h2>
+              <p class="rt-panel__sub">{{ t().cockpit.projects.subheading }}</p>
+            </div>
+          </header>
+
+          @if (c.projects.length) {
+            <div class="rt-table-wrap">
+              <table class="rt-table">
+                <thead>
+                  <tr>
+                    <th>{{ t().projects.columns.customer }}</th>
+                    <th>{{ t().projects.columns.angebot }}</th>
+                    <th>{{ t().projects.columns.status }}</th>
+                    <th class="rt-numeric">{{ t().projects.columns.agreed }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (project of c.projects; track project.id) {
+                    <tr>
+                      <td>
+                        <a class="row-link" [routerLink]="['/projekte', project.id]">{{
+                          project.customer
+                        }}</a>
+                      </td>
+                      <td class="rt-numeric">{{ project.angebotNumber }}</td>
+                      <td><app-status-chip kind="project" [value]="project.status" /></td>
+                      <td class="rt-numeric">{{ project.agreed }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <a class="rt-panel__link" routerLink="/projekte">{{ t().actions.showAll }} →</a>
+          } @else {
+            <app-empty-state [title]="t().cockpit.projects.empty" body="" />
+          }
+        </section>
+      </div>
+    }
+  }
+}

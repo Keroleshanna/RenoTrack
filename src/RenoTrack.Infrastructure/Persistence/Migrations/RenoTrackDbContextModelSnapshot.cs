@@ -1045,7 +1045,7 @@ namespace RenoTrack.Infrastructure.Persistence.Migrations
                     b.HasOne("RenoTrack.Domain.Entities.AngebotItem", null)
                         .WithMany()
                         .HasForeignKey("CreatedFromAngebotItemId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("RenoTrack.Domain.Entities.Customer", b =>

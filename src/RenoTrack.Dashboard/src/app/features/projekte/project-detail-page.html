@@ -1,0 +1,408 @@
+<a class="rt-back-link" routerLink="/projekte">← {{ t().projectDetail.backToList }}</a>
+
+@switch (loadState()) {
+  @case ('loading') {
+    <section class="rt-panel"><app-skeleton [lineCount]="8" /></section>
+  }
+  @case ('error') {
+    <section class="rt-panel">
+      <app-error-state [body]="loadError()" (retry)="load()" />
+    </section>
+  }
+  @default {
+    @if (project(); as project) {
+      <header class="head">
+        <div>
+          <p class="rt-label">{{ t().projectDetail.label }}</p>
+          <h1 class="rt-display">{{ project.customerName }}</h1>
+          <p class="rt-body rt-muted head__sub">
+            {{ t().projectDetail.fromAngebot }}
+            <a [routerLink]="['/angebote', project.angebotId]">{{ project.angebotNumber }}</a>
+            <span aria-hidden="true"> · </span>
+            <a [routerLink]="['/leads', project.leadId]">{{ t().projectDetail.originatingLead }}</a>
+          </p>
+        </div>
+        <app-status-chip kind="project" [value]="project.status" />
+      </header>
+
+      <!-- Agreed / invoiced / remaining — BR-3, Sequence Diagram §8. -->
+      <section class="rt-panel figures">
+        <div class="figure">
+          <span class="rt-label">{{ t().projectDetail.agreed }}</span>
+          <span class="figure__value">{{
+            project.agreedTotal | currency: 'EUR' : 'symbol' : '1.2-2' : locale()
+          }}</span>
+        </div>
+        <div class="figure">
+          <span class="rt-label">{{ t().projectDetail.invoiced }}</span>
+          <span class="figure__value">{{
+            project.alreadyInvoiced | currency: 'EUR' : 'symbol' : '1.2-2' : locale()
+          }}</span>
+        </div>
+        <div class="figure">
+          <span class="rt-label">{{ t().projectDetail.remaining }}</span>
+          <span class="figure__value" [class.figure__value--warn]="overInvoiced()">{{
+            project.remaining | currency: 'EUR' : 'symbol' : '1.2-2' : locale()
+          }}</span>
+        </div>
+      </section>
+
+      @if (overInvoiced()) {
+        <p class="banner">{{ t().projectDetail.overInvoiced }}</p>
+      }
+
+      <section class="rt-panel invoices">
+        <header class="rt-panel__head">
+          <div>
+            <h2 class="rt-subtitle">{{ t().projectDetail.invoices }}</h2>
+            <p class="rt-panel__sub">{{ t().projectDetail.invoicesHint }}</p>
+          </div>
+          @if (isAdmin()) {
+            <button
+              type="button"
+              class="rt-button rt-button--primary"
+              [disabled]="busy()"
+              (click)="openInvoiceDialog()"
+            >
+              {{ t().projectDetail.addInvoice }}
+            </button>
+          }
+        </header>
+
+        @if (project.invoices.length === 0) {
+          <p class="rt-caption">{{ t().projectDetail.noInvoices }}</p>
+        } @else {
+          <div class="rt-table-wrap">
+            <table class="rt-table">
+              <thead>
+                <tr>
+                  <th>{{ t().invoices.columns.number }}</th>
+                  <th>{{ t().invoices.columns.status }}</th>
+                  <th class="rt-numeric">{{ t().invoices.columns.due }}</th>
+                  <th class="rt-numeric">{{ t().invoices.columns.gross }}</th>
+                  @if (isAdmin()) {
+                    <th><span class="rt-visually-hidden">{{ t().angebotDetail.columns.actions }}</span></th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (invoice of project.invoices; track invoice.id) {
+                  <tr>
+                    <td class="rt-numeric">{{ invoice.invoiceNumber }}</td>
+                    <td><app-status-chip kind="invoice" [value]="invoice.status" /></td>
+                    <td class="rt-numeric">
+                      {{ invoice.dueDate | date: t().formats.date : undefined : locale() }}
+                    </td>
+                    <td class="rt-numeric strong">
+                      {{ invoice.grossAmount | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}
+                    </td>
+                    @if (isAdmin()) {
+                      <td class="row-actions">
+                        @if (canSend(invoice)) {
+                          <button
+                            type="button"
+                            class="rt-button rt-button--small"
+                            [disabled]="busy()"
+                            (click)="sendingInvoice.set(invoice)"
+                          >
+                            {{ t().projectDetail.send }}
+                          </button>
+                        }
+                        @if (canMarkPaid(invoice)) {
+                          <button
+                            type="button"
+                            class="rt-button rt-button--small"
+                            [disabled]="busy()"
+                            (click)="openPayment(invoice)"
+                          >
+                            {{ t().projectDetail.markPaid }}
+                          </button>
+                        }
+                        @if (canVoid(invoice)) {
+                          <button
+                            type="button"
+                            class="rt-button rt-button--small rt-button--danger"
+                            [disabled]="busy()"
+                            (click)="openVoid(invoice)"
+                          >
+                            {{ t().projectDetail.void }}
+                          </button>
+                        }
+                      </td>
+                    }
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        @if (canComplete() || canHold() || canResume()) {
+          <footer class="invoices__foot">
+            <!--
+              §5, Admin only. Pausing and resuming are two named actions rather than one status
+              control — BR-7's reasoning for Leads applies here too, and each is offered only from
+              the state StateMachine §4.3 allows it from, so neither invites a refusal.
+            -->
+            @if (canHold()) {
+              <button type="button" class="rt-button" [disabled]="busy()" (click)="askHold()">
+                {{ t().projectDetail.putOnHold }}
+              </button>
+            }
+            @if (canResume()) {
+              <button type="button" class="rt-button" [disabled]="busy()" (click)="askResume()">
+                {{ t().projectDetail.resume }}
+              </button>
+            }
+            @if (canComplete()) {
+              <button
+                type="button"
+                class="rt-button rt-button--primary"
+                [disabled]="busy()"
+                (click)="complete()"
+              >
+                {{ t().projectDetail.completeProject }}
+              </button>
+            }
+          </footer>
+        }
+
+        <!--
+          A paused project has no Complete button, because §4.2 draws no edge from OnHold to
+          Completed. Saying why beats a disabled control the reader has to guess about.
+        -->
+        @if (isAdmin() && project.status === 'OnHold') {
+          <p class="rt-caption">{{ t().projectDetail.onHoldHint }}</p>
+        }
+      </section>
+
+      <!-- ---- Dialogs -------------------------------------------------------------------------- -->
+
+      <!-- Wireframe E2. The remaining balance is shown because it is what the amount is judged against. -->
+      <app-dialog
+        [open]="invoiceDialogOpen()"
+        [heading]="t().projectDetail.addInvoice"
+        [description]="t().projectDetail.addInvoiceHint"
+        (closed)="invoiceDialogOpen.set(false)"
+      >
+        <p class="rt-caption">
+          {{ t().projectDetail.remaining }}:
+          <strong>{{ project.remaining | currency: 'EUR' : 'symbol' : '1.2-2' : locale() }}</strong>
+        </p>
+
+        <form [formGroup]="invoiceForm" class="stacked">
+          <div class="rt-field">
+            <label class="rt-field__label" for="invoice-amount">{{
+              t().projectDetail.grossAmount
+            }}</label>
+            <input
+              id="invoice-amount"
+              class="rt-input"
+              type="number"
+              min="0"
+              step="0.01"
+              formControlName="grossAmount"
+            />
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="invoice-due">{{ t().projectDetail.dueDate }}</label>
+            <input id="invoice-due" class="rt-input" type="date" formControlName="dueDate" />
+            @if (invoiceForm.controls.dueDate.touched && invoiceForm.controls.dueDate.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="invoiceDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="createInvoice()"
+          >
+            {{ t().actions.create }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <app-dialog
+        [open]="sendingInvoice() !== null"
+        [heading]="t().projectDetail.sendInvoiceTitle"
+        [description]="t().projectDetail.sendInvoiceBody"
+        (closed)="sendingInvoice.set(null)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="sendingInvoice.set(null)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="sendInvoice()"
+          >
+            {{ t().actions.confirm }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!-- Wireframe E3. No amount field: Phase 8 records full payment only. -->
+      <app-dialog
+        [open]="payingInvoice() !== null"
+        [heading]="t().projectDetail.markPaid"
+        [description]="t().projectDetail.markPaidHint"
+        (closed)="payingInvoice.set(null)"
+      >
+        <form [formGroup]="paymentForm" class="stacked">
+          <div class="rt-field">
+            <label class="rt-field__label" for="paid-at">{{ t().projectDetail.paidAt }}</label>
+            <input id="paid-at" class="rt-input" type="date" formControlName="paidAt" />
+          </div>
+
+          <div class="rt-field">
+            <label class="rt-field__label" for="paid-method">{{ t().projectDetail.method }}</label>
+            <select id="paid-method" class="rt-select" formControlName="method">
+              @for (method of paymentMethods; track method) {
+                <option [value]="method">{{ t().paymentMethod[method] }}</option>
+              }
+            </select>
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="payingInvoice.set(null)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="markPaid()"
+          >
+            {{ t().actions.confirm }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <app-dialog
+        [open]="voidingInvoice() !== null"
+        [heading]="t().projectDetail.voidTitle"
+        [description]="t().projectDetail.voidHint"
+        (closed)="voidingInvoice.set(null)"
+      >
+        <form [formGroup]="voidForm">
+          <div class="rt-field">
+            <label class="rt-field__label" for="void-reason">{{
+              t().projectDetail.voidReason
+            }}</label>
+            <textarea id="void-reason" class="rt-textarea" formControlName="reason"></textarea>
+            @if (voidForm.controls.reason.touched && voidForm.controls.reason.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="voidingInvoice.set(null)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--danger"
+            [disabled]="busy()"
+            (click)="voidInvoice()"
+          >
+            {{ t().projectDetail.void }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!--
+        Reached only after the server has actually refused (FR-8.6). An override with nothing to
+        override is rejected by design, so it is never offered speculatively.
+      -->
+      <app-dialog
+        [open]="overrideDialogOpen()"
+        [heading]="t().projectDetail.overrideTitle"
+        [description]="t().projectDetail.overrideBody"
+        (closed)="overrideDialogOpen.set(false)"
+      >
+        <form [formGroup]="overrideForm">
+          <div class="rt-field">
+            <label class="rt-field__label" for="override-reason">{{
+              t().projectDetail.overrideReason
+            }}</label>
+            <textarea id="override-reason" class="rt-textarea" formControlName="reason"></textarea>
+            @if (overrideForm.controls.reason.touched && overrideForm.controls.reason.invalid) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="overrideDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="completeWithOverride()"
+          >
+            {{ t().projectDetail.completeAnyway }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <!--
+        Confirmed because pausing changes how colleagues read the project's state, which is a
+        consequence outside this screen (D83).
+      -->
+      <app-dialog
+        [open]="holdDialogOpen()"
+        [heading]="t().projectDetail.holdTitle"
+        [description]="t().projectDetail.holdBody"
+        (closed)="holdDialogOpen.set(false)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="holdDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="putOnHold()"
+          >
+            {{ t().projectDetail.putOnHold }}
+          </button>
+        </ng-container>
+      </app-dialog>
+
+      <app-dialog
+        [open]="resumeDialogOpen()"
+        [heading]="t().projectDetail.resumeTitle"
+        [description]="t().projectDetail.resumeBody"
+        (closed)="resumeDialogOpen.set(false)"
+      >
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="resumeDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="resume()"
+          >
+            {{ t().projectDetail.resume }}
+          </button>
+        </ng-container>
+      </app-dialog>
+    }
+  }
+}

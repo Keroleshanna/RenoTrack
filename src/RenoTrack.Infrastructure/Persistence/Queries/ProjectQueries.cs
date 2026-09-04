@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RenoTrack.Application.Common;
 using RenoTrack.Application.Projects;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Domain.Entities;
@@ -158,5 +159,61 @@ public sealed class ProjectQueries(RenoTrackDbContext dbContext) : IProjectQueri
             project.AgreedTotal,
             alreadyInvoiced,
             project.AgreedTotal - alreadyInvoiced);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Joined out explicitly to <c>Customers</c> and <c>Angebote</c>, for the same reason the detail
+    /// read does: <c>Project</c> holds no navigation property to either by design (CLAUDE.md §2), so
+    /// there is nothing to <c>Include</c>.
+    ///
+    /// <b>No per-row balance calculation.</b> Money per Project comes from the Invoice list or the
+    /// Project's own detail read, both of which already own that arithmetic — see
+    /// <see cref="ProjectListItemDto"/>.
+    /// </remarks>
+    public async Task<PagedResult<ProjectListItemDto>> GetPagedAsync(
+        ProjectStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var query = dbContext.Projects.AsNoTracking();
+
+        if (status.HasValue)
+        {
+            query = query.Where(p => p.Status == status.Value);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        // Ordered on the entity before projecting — the same translation constraint the Inspection
+        // schedule ran into. Newest first; Id breaks ties, since CreatedAt is not unique.
+        var items = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .ThenByDescending(p => p.Id)
+            .Skip((page - Pagination.FirstPage) * pageSize)
+            .Take(pageSize)
+            .Join(
+                dbContext.Customers.AsNoTracking(),
+                project => project.CustomerId,
+                customer => customer.Id,
+                (project, customer) => new { project, customer })
+            .Join(
+                dbContext.Angebote.AsNoTracking(),
+                pair => pair.project.AngebotId,
+                angebot => angebot.Id,
+                (pair, angebot) => new ProjectListItemDto(
+                    pair.project.Id,
+                    pair.project.Status,
+                    pair.project.AgreedTotal.Amount,
+                    pair.project.CreatedAt,
+                    pair.project.CompletedAt,
+                    pair.customer.Id,
+                    pair.customer.Name,
+                    angebot.Id,
+                    angebot.AngebotNumber))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<ProjectListItemDto>(items, page, pageSize, totalCount);
     }
 }

@@ -144,6 +144,48 @@ public sealed class Lead
     }
 
     /// <summary>
+    /// Corrects the Lead's contact details. PermissionMatrix.md §1: "Edit Lead contact details —
+    /// Admin F, Inspector S", whose own example is an Inspector fixing a wrong phone number found
+    /// on-site.
+    ///
+    /// <para>
+    /// <b>Scoped to exactly the four contact fields, and <see cref="Notes"/> is deliberately not
+    /// among them.</b> §1 grants editing of "contact details"; FR-2.1 lists notes separately from
+    /// name/phone/email/address, and no document grants an edit of the enquiry description itself.
+    /// Including it here would widen a documented permission by assumption rather than by
+    /// evidence — the same discipline CLAUDE.md §2 applies to child-entity update methods. That
+    /// leaves Lead notes writable only at creation, which is recorded as a known gap rather than
+    /// quietly closed here.
+    /// </para>
+    /// <para>
+    /// <b>No <see cref="LeadStatus"/> guard, for the same reason <see cref="AssignInspector"/> has
+    /// none.</b> This is clerical correction, not a lifecycle transition: StateMachine.md defines
+    /// no event for it and PermissionMatrix.md places no timing restriction on it, so refusing it
+    /// in (say) a terminal state would invent a rule no document states. A wrong phone number is
+    /// worth fixing on a <c>Won</c> Lead too — the Customer record copied at conversion time is
+    /// unaffected either way, which is exactly the point of BR-8-style copy-at-commit.
+    /// </para>
+    ///
+    /// The guards mirror <see cref="Create"/>'s, because the same three fields are required for
+    /// the whole of the Lead's lifetime — an invariant, not a creation-time condition, so it is
+    /// legitimate for both to enforce it.
+    /// </summary>
+    public void UpdateContactDetails(string name, string phone, string email, string? address)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Lead name is required.", nameof(name));
+        if (string.IsNullOrWhiteSpace(phone))
+            throw new ArgumentException("Lead phone is required.", nameof(phone));
+        if (string.IsNullOrWhiteSpace(email))
+            throw new ArgumentException("Lead email is required.", nameof(email));
+
+        Name = name.Trim();
+        Phone = phone.Trim();
+        Email = email.Trim();
+        Address = address?.Trim();
+    }
+
+    /// <summary>
     /// Assigns (or reassigns) which Inspector is responsible for this Lead. PermissionMatrix.md
     /// §1: "Assign/reassign Inspector to a Lead — Admin decision."
     ///

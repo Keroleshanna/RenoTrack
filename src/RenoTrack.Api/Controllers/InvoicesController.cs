@@ -3,12 +3,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Api.Invoices.Dtos;
 using RenoTrack.Application.Common;
+using RenoTrack.Domain.Enums;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
 using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
 using RenoTrack.Application.Invoices.Commands.VoidInvoice;
 using RenoTrack.Application.Invoices.Dtos;
+using RenoTrack.Application.Invoices.Queries.GetInvoices;
+using RenoTrack.Application.Invoices.Queries.GetReceivables;
 
 namespace RenoTrack.Api.Controllers;
 
@@ -34,11 +37,18 @@ namespace RenoTrack.Api.Controllers;
 /// by resource beats cohesion by URL prefix.
 /// </para>
 /// <para>
-/// <b>There is deliberately no read endpoint.</b> No document defines
-/// <c>GET /api/v1/invoices/{id}</c>, which is why creation returns 201 without a <c>Location</c>.
+/// <b>Phase 10 added two reads — a list and a receivables aggregate — but still no
+/// <c>GET /api/v1/invoices/{id}</c>.</b> That remains undefined by any document, which is why
+/// creation still returns 201 without a <c>Location</c> header. The list exists because the company
+/// previously had no way to see its own receivables at all: the only Invoice read in the system was
+/// the anonymous token-link page, which serves one customer's single invoice.
+/// </para>
+/// <para>
 /// The one remaining Invoice transition, <c>Sent → Overdue</c>, exists in the Domain but has no
 /// endpoint by explicit decision — nothing schedules it, and inventing a trigger for it was
-/// rejected (Slice 7 records the gap).
+/// rejected. <b>Phase 10 does not add one either:</b> the Dashboard derives "overdue" as
+/// <c>Status == Sent &amp;&amp; DueDate &lt; asOf</c> at read time, so the figure is correct without
+/// any background process ever writing that status.
 /// </para>
 /// </remarks>
 [ApiController]
@@ -48,8 +58,69 @@ public sealed class InvoicesController(
     ICommandHandler<CreateInvoiceCommand, InvoiceDto> createInvoiceHandler,
     ICommandHandler<SendInvoiceCommand, InvoiceDto> sendInvoiceHandler,
     ICommandHandler<RecordPaymentCommand, InvoiceDto> recordPaymentHandler,
-    ICommandHandler<VoidInvoiceCommand, InvoiceDto> voidInvoiceHandler) : ControllerBase
+    ICommandHandler<VoidInvoiceCommand, InvoiceDto> voidInvoiceHandler,
+    IQueryHandler<GetInvoicesQuery, PagedResult<InvoiceListItemDto>> getInvoicesHandler,
+    IQueryHandler<GetReceivablesQuery, ReceivablesSummaryDto> getReceivablesHandler) : ControllerBase
 {
+    /// <summary>
+    /// The Invoice list, filterable by status, Project and due date. Admin only (§5).
+    /// </summary>
+    /// <remarks>
+    /// Phase 10's read. Before it the only Invoice read in the system was the anonymous token-link
+    /// page, so the company could not see its own receivables at all.
+    ///
+    /// Ordered by due date ascending — an invoice list is a chase list, and the most overdue money
+    /// is the most urgent.
+    /// </remarks>
+    [HttpGet]
+    [ProducesResponseType<PagedResult<InvoiceListItemDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] InvoiceStatus? status,
+        [FromQuery] int? projectId,
+        [FromQuery] DateTime? dueBefore,
+        [FromQuery] int page = Pagination.FirstPage,
+        [FromQuery] int pageSize = Pagination.DefaultPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await getInvoicesHandler.HandleAsync(
+            new GetInvoicesQuery(status, projectId, dueBefore, page, pageSize),
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Invoiced / paid / open / overdue across the whole invoice book. Admin only (§5).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A separate endpoint rather than a field on the list, because it aggregates the **entire** set
+    /// while the list returns one page. Attaching a whole-book total to a paged response would put
+    /// two different scopes in one payload and invite a client to believe the page explained it.
+    /// </para>
+    /// <para>
+    /// <c>asOf</c> defaults to today on the server only when the caller omits it. Passing it
+    /// explicitly is preferred and is what the Dashboard does, so the client's own notion of "today"
+    /// decides what counts as overdue rather than the server's timezone.
+    /// </para>
+    /// </remarks>
+    [HttpGet("receivables")]
+    [ProducesResponseType<ReceivablesSummaryDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetReceivables(
+        [FromQuery] DateTime? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await getReceivablesHandler.HandleAsync(
+            new GetReceivablesQuery(asOf ?? DateTime.UtcNow.Date),
+            cancellationToken);
+
+        return Ok(result);
+    }
+
     /// <summary>
     /// Creates one Invoice against a Project, splitting the entered gross across the originating
     /// Angebot's VAT rates (SRS FR-8.1/FR-8.2, Sequence Diagram §8, Wireframe E2). Admin only.

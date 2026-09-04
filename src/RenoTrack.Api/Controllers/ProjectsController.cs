@@ -2,12 +2,16 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Application.Common;
+using RenoTrack.Domain.Enums;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Api.Projects.Dtos;
 using RenoTrack.Application.Projects.Commands.CompleteProject;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
+using RenoTrack.Application.Projects.Commands.PutProjectOnHold;
+using RenoTrack.Application.Projects.Commands.ResumeProject;
 using RenoTrack.Application.Projects.Dtos;
 using RenoTrack.Application.Projects.Queries.GetProjectById;
+using RenoTrack.Application.Projects.Queries.GetProjects;
 using RenoTrack.Application.Projects.Queries.GetProjectInvoiceBalance;
 
 namespace RenoTrack.Api.Controllers;
@@ -54,9 +58,45 @@ namespace RenoTrack.Api.Controllers;
 public sealed class ProjectsController(
     ICommandHandler<ConvertAngebotToProjectCommand, ProjectDto> convertHandler,
     ICommandHandler<CompleteProjectCommand, ProjectDto> completeProjectHandler,
+    ICommandHandler<PutProjectOnHoldCommand, ProjectDto> putOnHoldHandler,
+    ICommandHandler<ResumeProjectCommand, ProjectDto> resumeHandler,
     IQueryHandler<GetProjectByIdQuery, ProjectDetailDto> getProjectByIdHandler,
-    IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto> getInvoiceBalanceHandler) : ControllerBase
+    IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto> getInvoiceBalanceHandler,
+    IQueryHandler<GetProjectsQuery, PagedResult<ProjectListItemDto>> getProjectsHandler) : ControllerBase
 {
+    /// <summary>
+    /// The Project list, newest first, optionally filtered by status.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Before Phase 10 a Project was reachable only by id, so this list was unreachable without
+    /// already knowing every id — a gap recorded before any of this was built.
+    /// </para>
+    /// <para>
+    /// <b>Unscoped for both roles, deliberately.</b> `PermissionMatrix.md` §5 grants Project reads as
+    /// Admin "F" / Inspector "R" with no ownership qualifier, so an Inspector may list every Project
+    /// — and that read still confers no Invoice permission whatsoever. Adding a scope here would
+    /// invent a restriction the matrix does not have, which is as much a defect as omitting one it
+    /// does.
+    /// </para>
+    /// </remarks>
+    [HttpGet]
+    [ProducesResponseType<PagedResult<ProjectListItemDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] ProjectStatus? status,
+        [FromQuery] int page = Pagination.FirstPage,
+        [FromQuery] int pageSize = Pagination.DefaultPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await getProjectsHandler.HandleAsync(
+            new GetProjectsQuery(status, page, pageSize),
+            cancellationToken);
+
+        return Ok(result);
+    }
+
     /// <summary>
     /// Converts a customer-approved Angebot into a Project (SRS FR-7.1, BR-2). Admin only.
     /// </summary>
@@ -127,6 +167,59 @@ public sealed class ProjectsController(
                 ForceOverride: request.ForceOverride,
                 Reason: request.Reason,
                 CompletedByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(project);
+    }
+
+    /// <summary>
+    /// Pauses an active Project (<c>PermissionMatrix.md</c> §5 "Put Project On Hold / Resume —
+    /// Admin F", StateMachine.md §4.3 <c>Active → OnHold</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two named endpoints rather than one that takes the target status. BR-7's reasoning for
+    /// Leads applies here too — a free-standing status setter is exactly what this codebase
+    /// refuses, and Architecture.md §5.2 records the removal of the equivalent
+    /// <c>PATCH /leads/{id}/status</c> for that reason.
+    /// </para>
+    /// <para>
+    /// No request body: the Project comes from the route and the Admin from the token (D61). A
+    /// reason is not accepted — no ERD column stores one, so taking it would either discard it or
+    /// smuggle it into a best-effort audit row (see the command's own remarks).
+    /// </para>
+    /// <para><b>409</b> when the Project is not <c>Active</c>; <c>Project.PutOnHold()</c> refuses it.</para>
+    /// </remarks>
+    [HttpPost("{id:int}/hold")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PutOnHold(int id, CancellationToken cancellationToken)
+    {
+        var project = await putOnHoldHandler.HandleAsync(
+            new PutProjectOnHoldCommand(ProjectId: id, PutOnHoldByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(project);
+    }
+
+    /// <summary>
+    /// Resumes a paused Project (<c>PermissionMatrix.md</c> §5, StateMachine.md §4.3
+    /// <c>OnHold → Active</c>) — the mirror of <see cref="PutOnHold"/>.
+    /// </summary>
+    /// <remarks><b>409</b> when the Project is not <c>OnHold</c>; <c>Project.Resume()</c> refuses it.</remarks>
+    [HttpPost("{id:int}/resume")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Resume(int id, CancellationToken cancellationToken)
+    {
+        var project = await resumeHandler.HandleAsync(
+            new ResumeProjectCommand(ProjectId: id, ResumedByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(project);

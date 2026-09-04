@@ -1,0 +1,345 @@
+// Element-level base styles, the typography scale, and the shared surface primitives.
+//
+// The type scale is ours, not Material's: M3's display/headline sizes are tuned for marketing
+// surfaces, and an internal tool needs a tighter ramp so a page title, a panel title and a table
+// header stay distinguishable inside a 1440px column.
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--rt-surface-page);
+  color: var(--rt-text);
+  font-family: Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+// ---- Typography ---------------------------------------------------------------------------------
+
+.rt-display {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.rt-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.rt-subtitle {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.rt-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.rt-caption {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--rt-text-muted);
+}
+
+.rt-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--rt-text-muted);
+}
+
+.rt-muted {
+  color: var(--rt-text-muted);
+}
+
+// Any figure that appears in a column: amounts, quantities, counts, dates.
+.rt-numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+// ---- Surfaces -----------------------------------------------------------------------------------
+//
+// Panels are separated by TONE AND SHADOW, never by borders. A grid of bordered boxes reads as an
+// admin template; white cards on a warm neutral page read as a product.
+
+.rt-panel {
+  display: flex;
+  flex-direction: column;
+  padding: var(--rt-space-6);
+  background: var(--rt-surface-raised);
+  border-radius: var(--rt-radius-lg);
+  box-shadow: var(--rt-shadow-1);
+}
+
+.rt-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-5);
+}
+
+.rt-panel__sub {
+  margin: 4px 0 0;
+  max-width: 48ch;
+  color: var(--rt-text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+// A headline figure in a panel header — the total whatever sits below it breaks down.
+.rt-panel__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  white-space: nowrap;
+}
+
+.rt-panel__aside-value {
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.rt-panel__link {
+  margin-top: auto;
+  padding-top: var(--rt-space-4);
+  color: var(--rt-brand);
+  font-size: 12.5px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.rt-panel__link:hover {
+  text-decoration: underline;
+}
+
+// ---- Tables -------------------------------------------------------------------------------------
+
+// Wide content scrolls inside its own container rather than pushing the page sideways.
+//
+// **`min-width: 0` is what actually makes that true.** Every one of these sits inside `.rt-panel`,
+// which is a flex column, and a flex item's default `min-width: auto` refuses to shrink below its
+// content — so `overflow-x: auto` alone never engages and the *page* scrolls sideways instead of the
+// table. Found on a 375px viewport with a line-item table, not by reading the CSS.
+.rt-table-wrap {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.rt-table th {
+  padding: var(--rt-space-2) var(--rt-space-3);
+  border-bottom: 1px solid var(--rt-border);
+  color: var(--rt-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rt-table td {
+  padding: var(--rt-space-3);
+  border-bottom: 1px solid var(--rt-border);
+  vertical-align: middle;
+}
+
+.rt-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.rt-table .rt-numeric {
+  text-align: right;
+}
+
+.rt-table__primary {
+  display: block;
+  font-weight: 600;
+}
+
+.rt-table__secondary {
+  display: block;
+  margin-top: 1px;
+  color: var(--rt-text-muted);
+  font-size: 11.5px;
+}
+
+// A whole row that navigates. Kept as a link inside the first cell for accessibility; the row only
+// carries the hover affordance.
+.rt-table tbody tr:hover {
+  background: var(--rt-surface-sunken);
+}
+
+// ---- Buttons ------------------------------------------------------------------------------------
+//
+// Three weights, deliberately: one primary action per surface, secondary for everything reversible,
+// and a quiet destructive variant. A screen that needs a fourth is a screen doing too much.
+
+.rt-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rt-space-2);
+  padding: var(--rt-space-2) var(--rt-space-4);
+  min-height: 36px;
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-strong);
+  border-radius: var(--rt-radius-md);
+  color: var(--rt-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--rt-motion-fast) var(--rt-ease),
+    background var(--rt-motion-fast) var(--rt-ease),
+    color var(--rt-motion-fast) var(--rt-ease);
+}
+
+.rt-button:not(:disabled):hover {
+  border-color: var(--rt-brand);
+  color: var(--rt-brand);
+}
+
+.rt-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rt-button--primary {
+  background: var(--rt-brand);
+  border-color: var(--rt-brand);
+  color: #fff;
+}
+
+.rt-button--primary:not(:disabled):hover {
+  background: var(--rt-brand-strong);
+  border-color: var(--rt-brand-strong);
+  color: #fff;
+}
+
+.rt-button--danger {
+  color: var(--rt-danger);
+}
+
+.rt-button--danger:not(:disabled):hover {
+  border-color: var(--rt-danger);
+  color: var(--rt-danger);
+}
+
+.rt-button--small {
+  min-height: 30px;
+  padding: 3px var(--rt-space-3);
+  font-size: 12px;
+}
+
+// ---- Forms --------------------------------------------------------------------------------------
+
+.rt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rt-field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rt-text-muted);
+}
+
+.rt-input,
+.rt-select,
+.rt-textarea {
+  width: 100%;
+  padding: var(--rt-space-2) var(--rt-space-3);
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-strong);
+  border-radius: var(--rt-radius-md);
+  color: var(--rt-text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.rt-input:focus-visible,
+.rt-select:focus-visible,
+.rt-textarea:focus-visible {
+  outline: 2px solid var(--rt-brand);
+  outline-offset: 1px;
+}
+
+.rt-textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.rt-field__error {
+  color: var(--rt-danger);
+  font-size: 12px;
+}
+
+// ---- Misc ---------------------------------------------------------------------------------------
+
+.rt-back-link {
+  display: inline-block;
+  margin-bottom: var(--rt-space-4);
+  color: var(--rt-text-muted);
+  text-decoration: none;
+  font-size: 12.5px;
+}
+
+.rt-back-link:hover {
+  color: var(--rt-brand);
+}
+
+.rt-danger-action {
+  --mdc-text-button-label-text-color: var(--rt-danger);
+}
+
+// Visible to screen readers only. Needed wherever an icon carries the whole meaning of a control.
+.rt-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

@@ -176,4 +176,126 @@ public class InspectionTests
             () => inspection.UpdateNotes("trying to sneak in a change"));
         Assert.Contains("BR-10", exception.Message);
     }
+
+    // ---- Reopen (BR-10's own named remedy) -------------------------------
+
+    [Fact]
+    public void Reopen_MakesACompletedInspectionEditableAgain()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+        inspection.Complete();
+
+        inspection.Reopen();
+
+        Assert.Null(inspection.CompletedAt);
+
+        // The point of reopening: the edits BR-10 was blocking now work.
+        inspection.UpdateNotes("Korrigierte Notizen.");
+        inspection.AddPhoto("https://storage.local/inspections/1/nachtrag.jpg");
+
+        Assert.Equal("Korrigierte Notizen.", inspection.Notes);
+        Assert.Single(inspection.Photos);
+    }
+
+    [Fact]
+    public void Reopen_KeepsEverythingRecordedSoFar()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+        inspection.UpdateNotes("Vor Ort aufgenommen.");
+        inspection.AddPhoto("https://storage.local/inspections/1/vorher.jpg");
+        inspection.Complete();
+
+        inspection.Reopen();
+
+        // Reopening corrects a record; it does not discard one.
+        Assert.Equal("Vor Ort aufgenommen.", inspection.Notes);
+        Assert.Single(inspection.Photos);
+        Assert.Equal(7, inspection.LeadId);
+        Assert.Equal(3, inspection.InspectorId);
+    }
+
+    [Fact]
+    public void Reopen_ThrowsWhenTheVisitWasNeverCompleted()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+
+        // Not a no-op: silently succeeding would let a screen offer "reopen" on an open visit and
+        // report success for an action that meant nothing.
+        Assert.Throws<InvalidOperationException>(inspection.Reopen);
+    }
+
+    [Fact]
+    public void Reopen_ThenCompleteAgainIsAllowed()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+        inspection.Complete();
+        inspection.Reopen();
+
+        inspection.Complete();
+
+        Assert.NotNull(inspection.CompletedAt);
+    }
+
+    // ---- Reassign (PermissionMatrix.md §2) -------------------------------
+
+    [Fact]
+    public void Reassign_ChangesTheInspector()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+
+        inspection.Reassign(9);
+
+        Assert.Equal(9, inspection.InspectorId);
+    }
+
+    [Fact]
+    public void Reassign_LeavesEverythingElseAlone()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+        inspection.UpdateNotes("Bad im Erdgeschoss, ca. 10 m².");
+
+        inspection.Reassign(9);
+
+        // Sending someone else says nothing about when the visit is, which Lead it serves, or what
+        // was recorded so far.
+        Assert.Equal(7, inspection.LeadId);
+        Assert.Equal(ScheduledAt, inspection.ScheduledAt);
+        Assert.Equal("Bad im Erdgeschoss, ca. 10 m².", inspection.Notes);
+        Assert.Null(inspection.CompletedAt);
+    }
+
+    [Fact]
+    public void Reassign_ToTheSameInspectorIsAllowed()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+
+        // No document forbids it and the result is the state the caller asked for, so refusing it
+        // would invent a rule.
+        inspection.Reassign(3);
+
+        Assert.Equal(3, inspection.InspectorId);
+    }
+
+    [Fact]
+    public void Reassign_ThrowsAfterCompletion_BR10()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+        inspection.Complete();
+
+        // Rewriting who attended a finished visit would falsify the evidence BR-10 protects — the
+        // one place this aggregate's guard differs from Lead.AssignInspector, which has none.
+        var exception = Assert.Throws<InvalidOperationException>(() => inspection.Reassign(9));
+        Assert.Contains("BR-10", exception.Message);
+    }
+
+    [Fact]
+    public void Reassign_LeavesTheInspectorUnchangedWhenRefused()
+    {
+        var inspection = Inspection.Schedule(7, ScheduledAt, 3);
+        inspection.Complete();
+
+        Assert.Throws<InvalidOperationException>(() => inspection.Reassign(9));
+
+        Assert.Equal(3, inspection.InspectorId);
+    }
 }

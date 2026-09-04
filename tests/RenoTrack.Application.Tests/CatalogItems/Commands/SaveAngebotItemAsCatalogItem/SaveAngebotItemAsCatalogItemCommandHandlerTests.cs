@@ -43,7 +43,8 @@ public class SaveAngebotItemAsCatalogItemCommandHandlerTests
             Unit: "m2",
             UnitPrice: 82.25m,
             VatRate: VatRate.Standard,
-            LineTotal: 1110.38m);
+            LineTotal: 1110.38m,
+            SavedToCatalog: false);
 
     [Fact]
     public async Task HandleAsync_CopiesTheItemsReusableValuesIntoANewCatalogItem()

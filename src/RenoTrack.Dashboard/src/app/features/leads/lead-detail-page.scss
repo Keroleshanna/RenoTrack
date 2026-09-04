@@ -1,0 +1,104 @@
+// Wireframe C1 — one enquiry and the actions that move it.
+
+:host {
+  display: block;
+  max-width: var(--rt-content-max);
+  margin: 0 auto;
+  padding-bottom: var(--rt-space-16);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--rt-space-4);
+  margin-bottom: var(--rt-space-5);
+}
+
+.head__sub {
+  margin-top: var(--rt-space-2);
+}
+
+.contact {
+  margin-bottom: var(--rt-space-5);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rt-space-4);
+  margin: var(--rt-space-4) 0 0;
+}
+
+.facts__row dt {
+  color: var(--rt-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.facts__row dd {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+}
+
+.facts__row a {
+  color: var(--rt-brand);
+  text-decoration: none;
+}
+
+.facts__row a:hover {
+  text-decoration: underline;
+}
+
+.notes {
+  margin-top: var(--rt-space-5);
+  padding-top: var(--rt-space-4);
+  border-top: 1px solid var(--rt-border);
+}
+
+.notes__text {
+  margin: var(--rt-space-2) 0 0;
+  font-size: 13.5px;
+  white-space: pre-wrap;
+}
+
+.contact__actions {
+  display: flex;
+  gap: var(--rt-space-2);
+  flex-wrap: wrap;
+  margin-top: var(--rt-space-5);
+  padding-top: var(--rt-space-4);
+  border-top: 1px solid var(--rt-border);
+}
+
+.strong {
+  font-weight: 650;
+}
+
+.rt-table a {
+  color: var(--rt-brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.rt-table a:hover {
+  text-decoration: underline;
+}
+
+.schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rt-space-4);
+}
+
+@media (max-width: 599px) {
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .contact__actions button {
+    width: 100%;
+  }
+}

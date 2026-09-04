@@ -45,4 +45,31 @@ public sealed record AddItemRequest(
 /// Which Lead the new Draft belongs to — who is being acted <em>upon</em>, so a genuine input
 /// rather than a server-derived value (D61's own correction).
 /// </param>
+/// <summary>
+/// The complete set of an existing line's editable values (`PermissionMatrix.md` §3, Phase 10).
+/// Sent to <c>PUT /api/v1/angebote/{id}/items/{itemId}</c>, which replaces all of them.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Narrower than <see cref="AddItemRequest"/> by two fields, and both omissions are deliberate.</b>
+/// <c>SectionId</c> is absent because the line already belongs to a section and the handler finds
+/// it by asking which section holds the item — accepting one would let a caller name a different
+/// section of the same Angebot and quietly move the line while claiming to edit it.
+/// <c>CatalogItemId</c> is absent because editing has only one mode: FR-4.9's two modes exist to
+/// decide where a *new* line's values come from, whereas here the caller supplies them outright.
+/// Re-pointing a line at a different Catalog entry is a different line, and add+remove says so.
+/// </para>
+/// <para>
+/// <c>Description</c> and <c>UnitCode</c> are therefore required, where the add request makes them
+/// optional — there is no Catalog entry to fall back on.
+/// </para>
+/// </remarks>
+public sealed record UpdateAngebotItemRequest(
+    string Description,
+    string? Specification,
+    string UnitCode,
+    decimal Quantity,
+    decimal UnitPrice,
+    VatRate VatRate);
+
 public sealed record DuplicateAngebotRequest(int TargetLeadId);

@@ -1,3 +1,5 @@
+using RenoTrack.Domain.Enums;
+using RenoTrack.Application.Common;
 using RenoTrack.Application.Projects;
 using RenoTrack.Application.Projects.Dtos;
 
@@ -22,4 +24,18 @@ public sealed class FakeProjectQueries : IProjectQueries
 
     public Task<ProjectInvoiceBalanceDto?> GetInvoiceBalanceAsync(int projectId, CancellationToken cancellationToken) =>
         Task.FromResult(_balances.GetValueOrDefault(projectId));
+/// <summary>Records the list call's filter and paging, and returns a canned page.</summary>
+    public List<(ProjectStatus? Status, int Page, int PageSize)> PagedCalls { get; } = [];
+
+    public PagedResult<ProjectListItemDto> PagedResult { get; set; } = new([], 1, 25, 0);
+
+    public Task<PagedResult<ProjectListItemDto>> GetPagedAsync(
+        ProjectStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        PagedCalls.Add((status, page, pageSize));
+        return Task.FromResult(PagedResult);
+    }
 }

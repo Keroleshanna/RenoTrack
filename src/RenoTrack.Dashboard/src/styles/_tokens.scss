@@ -1,0 +1,121 @@
+// RenoTrack Dashboard — project-owned design tokens.
+//
+// D75: Angular Material is the component and accessibility foundation, but its default look is NOT
+// shipped. Everything here is ours.
+//
+// CSS custom properties rather than Sass variables, deliberately: a reviewer can retune a value in
+// devtools and see it applied everywhere immediately. Sass would need a rebuild per experiment.
+
+:root {
+  // ---------------------------------------------------------------------------------------------
+  // Spacing — a 4px base scale. Named by step, so a component cannot invent "almost 12px".
+  // ---------------------------------------------------------------------------------------------
+  --rt-space-1: 4px;
+  --rt-space-2: 8px;
+  --rt-space-3: 12px;
+  --rt-space-4: 16px;
+  --rt-space-5: 20px;
+  --rt-space-6: 24px;
+  --rt-space-8: 32px;
+  --rt-space-10: 40px;
+  --rt-space-12: 48px;
+  --rt-space-16: 64px;
+
+  // Restrained. A quoting and invoicing tool should read as precise, not playful.
+  --rt-radius-sm: 4px;
+  --rt-radius-md: 8px;
+  --rt-radius-lg: 12px;
+  --rt-radius-pill: 999px;
+
+  // Three levels, tinted with the brand neutral rather than pure black — a black shadow over a warm
+  // surface reads as grey haze; a tinted one reads as depth.
+  --rt-shadow-1: 0 1px 2px rgb(24 33 38 / 6%), 0 1px 3px rgb(24 33 38 / 8%);
+  --rt-shadow-2: 0 2px 4px rgb(24 33 38 / 6%), 0 4px 12px rgb(24 33 38 / 10%);
+  --rt-shadow-3: 0 8px 16px rgb(24 33 38 / 10%), 0 16px 32px rgb(24 33 38 / 12%);
+
+  // `page` is deliberately not white: cards are white and need something to sit on, or the screen
+  // reads as one undifferentiated sheet.
+  --rt-surface-page: #f4f6f7;
+  --rt-surface-raised: #ffffff;
+  --rt-surface-sunken: #eceef0;
+  --rt-surface-inverse: #16303b;
+
+  --rt-border: #e0e4e7;
+  --rt-border-strong: #c3cace;
+
+  --rt-text: #16232a;
+  --rt-text-muted: #55636f;
+  --rt-text-inverse: #f2f6f8;
+
+  // Deep slate-teal, with terracotta as the single accent — a nod to Fliesen without being literal.
+  // Accent marks exactly one thing per screen; if it marks three, it marks nothing.
+  --rt-brand: #1f4e5f;
+  --rt-brand-strong: #143844;
+  --rt-accent: #c2703d;
+
+  --rt-success: #2f8f6b;
+  --rt-warning: #b57611;
+  --rt-danger: #c0503c;
+  --rt-warning-bg: #fdf4e3;
+
+  // ---------------------------------------------------------------------------------------------
+  // Data visualisation.
+  //
+  // Low saturation on purpose: a cockpit is read for hours, and saturated chart colour is
+  // exhausting at that duration. The money trio is semantic and fixed — paid reads settled, open
+  // reads neutral-waiting, overdue reads urgent without becoming an alarm-red error state.
+  // ---------------------------------------------------------------------------------------------
+  --rt-chart-1: #1f6f7f;
+  --rt-chart-1-soft: #4d9dad;
+  --rt-chart-2: #c2703d;
+  --rt-chart-grid: #e6eaec;
+
+  --rt-money-paid: #2f8f6b;
+  --rt-money-open: #6b8494;
+  --rt-money-overdue: #c0503c;
+
+  // ---------------------------------------------------------------------------------------------
+  // Status semantics — the seven LeadStatus values from StateMachine.md §1.1 and no others
+  // (CLAUDE.md §23: the Dashboard must not invent domain state).
+  //
+  // The progression is intentional: New is neutral, the working states warm through blue → teal →
+  // amber, AngebotSent is violet because we are waiting on someone outside the company, and the
+  // terminal pair is green and a muted clay. Lost is deliberately NOT alarm-red — losing a quote is
+  // a normal business outcome, not an error.
+  // ---------------------------------------------------------------------------------------------
+  --rt-status-new-bg: #eceff1;
+  --rt-status-new-fg: #37474f;
+  --rt-status-new-border: #cfd8dc;
+
+  --rt-status-scheduled-bg: #e3f0fa;
+  --rt-status-scheduled-fg: #1c4f74;
+  --rt-status-scheduled-border: #c0dcf0;
+
+  --rt-status-done-bg: #ddf1ef;
+  --rt-status-done-fg: #14595a;
+  --rt-status-done-border: #b7e2de;
+
+  --rt-status-progress-bg: #fdf1dd;
+  --rt-status-progress-fg: #8a5a10;
+  --rt-status-progress-border: #f3ddb6;
+
+  --rt-status-sent-bg: #ece9f7;
+  --rt-status-sent-fg: #4a3f8f;
+  --rt-status-sent-border: #d5cff0;
+
+  --rt-status-won-bg: #e2f2e7;
+  --rt-status-won-fg: #1f6b45;
+  --rt-status-won-border: #bfe3cc;
+
+  --rt-status-lost-bg: #f6e7e4;
+  --rt-status-lost-fg: #8f3b2c;
+  --rt-status-lost-border: #ecccc5;
+
+  // Motion — short and unfussy. Nothing on this screen should animate while it is being read.
+  --rt-motion-fast: 120ms;
+  --rt-motion-medium: 200ms;
+  --rt-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  --rt-header-height: 56px;
+  --rt-content-max: 1440px;
+}

@@ -8,16 +8,19 @@ using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 using RenoTrack.Application.Angebote.Commands.CreateAngebot;
 using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
+using RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetAngebotById;
+using RenoTrack.Application.Angebote.Queries.GetAngebote;
 using RenoTrack.Application.Angebote.Queries.GetAngebotReviewComments;
 using RenoTrack.Application.Angebote.Queries.GetLeadAngebote;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
+using RenoTrack.Domain.Enums;
 
 namespace RenoTrack.Api.Controllers;
 
@@ -44,6 +47,13 @@ namespace RenoTrack.Api.Controllers;
 /// resumes", and <c>Angebot.EnsureEditable()</c> already implements exactly that — adding a
 /// "reopen" action would invent a transition the documents do not have.
 /// </para>
+/// <para>
+/// <b>Submitting for review is nevertheless available directly from <c>ChangesRequested</c></b>
+/// (Phase 10). That is not a reopen: it is the same <c>SubmitForReview</c> event with a second
+/// legal source state, added because an Inspector who reads the Admin's comment and concludes
+/// nothing needs changing otherwise has no way to send the quote back — the only workaround being
+/// a pointless edit made solely to satisfy a guard. See <c>Angebot.SubmitForReview</c>.
+/// </para>
 /// </remarks>
 [ApiController]
 [Route("api/v1/[controller]")]
@@ -54,7 +64,9 @@ public sealed class AngeboteController(
     ICommandHandler<AddAngebotItemCommand, AddAngebotItemResult> addItemHandler,
     ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto> removeSectionHandler,
     ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto> removeItemHandler,
+    ICommandHandler<UpdateAngebotItemCommand, AngebotSummaryDto> updateItemHandler,
     IQueryHandler<GetAngebotByIdQuery, AngebotDetailDto> getAngebotByIdHandler,
+    IQueryHandler<GetAngeboteQuery, PagedResult<AngebotListItemDto>> getAngeboteHandler,
     IQueryHandler<GetLeadAngeboteQuery, IReadOnlyList<AngebotDto>> getLeadAngeboteHandler,
     ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto> submitForReviewHandler,
     ICommandHandler<ApproveAngebotCommand, AngebotDto> approveHandler,
@@ -126,6 +138,34 @@ public sealed class AngeboteController(
             cancellationToken);
 
         return Ok(angebote);
+    }
+
+    /// <summary>
+    /// Every Angebot, filterable by status and paged. Admin "F"; an Inspector sees only their own.
+    /// </summary>
+    /// <remarks>
+    /// The cross-Lead read the Dashboard needs. <c>GetForLead</c> below answers "this Lead's
+    /// history" and cannot answer "which quotes are in review" without one request per Lead.
+    ///
+    /// <b>Scope is taken from the token, never the query string</b> (D61): an Inspector's own id is
+    /// forced in, so a caller cannot widen their visibility by asking — the same rule
+    /// <c>LeadsController.GetAll</c> applies to the pipeline.
+    /// </remarks>
+    [HttpGet]
+    [ProducesResponseType<PagedResult<AngebotListItemDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] AngebotStatus? status,
+        [FromQuery] int page = Pagination.FirstPage,
+        [FromQuery] int pageSize = Pagination.DefaultPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await getAngeboteHandler.HandleAsync(
+            new GetAngeboteQuery(status, RequestingInspectorId(), page, pageSize),
+            cancellationToken);
+
+        return Ok(result);
     }
 
     /// <summary>Adds a section to an editable Angebot. Owning Inspector only.</summary>
@@ -212,6 +252,57 @@ public sealed class AngeboteController(
     }
 
     /// <summary>Removes a single line item, leaving its section in place.</summary>
+    /// <summary>
+    /// Corrects an existing line (`PermissionMatrix.md` §3, Phase 10). Owning Inspector only,
+    /// while the Angebot is editable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added after QA found that a typo could only be fixed by deleting and re-entering a
+    /// line.</b> That is not equivalent: recreating loses the line's identity and with it any
+    /// Catalog entry contributed from it (FR-4.10), which is a real cost for a spelling mistake.
+    /// </para>
+    /// <para>
+    /// <c>PUT</c>, because the body carries every editable value and replaces all of them. Returns
+    /// the refreshed totals and VAT breakdown, not the line — a quantity or price change moves the
+    /// document's money, and that is what the screen must re-render (D81).
+    /// </para>
+    /// <para>
+    /// <b>409</b> once the Angebot leaves <c>Draft</c>/<c>ChangesRequested</c> — the aggregate's own
+    /// edit-lock (StateMachine §2.4), not re-checked here. <b>400</b> for an unrecognised unit code
+    /// or a non-positive quantity. A Catalog-sourced line is editable too, and keeps its provenance
+    /// link: BR-8 makes the copy independent at creation.
+    /// </para>
+    /// </remarks>
+    [HttpPut("{id:int}/items/{itemId:int}")]
+    [Authorize(Roles = Roles.Inspector)]
+    [ProducesResponseType<AngebotSummaryDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateItem(
+        int id,
+        int itemId,
+        UpdateAngebotItemRequest request,
+        CancellationToken cancellationToken)
+    {
+        var summary = await updateItemHandler.HandleAsync(
+            new UpdateAngebotItemCommand(
+                AngebotId: id,
+                ItemId: itemId,
+                request.Description,
+                request.Specification,
+                request.UnitCode,
+                request.Quantity,
+                request.UnitPrice,
+                request.VatRate,
+                InspectorId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(summary);
+    }
+
     [HttpDelete("{id:int}/items/{itemId:int}")]
     [Authorize(Roles = Roles.Inspector)]
     [ProducesResponseType<AngebotSummaryDto>(StatusCodes.Status200OK)]
