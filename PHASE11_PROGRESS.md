@@ -376,3 +376,19 @@ _AngebotDocument.cshtml(61,51): error RZ1011: The 'section' directives value(s) 
 **A second hazard was found and fixed in the same push**, before it could cost another cycle: the decision banner's class was built inline as `class="customer-status-@(… ? "approved" : "rejected")"` — double-quoted string literals inside an `@(...)` expression inside a double-quoted attribute value, which is the nesting Razor's attribute parser handles least predictably. Hoisted to a local. The whole partial was also swept for every other Razor directive keyword used in property-access position; none remained.
 
 **The general lesson, now in `CLAUDE.md` §24:** a Razor view is not C# — an identifier that is perfectly ordinary in a handler can collide with a directive in a template, and it fails at build rather than at review.
+
+### 6.8 CI round 2 — a second Razor error, from the round-1 fix itself
+
+**Run [33907410208](https://github.com/Keroleshanna/RenoTrack/actions/runs/33907410208), `0 Warning(s), 1 Error(s)`:**
+
+```
+_AngebotDocument.cshtml(31,6): error RZ1010: Unexpected "{" after "@" character.
+Once inside the body of a code block (@if {}, @{}, etc.) you do not need to use "@{" to switch to code.
+```
+
+**Introduced by round 1's own second fix.** Hoisting the status class to a local was right; wrapping it in a code-block opener was not — inside a code block's body Razor is already in code context, so a local is declared as a plain statement. The same file's item loop had been doing exactly that correctly all along, one screen further down.
+
+Fixed by removing the block opener. The comment left inaccurate by the round-1 rename was corrected in the same push, and every `@` in the file was then read individually: each is a directive at the top, a Razor comment, a control-flow keyword, or an expression beginning with a non-directive identifier.
+
+**Both rounds were the templating layer, not the C#, and neither was visible to review** — the same class of finding as Slice 2's `Logging:LogLevel` comment keys. In an environment with no SDK, a Razor view is the part of a change with the least local verification available and the most syntax that is not C#, and it is worth reading in full rather than patching by line number. This round-2 fix was made that way: the whole file was read before anything was touched.
+

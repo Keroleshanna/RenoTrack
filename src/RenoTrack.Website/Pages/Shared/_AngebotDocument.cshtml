@@ -12,10 +12,10 @@
     with Razor's default @-expressions, which HTML-encode. There is deliberately no Html.Raw anywhere
     on a customer page: these strings are typed by an Inspector and rendered to an anonymous reader.
 
-    The loop variable is `angebotSection`, never `section`: `@section` is Razor's own directive, so
-    `@angebotSection.Title` is parsed as a section directive rather than as a property access and fails the
-    build. Naming it away is more durable than escaping each use with `@(section.Title)`, which would
-    leave the same trap set for the next property added here.
+    The loop variable is `angebotSection`, never `section`. Razor has a `section` directive, so a
+    variable of that name turns an ordinary property access into a directive and fails the build.
+    Renaming is more durable than escaping each use with parentheses, which fixes the call sites and
+    leaves the same trap armed for the next property added here.
 *@
 
 @if (Model.Decision != CustomerAngebotDecision.Pending)
@@ -28,14 +28,14 @@
         The document itself still follows, because BR-4 explicitly keeps viewing open after a
         decision: "a customer who has approved must still be able to re-read what they agreed to".
     *@
-    @{
-        // Built as a local rather than inline: an @(...) expression containing double-quoted string
-        // literals sits inside a double-quoted attribute value, which is exactly the kind of nesting
-        // Razor's attribute parser handles least predictably. A local keeps the markup unambiguous.
-        var statusClass = Model.Decision == CustomerAngebotDecision.Approved
-            ? "customer-status-approved"
-            : "customer-status-rejected";
-    }
+    // A local rather than an inline expression: double-quoted string literals nested inside a
+    // double-quoted attribute value is what Razor's attribute parser handles least predictably.
+    // Declared as a plain statement, because inside a code block's body Razor is already in code
+    // context and reopening one there is an error (RZ1010).
+    var statusClass = Model.Decision == CustomerAngebotDecision.Approved
+        ? "customer-status-approved"
+        : "customer-status-rejected";
+
     <aside class="customer-status @statusClass" role="status">
         @if (Model.Decision == CustomerAngebotDecision.Approved)
         {
