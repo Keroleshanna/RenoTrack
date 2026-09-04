@@ -1,6 +1,6 @@
 # PHASE10_PROGRESS.md — Dashboard (Angular)
 
-**Branch:** `feature/phase-10-dashboard` · **Status:** complete.
+**Branch:** `feature/phase-10-dashboard` (off `main` at `6cd8856`, the Phase 9 merge) · **Status:** complete, four commits, accepted by the Product Owner after a manual end-to-end pass.
 
 **Scope note.** `PROJECT_ROADMAP.md` splits the Dashboard across Phase 10 (login, Lead pipeline, Inspection screens), Phase 11 (Angebot builder + Catalog picker) and Phase 12 (Angebot review). **This branch delivers all three, plus the Project/Invoice screens, the Catalog management workspace and the notification operations screen** — because a Dashboard that stops at the Lead pipeline cannot reach the commercial workflow the system exists for. SRS §1.1's 3–4 hour Word/Excel job is the *quote*, and it was unreachable. The roadmap's phase boundaries are recorded as delivered here rather than left looking outstanding.
 
@@ -85,6 +85,41 @@ Five documented permissions had no endpoint. Each was built as a full vertical s
 
 ---
 
+### 1.4 Three QA rounds (commits `ce91314`, `5dea592`, `090aef0`)
+
+The Product Owner ran three rounds of manual QA against the built application. **Every defect below was found by operating the product; none was found by a test**, and the suites were green throughout.
+
+**Round 1 — the Quote workflow and the Catalog relationship (`ce91314`).** The state machine and the data model were both wrong, not the UI:
+
+| Finding | Root cause | Resolution |
+|---|---|---|
+| Removing a line that had been saved to the Catalog threw a 500 | `CreatedFromAngebotItemId` was `Restrict` | `SetNull` + **migration #10** (**D95**) |
+| "Save to Catalog" stayed on offer and claimed the item already existed | The screen keyed off `catalogItemId` — the *opposite* direction of the relationship | New `ItemDto.SavedToCatalog` from a batched query; the command is now idempotent |
+| A returned quote could not be resubmitted without an artificial edit | `SubmitForReview` accepted `Draft` only | Accepts `ChangesRequested` too (**D94**) |
+| The Inspector never learned changes had been requested | The Cockpit had no entry for it and the note lived only in the history | Dedicated decision-queue entry + an action-required callout carrying the Admin's note |
+| A quote-writing task vanished the moment the draft was created | The task counted Leads in `InspectionDone`, and creating the draft moves the Lead on | Counts unwritten *and* unsubmitted work |
+| A typo in a line could only be fixed by delete-and-recreate | No update path existed at any layer | `Angebot.UpdateItem` + `PUT .../items/{itemId}`, on an explicit Product-Owner requirement |
+| A completed visit was a dead end | BR-10, correctly — but its own named remedy was never built | `Inspection.Reopen` (**D92**) |
+| "This week" and "next 30 days" returned identical results | Both were rolling windows from today | Real calendar weeks, adjacent and mutually exclusive |
+| A picker asked for `pageSize=200` against a cap of 100 | The contract was not mirrored client-side | Clamped in the single query-parameter funnel, with tests |
+
+**Round 2 — contact actions, photos, notices (`5dea592`).** Multiple photo selection and a separate camera capture (two inputs, because `capture` suppresses the gallery); one reusable contact-actions component (call, WhatsApp, email, directions) wherever contact details appear; the appointment column on the Leads list; funnel percentages that name their own denominator; error toasts that expire like success ones.
+
+**Round 3 — browser QA against the real API (`090aef0`).** Two defects that all 1,600+ tests had missed:
+
+1. **Re-completing a reopened visit returned 409.** The handler re-drove a Lead transition that had already happened, so a corrected visit could never be closed — defeating the feature Round 1 had just added. Fixed with an explicit "already past the visit" status set (**D93**); three Application-layer tests pin it, which is the layer the coordination actually lives in.
+2. **The appointment column never had data.** It requested ~456 days against a documented 366-day cap, so every load was a 400 — and because the failure was caught to keep the pipeline usable, the column read "not scheduled" for every Lead and looked healthy.
+
+One of our own test expectations was also wrong and was corrected rather than the code: `ItemUnit` is a deliberately **open** value object, so a custom unit code is accepted, not rejected. That correction changed the Catalog form's design (select **plus** a free-text escape hatch).
+
+### 1.5 Product Owner acceptance
+
+The Product Owner ran a final manual pass covering login and logout for both roles, Lead scoping, the on-site screen, notes, multi-photo upload, completion, reopen and re-completion, the Angebot builder, the full review cycle through to **send**, and responsive behaviour — and confirmed the Dashboard correctly reflects the quote as `Sent`. **The Dashboard work is accepted as functionally complete.**
+
+The customer-facing half of that workflow — email delivery, the magic-token quote page, Accept/Decline and status propagation — is **explicitly the next phase** and is not part of this branch. The API endpoints behind it exist and are tested (`GET`/`POST /api/v1/public/angebote/{token}`); what does not exist is the customer-facing page and a configured mailbox.
+
+---
+
 ## 4. Defects found by driving the running application
 
 None of the five was visible in code review. All were found by operating the app against the real API and LocalDB.
@@ -120,14 +155,19 @@ The seeded notification row was **deleted afterwards**: it was raw SQL, not a re
 
 ## 6. Gate results
 
+**Re-verified on 2026-09-04 at `090aef0`**, not carried over from an earlier run.
+
 | Check | Result |
 |---|---|
 | Backend build | **0 warnings, 0 errors** |
-| Backend tests | **1,602 passing** (354 Domain + 438 Application + 386 Infrastructure + 424 Api), 0 failing, 0 skipped — **up from 1,534** |
-| Frontend build | **386.11 kB** initial, 0 warnings, no budget change |
+| Backend tests | **1,645 passing** (372 Domain + 441 Application + 390 Infrastructure + 442 Api), 0 failing, 0 skipped — **up from 1,534** at the Phase 9 merge |
+| Frontend build | **389.68 kB** initial, 0 warnings, no budget change |
 | Frontend lint | passes at `--max-warnings=0` |
-| Frontend tests | **45 passing** (41 before this session) |
-| Migrations | **unchanged — nine.** No schema change |
-| Console | no JavaScript errors; only the deliberate 400/409 probes |
-| Dead routes | none — every nav entry, list row and Cockpit tile resolves to a real screen |
+| Frontend tests | **74 passing** (21 → 41 → 45 → 74 across the four sessions) |
+| Migrations | **ten** — `RelaxCatalogItemOriginFkToSetNull` (**D95**) is Phase 10's only schema change |
+| Console | no JavaScript exceptions; only deliberate 401/403 probes and the pre-fix statuses |
+| Routes | all eight render for the roles permitted to reach them; no dead routes |
 | Unused API client methods | **none** — every method has a caller |
+| Browser QA | full workflow driven end to end as both roles against the real API and LocalDB |
+
+**Test growth by round:** 1,534 at the Phase 9 merge → 1,602 (Dashboard + five enablers) → 1,638 (QA round 1) → 1,642 (round 2) → **1,645** (round 3).

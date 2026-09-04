@@ -1870,6 +1870,116 @@ Recorded so the absence reads as a decision rather than an oversight. **Revisit 
 
 ---
 
+## D92 — BR-10's Immutability Keeps a Named Escape Hatch: `Inspection.Reopen`
+
+**Date:** 2026-08-16 (Phase 10, QA round 2). **Status:** Accepted. **Implements BR-10's own stated remedy; does not weaken it.**
+
+### Context
+
+QA found a completed site visit was a dead end: a typo in the notes, or a photo taken after the Inspector tapped "complete", could never be corrected. The screen said so plainly and that was the end of it.
+
+The obvious reading is that BR-10 is too strict. It is not. Its changelog records it as **requested by the Product Owner** during Phase 1, and its rationale is real: a completed Inspection is the evidentiary basis the Angebot is built from (FR-3.4), so silent edits would blur exactly what evidence a quote rests on.
+
+**BR-10's own text already names the way out:** "Any future need to change a completed Inspection's record requires a distinct, explicit action (e.g. a 'reopen' use case), not implicit editing."
+
+### Decision
+
+`Inspection.Reopen()` clears `CompletedAt`, and `POST /api/v1/inspections/{id}/reopen` exposes it to the **assigned Inspector only**. `AddPhoto`, `UpdateNotes` and `Reassign` still refuse outright while the visit is complete — nothing about the lock changed. Reopening is audited as `InspectionReopened`.
+
+### Why this shape
+
+**Inspector, not Admin.** `PermissionMatrix.md` §2 marks photos, notes and completion Inspector `S` / Admin `—`, deliberately, so the evidence chain-of-custody points at whoever was on site. The action that *re-enables* those edits belongs to the same person.
+
+**The Lead does not rewind.** It stays at `InspectionDone`: the visit did happen, and any Angebot already built on it remains valid. Reopening corrects evidence; it does not reverse the pipeline.
+
+**The completion is not erased.** Clearing `CompletedAt` is what unlocks the aggregate, but the audit trail is what preserves the history — it reads `InspectionDone → InspectionReopened → InspectionDone`. The field is the lock; the log is the record.
+
+### Consequences
+
+`BusinessRules.md` BR-10 now records that the anticipated action exists. A visit can be completed, corrected and completed again — which is what made D93 necessary.
+
+---
+
+## D93 — Completing a Reopened Visit Must Not Re-Drive the Lead Transition
+
+**Date:** 2026-08-23 (Phase 10, browser QA). **Status:** Accepted. **Fixes a defect introduced by D92.**
+
+### Context
+
+D92 made a completed visit reopenable. Browser QA then found it could not be **closed again**: `POST /inspections/{id}/complete` returned 409 on the second attempt, leaving the visit permanently open and defeating the entire point of reopening.
+
+`CompleteInspectionCommandHandler` drove `Lead.MarkInspectionDone()` unconditionally, and that transition runs only from `InspectionScheduled`. After the first completion the Lead has already moved, so the second call threw.
+
+**Every test suite passed throughout.** The Domain test exercises the aggregate alone, which is perfectly happy to complete twice. The defect lived in the cross-aggregate step, which no unit test touched and no API test covered.
+
+### Decision
+
+The Lead transition fires only when the Lead has **not already moved past the visit**, expressed as an explicit status set: `InspectionDone`, `AngebotInProgress`, `AngebotSent`, `Won`, `Lost`.
+
+### Why this shape
+
+**An explicit set, not an ordinal comparison.** `Lost` sits last in `LeadStatus` but is a terminal branch, not a later stage — "greater than `InspectionScheduled`" would be true for the wrong reason.
+
+**A Lead that has *not* reached the visit is deliberately absent from the set**, so `MarkInspectionDone()` still runs and still throws for it. That combination means the Inspection and its Lead genuinely disagree, which BR-13 makes unreachable in production and which should fail loudly rather than be skipped. An existing test pins exactly that case.
+
+**This is CLAUDE.md §6's sanctioned "an `if` that decides which side effect to trigger", not a duplicated guard.** `Inspection.Complete()` still runs unconditionally and still refuses a second completion on its own; what is conditional is the *Lead* transition, a pipeline milestone that happens once.
+
+### Consequences
+
+Verified in the browser with the Lead at `Won` — well past the visit — where complete, reopen and complete again all succeed and the Lead does not move. Three Application-layer tests pin it, which is the layer the bug was actually in.
+
+---
+
+## D94 — `SubmitForReview` Accepts `ChangesRequested` as Well as `Draft`
+
+**Date:** 2026-08-16 (Phase 10, QA round 1). **Status:** Accepted. **Amends StateMachine.md §2.3.**
+
+### Context
+
+`StateMachine.md` §2.3 routed a returned quote back to `Draft` only as an implicit side effect of editing it — "Inspector edits items — no explicit state event" — and `SubmitForReview` guarded on `Draft` alone.
+
+That left a dead end QA hit immediately: an Inspector who read the Admin's comment and concluded **nothing needed changing** had no way to send the quote back. The UI offered no Submit button and the aggregate would have refused one. The only workaround was to add and delete a section purely to trip `EnsureEditable()` — a state change made solely to satisfy a guard.
+
+### Decision
+
+`Angebot.SubmitForReview()` accepts `Draft` **or** `ChangesRequested`. `StateMachine.md` §2.3 gains the `ChangesRequested → InReview` row.
+
+### Why
+
+Nothing is weakened. The "at least one section with at least one item" guard still applies, and §2.4 already treats `ChangesRequested` as an editable state — so a caller who may edit may equally resubmit. The rejected alternative, a separate reopen event on Angebot, would add a transition the documents do not define in order to reach a state the Inspector is already in.
+
+### Consequences
+
+The exhaustive state-machine test now pins a transition with **two** legal source states, which is why its helper takes a set rather than a single status. `angebot-capabilities.ts` mirrors it, so the screen and the aggregate still agree.
+
+---
+
+## D95 — `CatalogItems.CreatedFromAngebotItemId` Is `SetNull`, Not `Restrict`
+
+**Date:** 2026-08-16 (Phase 10, QA round 1). **Status:** Accepted. **Migration #10 `RelaxCatalogItemOriginFkToSetNull`.**
+
+### Context
+
+Removing a draft line that had been contributed to the Catalog (FR-4.10) failed with a `DbUpdateException` on `FK_CatalogItems_AngebotItems_CreatedFromAngebotItemId`, surfacing to the user as an unmapped **500**.
+
+That contradicted CLAUDE.md §2, which states plainly that sections and items in a `Draft`/`ChangesRequested` Angebot are unsent working material and may be removed — the edit-lock is what separates them from records.
+
+### Decision
+
+The relationship is `DeleteBehavior.SetNull`. The line is removed, the Catalog entry survives, and its `CreatedFromAngebotItemId` becomes `NULL`.
+
+### Why
+
+`CreatedFromAngebotItemId` is a **provenance trace** (BR-8) and nothing branches on it, so it must never be able to veto an unrelated operation. BR-12 keeps the *Catalog entry* alive; it says nothing about the draft line that entry was copied from, which BR-8's copy-on-create semantics make independent the instant it exists. A `NULL` is the honest record of an entry whose origin no longer exists.
+
+**Cascade was never a candidate** — it would delete a shared library entry as collateral damage of a draft edit (BR-12). **Restrict's only other alternative** was refusing the removal, which invents a rule no document states.
+
+### Consequences
+
+Four LocalDB integration tests pin it against the real constraint, including that the surviving entry keeps its title and is not retired. This is the only schema change in Phase 10; the migration count moves from nine to **ten**.
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -2040,3 +2150,11 @@ Recorded so the absence reads as a decision rather than an oversight. **Revisit 
 | One `PATCH /projects/{id}` taking the target status | D90 | The free-standing status edit BR-7 forbids, and the one Architecture §5.2 already removed for Leads |
 | Accepting a hold reason because StateMachine §4.3 mentions one | D90 | No ERD column stores it; the only home would be a best-effort audit row (D50), which is not storage a caller can rely on |
 | A Customers workspace and a `GET /api/v1/customers` to feed it | D91 | No PermissionMatrix section, no SRS requirement, and zero commands on the aggregate — a list existing because an entity exists |
+| Relaxing BR-10 so a completed Inspection stays editable | D92 | BR-10 was Product-Owner-requested and protects the evidence a quote rests on; the rule already named an explicit reopen as the remedy |
+| Letting an Admin reopen a completed visit | D92 | §2 gives Admin `—` on photos, notes and completion, so the action that re-enables those edits belongs to the Inspector who was on site |
+| Rewinding the Lead to `InspectionScheduled` on reopen | D92 | The visit did happen and an Angebot may already exist on it; reopening corrects evidence, it does not reverse the pipeline |
+| Skipping the Lead transition whenever it is not `InspectionScheduled` | D93 | Too broad — it would also silently skip for a Lead that never reached the visit, masking a genuinely inconsistent Inspection/Lead pair |
+| An ordinal `> InspectionScheduled` comparison instead of a status set | D93 | `Lost` sits last in the enum but is a terminal branch, not a later stage, so the comparison would be true for the wrong reason |
+| A separate reopen event on Angebot to reach `Draft` from `ChangesRequested` | D94 | Adds a transition the documents do not define, to reach a state the Inspector is already in |
+| Cascade delete on `CreatedFromAngebotItemId` | D95 | Would delete a shared Catalog entry as collateral damage of a draft edit, which BR-12 exists to prevent |
+| Refusing to remove a line that had been saved to the Catalog | D95 | Invents a rule no document states, and contradicts CLAUDE.md §2's "a draft line is unsent working material" |

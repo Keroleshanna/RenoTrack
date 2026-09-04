@@ -7,42 +7,56 @@ Copy everything in the code block below into the first message of a brand-new co
 ```
 You are continuing work on RenoTrack (a renovation company's project-tracking system — public
 website + admin/inspector dashboard), an existing, actively-developed project. This is not a new
-project and not a fresh start. **Phases 0–8 are complete and merged to `main`; Phase 8 was published
-as PR #14 and is merged.** A prior conversation ended for context reasons and persisted
-everything into the repository, so you depend on the files, not on any chat history. Do not treat
-anything below as optional reading.
+project and not a fresh start. **Phases 0–9 are complete and merged to `main`; Phase 10 (the
+Dashboard) is complete, accepted by the Product Owner, and published as a PR.** A prior conversation
+ended for context reasons and persisted everything into the repository, so you depend on the files,
+not on any chat history. Do not treat anything below as optional reading.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: 0c12948 ("Merge pull request #14 from
-  Keroleshanna/feature/phase-8-invoices-payments-project-completion"), merged 2026-08-09.
-- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6), #13 (Phase 7) and
-  #14 (Phase 8) are MERGED.
-- Branch: feature/phase-8-invoices-payments-project-completion, off main at 697292b, tip 4218fcc.
-  **ALL SEVEN PHASE 8 SLICES ARE COMPLETE, the completion gate is closed, and publication is done.**
-  The branch has been pushed and merged into main via PR #14; the merge commit added no content
-  (git diff 4218fcc..0c12948 is empty). The branch still exists and has not been deleted.
-- PHASE 9 HAS NOT STARTED. No feature/phase-9-* branch exists, no Phase 9 code exists (the only
-  IEmailSender implementation is still LoggingNoOpEmailSender), and no PHASE9_PROGRESS.md exists.
+- origin/main: 6cd8856 ("Merge pull request #16 from
+  Keroleshanna/feature/phase-9-email-integration").
+- PRs #8 (Phase 4), #10 (Development bootstrap), #11 (Phase 5), #12 (Phase 6), #13 (Phase 7),
+  #14 (Phase 8) and #16 (Phase 9) are MERGED.
+- Branch: feature/phase-10-dashboard, off main at 6cd8856. Four implementation commits — 1eed2e2
+  (the Dashboard and five backend enablers), then ce91314, 5dea592 and 090aef0 (three QA rounds) —
+  plus a documentation reconciliation commit. **PHASE 10 IS COMPLETE AND ACCEPTED.** The Product
+  Owner ran a manual end-to-end pass and confirmed the workflow through to a quote reaching Sent.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests: 1,324 passing, 0 failing — 332 Domain, 419 Application, 230 Infrastructure, 343 Api.
-  (Phase 7 merge baseline 979; Slice 1 +74, 2 +15, 3 +80, 4 +42, 5 +54, 6 +80, 7 +0 — Slice 7
-  added no production code, by decision.)
-  **This is the last locally-verified figure, taken on the branch at 4218fcc before the merge; it
-  has NOT been re-verified since. Re-run the suite yourself before relying on it.**
-- Migrations: 8 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
-  AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments); has-pending-model-changes
-  reports none.
+- Tests: 1,645 passing, 0 failing — 372 Domain, 441 Application, 390 Infrastructure, 442 Api.
+  Frontend: 74 passing, lint clean at --max-warnings=0, build 389.68 kB.
+  **Verified 2026-09-04 at 090aef0. Re-run both suites yourself before relying on them.**
+- Migrations: 10 (InitialCreate, AddAuditLog, AddNumberSequence, AddIdentity, AddRefreshTokens,
+  AddTokenLinks, AddCustomersAndProjects, AddInvoicesAndPayments, AddNotificationDeliveries,
+  RelaxCatalogItemOriginFkToSetNull); has-pending-model-changes reports none. The tenth is a
+  referential-action change only (D95) — no table, column or data changed.
 - Working tree: clean.
 - Documentation is reconciled with reality as of this handoff. If you find a document that still
-  describes Phase 7 as unmerged, or origin/main as 5a26c42, that is a regression — say so.
+  describes Phase 9 as unpublished, Phase 10 as uncommitted, or the migration count as nine, that
+  is a regression — say so.
 
-YOUR TASK: PHASE 8 IS COMPLETE AND MERGED (PR #14). THE NEXT DELIVERABLE IS PHASE 9 (Email Service
-Integration) — ITS DESIGN IS APPROVED AND RECORDED; IMPLEMENTATION HAS NOT STARTED.
+YOUR TASK: THE NEXT DELIVERABLE IS THE CUSTOMER-FACING WORKFLOW — email delivery, the magic-token
+quote page, Accept/Decline, and status propagation back into the system. ITS DESIGN HAS NOT BEEN
+REVIEWED OR APPROVED. DESIGN REVIEW AND EXPLICIT APPROVAL COME FIRST, NEVER IMPLEMENTATION.
 
-PHASE 9'S DESIGN IS ALREADY APPROVED AND RECORDED. Read PHASE9_PROGRESS.md first — it carries the
-eight approved decisions (F1-F8), the slice plan, and the repository facts the design depends on.
-The permanent record is ARCHITECTURE_DECISIONS.md D68-D71. DO NOT REDESIGN ANY OF IT.
+WHAT ALREADY EXISTS FOR THAT WORKFLOW — DO NOT REBUILD IT:
+
+- The API is built and tested: GET /api/v1/public/angebote/{token} and
+  POST /api/v1/public/angebote/{token}/decision, both anonymous, both rate-limited (D65).
+  Browser QA drove them end to end: the customer's approval moved the Angebot to CustomerApproved,
+  the Lead to Won, and consumed the token.
+- Token issuance works. POST /angebote/{id}/send persists Sent + SentAt + ReviewedByAdminId,
+  issues a real single-use TokenLink with a 30-day expiry, and writes its audit row.
+- The email transport is complete (Phase 9, MailKit, six frozen German templates).
+- WHAT IS MISSING is (a) the customer-facing page — RenoTrack.Website has no quote view — and
+  (b) a configured mailbox. In development Email:Enabled is false, so LoggingNoOpEmailSender is
+  used and NOTHING IS ACTUALLY DELIVERED. That is SRS OQ-3b, deployment configuration, not a
+  defect in the send workflow. Do not "fix" the send path in response to seeing no email arrive.
+- A public token is a CREDENTIAL. It must never appear in a log, in ProblemDetails.instance, or in
+  any error body (RouteDiagnostics, CLAUDE.md §22). Assert log content, not just responses.
+
+PHASE 10'S RECORD is PHASE10_PROGRESS.md — including §1.4, the three QA rounds and every defect
+they found. The permanent decisions are ARCHITECTURE_DECISIONS.md D72–D95 and CLAUDE.md §23.
 
 - OQ-3 NO LONGER BLOCKS PHASE 9. It was split (D68): OQ-3a, the transport, is RESOLVED as SMTP via
   MailKit behind the unchanged IEmailSender; OQ-3b, the real mailbox/sender identity/Admin
@@ -70,9 +84,31 @@ The permanent record is ARCHITECTURE_DECISIONS.md D68-D71. DO NOT REDESIGN ANY O
   corrected. Producing six is not scope creep.
 - PHASE 9 IS THE COMPLETE DELIVERY WORKFLOW, not SMTP integration only.
 
-All six IEmailSender methods and their notification models already exist and are called from real
-handlers, so Phase 9 changes the implementation, not the call sites. IMPLEMENTATION HAS NOT STARTED —
-no branch, no code. DO NOT START IT WITHOUT AN EXPLICIT INSTRUCTION.
+PHASE 10 DECISIONS THAT MUST NOT BE SILENTLY REOPENED (full list in ARCHITECTURE_DECISIONS.md)
+
+- THE DASHBOARD'S GUARDS ARE PRESENTATION, NEVER A SECURITY BOUNDARY (CLAUDE.md §23). Every
+  endpoint carries its own [Authorize], every handler its own ownership check. The
+  *-capabilities.ts modules exist so a user is not offered work the server will refuse, and they
+  are unit-tested exhaustively over every status and role so they cannot drift from it.
+- BR-10 STILL HOLDS. A completed Inspection is immutable; Inspection.Reopen (D92) is the explicit,
+  audited escape hatch the rule itself named, restricted to the assigned Inspector. Reopening does
+  NOT rewind the Lead, and the audit trail — not CompletedAt — is what records that the visit was
+  completed. Re-completing needs D93's conditional Lead transition; do not make it unconditional
+  again.
+- SubmitForReview ACCEPTS Draft OR ChangesRequested (D94, StateMachine §2.3). Requiring an edit
+  before resubmission was a dead end, not a rule.
+- CatalogItems.CreatedFromAngebotItemId IS SetNull (D95, migration #10). It is a provenance trace
+  (BR-8) and must never veto removing a draft line. Cascade would delete a shared library entry.
+- savedToCatalog IS A QUERY RESULT, not a Domain field. CatalogItem and Angebot stay independent
+  aggregates related by id only. Do not add a back-reference to make it cheaper.
+- ItemUnit IS AN OPEN VALUE OBJECT. FromCode falls back to a custom label; any unit string is
+  valid. Forms offer the standard codes PLUS free text. Do not tighten this into a closed dropdown.
+- NO CUSTOMERS WORKSPACE (D91), NO ACTIVITY TIMELINE (D85, no audit read exists), NO USER-ACCOUNT
+  ADMINISTRATION (contradicts D64; SRS OQ-1 is still open). Each absence is a decision with a
+  stated reason, not an oversight.
+- THE FRONTEND MIRRORS SERVER CONTRACTS IN NAMED CONSTANTS — PAGE_SIZE_MAX and
+  MAX_SCHEDULE_WINDOW_DAYS — each with a test. Both exist because a silent 400 made a feature look
+  healthy while returning nothing.
 
 Phase 8 per PROJECT_ROADMAP.md was "API: Invoices, Splitting, Payment Tracking, Project Completion".
 PHASE8_PROGRESS.md is the authoritative record, including the thirteen approved design decisions,
@@ -280,6 +316,12 @@ WORKING RULES — NOT OPTIONAL
 - Report unexpected findings rather than designing around them silently.
 - Report only final verified figures in a closeout; do not state a count and then correct it.
 
-CONFIRM STEP 1, THEN BEGIN PHASE 9 — DESIGN REVIEW AND EXPLICIT APPROVAL FIRST,
-NEVER IMPLEMENTATION FIRST.
+- A GREEN TEST SUITE IS A PRECONDITION FOR QA, NEVER A SUBSTITUTE FOR IT. Phase 10's three QA
+  rounds found nine defects and not one was caught by a test: two were contract mismatches
+  invisible until a real request was made, one was a foreign key only a real database enforces,
+  and the rest were state-machine dead ends that appear only when a person tries to finish a
+  workflow. Drive the built application before calling anything complete.
+
+CONFIRM STEP 1, THEN BEGIN THE CUSTOMER-FACING WORKFLOW — DESIGN REVIEW AND EXPLICIT APPROVAL
+FIRST, NEVER IMPLEMENTATION FIRST.
 ```

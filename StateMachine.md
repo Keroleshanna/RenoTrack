@@ -93,9 +93,16 @@ stateDiagram-v2
 | `InReview` | `RequestChanges` | — | `ChangesRequested` | ReviewComment saved; notify Inspector |
 | `InReview` | `Approve` | — | `ApprovedInternally` | AuditLog entry |
 | `ChangesRequested` | (Inspector edits items — no explicit state event) | — | `Draft` | Angebot moves back to Draft the moment editing resumes, so it must be resubmitted |
+| `ChangesRequested` | `SubmitForReview` | At least 1 section with at least 1 item | `InReview` | Notify Admin. **Row added in Phase 10** (`ARCHITECTURE_DECISIONS.md` **D94**) — see the note below |
 | `ApprovedInternally` | `Send` | Lead has a valid email address | `Sent` | TokenLink generated; email sent; `SentAt` timestamp set |
 | `Sent` | `RecordDecision(Approve)` | TokenLink valid, unused, not expired | `CustomerApproved` | `DecisionAt`/`DecisionResult` set; Lead → `Won`; notify Admin |
 | `Sent` | `RecordDecision(Reject)` | TokenLink valid, unused, not expired | `CustomerRejected` | `DecisionAt`/`DecisionResult` set; Lead → `Lost`; notify Admin |
+
+> **On the two `ChangesRequested` rows (Phase 10, D94).** They are not alternatives — both are real, and which one happens depends on whether the Inspector actually changes anything. Editing still returns the quote to `Draft` implicitly, exactly as the first row has always said. What Phase 10 added is the second row: **submitting directly from `ChangesRequested`, without editing first.**
+>
+> That row exists because its absence was a dead end. An Inspector who read the Admin's comment and concluded nothing needed changing had no way to send the quote back — the aggregate refused, and the only workaround was to add and delete a section purely to trip the edit path. A state change made solely to satisfy a guard is not a workflow.
+>
+> **Nothing was weakened:** the "at least 1 section with at least 1 item" guard is identical on both rows, and §2.4 already treats `ChangesRequested` as an editable state — so a caller who may edit may equally resubmit.
 
 ### 2.4 Invariants
 - An Angebot's totals (NetTotal, VAT breakdown, GrossTotal) may only be recalculated while `Status == Draft` or `ChangesRequested`. Once `InReview` or later, the Angebot is effectively locked from further line-item edits — the only way back to an editable state is via `RequestChanges`, which explicitly returns it to `Draft`.
