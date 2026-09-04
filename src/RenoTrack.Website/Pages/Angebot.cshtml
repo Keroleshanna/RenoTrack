@@ -1,0 +1,79 @@
+@page "/angebot/{token}"
+@model RenoTrack.Website.Pages.AngebotModel
+@using RenoTrack.Website.PublicApi
+@{
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = Model.Outcome == CustomerAngebotOutcome.Available
+        ? $"Angebot {Model.Angebot!.AngebotNumber}"
+        : "Angebot";
+}
+@*
+    Wireframe A3's route. The path matches EmailMessageFactory.AngebotUrl exactly
+    ({base}/angebot/{token}, D4.1) — the email is already written and already sends customers here,
+    so this page is what makes a link that has existed since Phase 6 resolve to something.
+
+    Slice 2 is the skeleton: every state the customer can land in, and nothing else. The priced
+    document is Slice 3 and the decision buttons are Slice 4.
+*@
+
+@switch (Model.Outcome)
+{
+    case CustomerAngebotOutcome.Available:
+        <article class="customer-card">
+            <p class="customer-eyebrow">Ihr Angebot</p>
+            <h1 class="customer-title">@Model.Angebot!.AngebotNumber</h1>
+            <p class="customer-lead">
+                Ihr Angebot ist für Sie bereit. Die vollständige Aufstellung mit allen Positionen
+                und Preisen finden Sie in Kürze an dieser Stelle.
+            </p>
+        </article>
+        break;
+
+    case CustomerAngebotOutcome.NotFound:
+        @*
+            One message for an unknown token and for a token belonging to something other than an
+            Angebot — the API conflates them deliberately and so does this page. Naming the
+            difference would confirm to anyone holding a guessed link that it was nearly right.
+        *@
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Dieser Link ist nicht gültig</h1>
+            <p class="customer-lead">
+                Der Link konnte keinem Angebot zugeordnet werden. Möglicherweise wurde er beim
+                Kopieren unvollständig übernommen.
+            </p>
+            <p class="customer-hint">
+                Bitte öffnen Sie den Link noch einmal direkt aus unserer E-Mail.
+            </p>
+        </article>
+        break;
+
+    case CustomerAngebotOutcome.Expired:
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Dieser Link ist abgelaufen</h1>
+            <p class="customer-lead">
+                Aus Sicherheitsgründen sind unsere Angebotslinks nur für einen begrenzten Zeitraum
+                gültig. Dieser Zeitraum ist abgelaufen.
+            </p>
+            <p class="customer-hint">
+                Wenn Sie das Angebot noch einmal einsehen möchten, senden wir Ihnen gerne einen
+                neuen Link zu.
+            </p>
+        </article>
+        break;
+
+    default:
+        @*
+            Deliberately distinct from "not valid": telling a customer their link is broken when the
+            API is merely unreachable would send them away for good over a transient fault.
+        *@
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Ihr Angebot ist gerade nicht abrufbar</h1>
+            <p class="customer-lead">
+                Wir können Ihr Angebot im Moment nicht laden. Das liegt an uns, nicht an Ihrem Link.
+            </p>
+            <p class="customer-hint">
+                Bitte versuchen Sie es in einigen Minuten noch einmal.
+            </p>
+        </article>
+        break;
+}

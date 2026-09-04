@@ -1,5 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/launchsettings.json",
+  "//": "PublicApi__BaseUrl is supplied here rather than in appsettings.Development.json because that file is gitignored, so a value there would work on one machine and fail on every fresh clone. It points at the API's HTTPS profile (Properties/launchSettings.json in RenoTrack.Api). Prerequisite: 'dotnet dev-certs https --trust'. HTTP is deliberately not offered as an escape hatch \u2014 the customer's token travels in this request's path, and PublicApiOptions refuses a plaintext origin in every environment.",
   "profiles": {
     "http": {
       "commandName": "Project",
@@ -7,7 +8,8 @@
       "launchBrowser": true,
       "applicationUrl": "http://localhost:5244",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "PublicApi__BaseUrl": "https://localhost:7060"
       }
     },
     "https": {
@@ -16,7 +18,8 @@
       "launchBrowser": true,
       "applicationUrl": "https://localhost:7142;http://localhost:5244",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "PublicApi__BaseUrl": "https://localhost:7060"
       }
     }
   }

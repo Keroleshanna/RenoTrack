@@ -150,4 +150,115 @@ public sealed class TokenLinkPersistenceTests(RenoTrackDbContextFixture fixture)
         var reloaded = await readContext.TokenLinks.SingleAsync(t => t.Id == link.Id);
         Assert.NotNull(reloaded.UsedAt);
     }
+
+    /// <summary>
+    /// D96: <c>UsedAt</c> is an optimistic-concurrency token, so a second unit of work that read
+    /// the link while it was still unused cannot consume it after someone else already has.
+    /// </summary>
+    /// <remarks>
+    /// The two contexts are opened and both read *before* either writes, which is the whole point:
+    /// this reproduces the interleaving a real double-click produces, not a sequential re-use that
+    /// <c>MarkUsed()</c>'s own in-memory guard would already catch. Before this change both
+    /// <c>SaveChangesAsync</c> calls succeeded and the link was consumed twice.
+    /// </remarks>
+    [Fact]
+    public async Task AStaleUnitOfWorkCannotConsumeALinkThatWasAlreadyConsumed()
+    {
+        var link = NewLink();
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.TokenLinks.Add(link);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var winner = fixture.CreateContext();
+        await using var loser = fixture.CreateContext();
+
+        var winnerLink = await winner.TokenLinks.SingleAsync(t => t.Id == link.Id);
+        var loserLink = await loser.TokenLinks.SingleAsync(t => t.Id == link.Id);
+
+        winnerLink.MarkUsed();
+        await winner.SaveChangesAsync();
+
+        loserLink.MarkUsed();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => loser.SaveChangesAsync());
+
+        await using var readContext = fixture.CreateContext();
+        var reloaded = await readContext.TokenLinks.SingleAsync(t => t.Id == link.Id);
+        Assert.Equal(winnerLink.UsedAt, reloaded.UsedAt);
+    }
+
+    /// <summary>
+    /// The same race driven genuinely in parallel rather than by a deterministic interleaving, and
+    /// repeated — CLAUDE.md §14: a concurrency test that has passed once proves only that the race
+    /// <i>can</i> resolve correctly. D55 is the precedent: a race proof that passed when written
+    /// then failed about two runs in three once it was repeated.
+    /// </summary>
+    /// <remarks>
+    /// Asserts the property that actually matters and that the sequential test above cannot reach:
+    /// <b>exactly one</b> of the two attempts commits. A run where both threads happen to serialize
+    /// is still a valid run of this test — it just exercises the same guarantee through the other
+    /// interleaving — so there is no flakiness to tolerate here and nothing is retried.
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task ExactlyOneOfTwoSimultaneousConsumersWins(int attempt)
+    {
+        // The parameter exists only to make xUnit run this five times as five distinct cases; it is
+        // read here so the "theory does not use its parameter" analyzer stays satisfied.
+        _ = attempt;
+
+        var link = NewLink();
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.TokenLinks.Add(link);
+            await writeContext.SaveChangesAsync();
+        }
+
+        // Both contexts read, and both mutate, before either writes — so the two SaveChangesAsync
+        // calls genuinely race rather than merely follow one another.
+        await using var first = fixture.CreateContext();
+        await using var second = fixture.CreateContext();
+        var firstLink = await first.TokenLinks.SingleAsync(t => t.Id == link.Id);
+        var secondLink = await second.TokenLinks.SingleAsync(t => t.Id == link.Id);
+        firstLink.MarkUsed();
+        secondLink.MarkUsed();
+
+        // An asynchronous gate rather than a Barrier: both consumers await the same signal without
+        // occupying a pool thread, so the test cannot deadlock on a constrained thread pool.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<Exception?> ConsumeAsync(RenoTrackDbContext context)
+        {
+            await gate.Task;
+
+            try
+            {
+                await context.SaveChangesAsync();
+                return null;
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }
+
+        var firstConsumer = ConsumeAsync(first);
+        var secondConsumer = ConsumeAsync(second);
+        gate.SetResult();
+
+        var outcomes = await Task.WhenAll(firstConsumer, secondConsumer);
+
+        Assert.Single(outcomes, outcome => outcome is null);
+        Assert.Single(outcomes, outcome => outcome is DbUpdateConcurrencyException);
+
+        await using var readContext = fixture.CreateContext();
+        var reloaded = await readContext.TokenLinks.SingleAsync(t => t.Id == link.Id);
+        Assert.NotNull(reloaded.UsedAt);
+    }
 }
