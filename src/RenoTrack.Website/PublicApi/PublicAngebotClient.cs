@@ -63,7 +63,16 @@ public sealed class PublicAngebotClient(
                     var angebot = await response.Content.ReadFromJsonAsync<CustomerAngebot>(
                         SerializerOptions, cancellationToken);
 
-                    if (angebot is null || string.IsNullOrWhiteSpace(angebot.AngebotNumber))
+                    // A body that does not carry a usable document. `Sections` and `VatBreakdown`
+                    // are checked for null rather than emptiness: the API always emits an array —
+                    // `[]` deserialises to an empty list, never null — so null means the two sides
+                    // disagree about the contract, while an empty list is a legitimate (if
+                    // unreachable) document the page renders honestly. Guarding here keeps every
+                    // downstream renderer free of null checks on a collection.
+                    if (angebot is null
+                        || string.IsNullOrWhiteSpace(angebot.AngebotNumber)
+                        || angebot.Sections is null
+                        || angebot.VatBreakdown is null)
                     {
                         // A 200 the Website cannot make sense of is an integration fault, not a
                         // missing quote — so it is reported as an outage, and loudly, because it

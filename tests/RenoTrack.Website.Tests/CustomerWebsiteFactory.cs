@@ -29,7 +29,7 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
 {
     /// <summary>What the stubbed API returns. Set per test before the first request.</summary>
     public CustomerAngebotResult Result { get; set; } =
-        CustomerAngebotResult.Available(new CustomerAngebot("ANG-2026-00042"));
+        CustomerAngebotResult.Available(CustomerAngebotBuilder.Typical());
 
     /// <summary>Every token the Website asked the API about.</summary>
     public List<string> RequestedTokens { get; } = [];

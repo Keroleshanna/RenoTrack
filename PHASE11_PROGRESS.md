@@ -54,7 +54,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 |---|---|---|
 | **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete** — build verified locally (0 errors, 0 warnings); tests blocked by the environment, see §4.5 |
 | **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete, pending CI verification** |
-| 3 | Render the quote (Wireframe A3) | not started |
+| **3** | Render the quote (Wireframe A3) **and its decision state** | in progress |
 | 4 | Accept / Decline | not started |
 | 5 | Rejection reason (Q2) — migration #12 | not started |
 | 6 | Token re-issue (Q3) | not started |
@@ -282,3 +282,160 @@ The second round-3 failure — `A_malformed_network_fails_startup_naming_the_key
 **`0.0.0.0/0` is deliberately not covered.** It is canonical and would be accepted, and it trusts every address on the internet. Rejecting it would be a new production rule beyond Option B's approved scope, and a test asserting acceptance would enshrine something questionable — so neither was written. **Recorded as a follow-up in `NEXT_STEPS.md`.**
 
 **The other failure** — `PublicApiOptionsTests.A_relative_base_url_fails_startup("/api/v1")` — was a wrong expectation about *which* guard fires. `/api/v1` is refused either way, but on Unix `Uri.TryCreate(…, UriKind.Absolute, …)` succeeds with the `file` scheme, so the HTTPS guard rejects it, while on Windows the absolute-URL guard does. **Neither branch is pinned:** the test now asserts only that the value is refused and that the message names the key, both true on every OS. Pinning the Linux branch would have passed in CI and failed on a contributor's Windows machine — the exact failure mode `CLAUDE.md` §22 records for `Path.GetInvalidFileNameChars()`.
+
+---
+
+## 6. Slice 3 — Customer Angebot Rendering
+
+### 6.1 Approved design
+
+Reviewed and approved on 2026-09-04. The proposal is summarised here so the branch carries its own decision record.
+
+**The headline is that almost nothing changes outside `RenoTrack.Website`.** `PublicAngebotDto` was built complete in Phase 6 and already carries every field Wireframe A3 renders, so Slice 3 grows the Website's mirrored type from Slice 2's single skeleton field and renders it. `GET /api/v1/public/angebote/{token}` is unchanged, there is no new endpoint, no schema, no migration, and no permission change — `PermissionMatrix.md` §7 already grants "View Angebot via token link".
+
+| Question | Decision |
+|---|---|
+| **Q1** — commercial validity date ("gültig bis") | **No.** `TokenLink.ExpiresAt` is not exposed. Token expiry and commercial offer validity are different business rules, and conflating them would tell the customer something the business never decided. |
+| **Q2** — document date | **No.** `CreatedAt`/`SentAt` are not added to the public contract for this page. Wireframe A3 shows neither. |
+| **Q3** — quantity formatting | Explicit `de-DE`, up to 2 decimals, trailing zeros trimmed: `10`, `2,5`, `0,75`. **Never the ambient server culture.** |
+| **Q4** — decision state | **Rendered — this reverses the proposal's recommendation.** `PublicAngebotDto` already carries `decision`, and BR-4 lets a customer re-read a quote they have already answered; showing a decided Angebot exactly like a pending one is misleading. |
+
+### 6.2 Q4 in detail — what Slice 3 does and does not do
+
+The responsibilities stay split at the same line as before; only the *read* half moves forward.
+
+**Slice 3 renders the current decision state.** `Pending` renders the document as normal. `Approved` and `Rejected` render the same document plus a clear German status message saying the Angebot was already accepted or rejected. Nothing internal is exposed — no ids, no employee information, no token, and **no internal status vocabulary**: the customer is told what they did, not that the aggregate is in `CustomerApproved`.
+
+**Slice 3 performs no mutation.** Accept/Decline, the decision request, the concurrency handling (D96) and the resulting state transitions all remain Slice 4's. **Decision mutation logic must not move into Slice 3.**
+
+**`decisionAt` is deliberately not rendered and not mirrored into the Website's type.** The status message conveys the state without it, and rendering a UTC timestamp as a German date raises a timezone-policy question no document answers. Slice 4 can add it if it needs it — the growth-on-demand discipline `CLAUDE.md` §7 applies to this DTO like any other.
+
+### 6.3 The one API-side change
+
+**Deterministic item ordering.** `PublicAngebotMappingExtensions.ToPublicDto` orders sections explicitly (`SortOrder`, then `Id`) but does **not** order items, and `AngebotItem` has no `SortOrder` column. EF Core issues no `ORDER BY` for the collection, so item order is whatever SQL Server returns — usually clustered-index order, but not guaranteed. A priced document that can reorder its own lines between two reads is not a document, and the position numbers Wireframe A3 shows (`1.001`) are meaningless without it.
+
+`.OrderBy(item => item.Id)` — insertion order, which is the order the Inspector entered the lines. No schema, no new field. **This is the only production change outside the Website.**
+
+### 6.4 Sequencing
+
+Three checkpoints on one branch: **3a** ordering + its test, **3b** the mirrored contract + deserialization tests, **3c** rendering + formatting/safety/edge tests.
+
+**These are planned checkpoints, not claims.** None is green until CI proves it — the Slices 1–2 record (three defects, none found by inspection) is why that distinction is written down rather than assumed.
+
+### 6.5 Out of scope
+
+Accept/Decline and `DecisionReason` (Slice 4–5), link re-issue (6), company and legal identity and the A3 logo (7), PDF (Phase 14, gap `G-4`), the contact form (Phase 13). No unrelated refactors.
+
+### 6.6 Implementation record
+
+**Branch:** `claude/customer-workflow-phase-rvh4rj`, restarted from `main` at `78a8406` (PR #18 merged, so the branch is reused for fresh work rather than stacked on merged history).
+
+| Checkpoint | Commit | Scope |
+|---|---|---|
+| — | `5d757c8` | The approved design and the Q4 reversal, recorded before any code |
+| **3a** | `b2144c1` | Deterministic item ordering + 3 Application tests |
+| **3b + 3c** | `8662a1f` | The mirrored contract, the document, formatting, styles + Website tests |
+
+**Files changed**
+
+*Application (the only production change outside the Website):* `Angebote/Dtos/PublicAngebotDto.cs` — `.OrderBy(item => item.Id)`.
+
+*Website:* `PublicApi/CustomerAngebot.cs` (grown to `CustomerAngebot` + `CustomerSection` + `CustomerItem` + `CustomerVatLine` + `CustomerAngebotDecision`), `PublicApi/PublicAngebotClient.cs` (usability guard widened to null collections), `Rendering/CustomerFormatting.cs` (new), `Pages/Shared/_AngebotDocument.cshtml` (new), `Pages/Angebot.cshtml`, `wwwroot/css/customer.css`.
+
+*Tests:* `Application.Tests/Angebote/Dtos/PublicAngebotMappingTests.cs` (new), `Website.Tests/CustomerAngebotBuilder.cs` (new), `Website.Tests/Rendering/CustomerFormattingTests.cs` (new), `Website.Tests/Pages/AngebotDocumentTests.cs` (new), plus updates to `PublicAngebotClientTests`, `AngebotPageTests`, `AngebotModelTests` and `CustomerWebsiteFactory` for the grown contract.
+
+**Decisions taken while building, none of them reopening an approved one**
+
+- **`decisionAt` is not mirrored into the Website's type at all.** The status message says what the customer did without it, and rendering a UTC value as a German date raises a timezone-policy question no project document answers. Unknown JSON properties are ignored on deserialization, so omitting it costs nothing.
+- **An unrecognised `decision` value is an outage, not a `Pending` Angebot.** Defaulting would tell a customer their recorded answer was never taken — a wrong statement about their own decision is worse than an honest "not available right now".
+- **A 200 whose `sections` or `vatBreakdown` is `null` is an outage.** The API always emits an array, so `[]` arrives as an empty list; `null` means the two sides disagree about the contract. An empty list stays a legitimate document.
+- **Only `m2` is rewritten** (to `m²`) — the one standard code whose storage form is an ASCII compromise. Everything else, including any custom label, passes through untouched.
+- **A section with no lines renders with a zero `Zwischensumme` rather than being suppressed.** Only one section needs items for an Angebot to be submittable, so this is reachable, and the Inspector put the section in the document.
+
+**Not done, and it is a stated completion gate:** the browser QA pass (desktop, mobile, print). This environment has no .NET SDK, so the application cannot be launched here — see §6.7.
+
+### 6.7 CI round 1 — Razor build failure, one root cause, fixed
+
+**Run [33906802660](https://github.com/Keroleshanna/RenoTrack/actions/runs/33906802660), commit `d38eed2`, PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19).**
+
+| Job | Result |
+|---|---|
+| `build-and-test` (ubuntu-latest) | ❌ **failure** — `0 Warning(s), 3 Error(s)` |
+| `database-backed-tests` (windows-latest) | ⏭️ **skipped** — gated on `needs: build-and-test` |
+
+```
+_AngebotDocument.cshtml(52,25): error RZ1011: The 'section' directives value(s) must be separated by whitespace.
+_AngebotDocument.cshtml(61,44): error RZ2005: The 'section' directive must appear at the start of the line.
+_AngebotDocument.cshtml(61,51): error RZ1011: The 'section' directives value(s) must be separated by whitespace.
+```
+
+**One root cause: the loop variable was named `section`, so `@section.Title` parses as Razor's `@section` directive** rather than as a property access. Nothing about the C# is wrong; the identifier simply collides with a language construct in the templating layer.
+
+**Fixed by renaming the variable to `angebotSection`, not by escaping each use as `@(section.Title)`.** Escaping fixes the two call sites and leaves the same trap armed for the next property anyone adds to this partial; renaming removes it.
+
+**A second hazard was found and fixed in the same push**, before it could cost another cycle: the decision banner's class was built inline as `class="customer-status-@(… ? "approved" : "rejected")"` — double-quoted string literals inside an `@(...)` expression inside a double-quoted attribute value, which is the nesting Razor's attribute parser handles least predictably. Hoisted to a local. The whole partial was also swept for every other Razor directive keyword used in property-access position; none remained.
+
+**The general lesson, now in `CLAUDE.md` §24:** a Razor view is not C# — an identifier that is perfectly ordinary in a handler can collide with a directive in a template, and it fails at build rather than at review.
+
+### 6.8 CI round 2 — a second Razor error, from the round-1 fix itself
+
+**Run [33907410208](https://github.com/Keroleshanna/RenoTrack/actions/runs/33907410208), `0 Warning(s), 1 Error(s)`:**
+
+```
+_AngebotDocument.cshtml(31,6): error RZ1010: Unexpected "{" after "@" character.
+Once inside the body of a code block (@if {}, @{}, etc.) you do not need to use "@{" to switch to code.
+```
+
+**Introduced by round 1's own second fix.** Hoisting the status class to a local was right; wrapping it in a code-block opener was not — inside a code block's body Razor is already in code context, so a local is declared as a plain statement. The same file's item loop had been doing exactly that correctly all along, one screen further down.
+
+Fixed by removing the block opener. The comment left inaccurate by the round-1 rename was corrected in the same push, and every `@` in the file was then read individually: each is a directive at the top, a Razor comment, a control-flow keyword, or an expression beginning with a non-directive identifier.
+
+**Both rounds were the templating layer, not the C#, and neither was visible to review** — the same class of finding as Slice 2's `Logging:LogLevel` comment keys. In an environment with no SDK, a Razor view is the part of a change with the least local verification available and the most syntax that is not C#, and it is worth reading in full rather than patching by line number. This round-2 fix was made that way: the whole file was read before anything was touched.
+
+### 6.9 CI round 3 — Razor clean, one test-authoring defect
+
+**Run [33907629207](https://github.com/Keroleshanna/RenoTrack/actions/runs/33907629207), commit `a093bb6`. `0 Warning(s), 1 Error(s)`.**
+
+**`RenoTrack.Website` compiled** — the Razor work is done. The remaining error was in the new test file:
+
+```
+CustomerFormattingTests.cs(69,6): error xUnit1025: Theory method
+'Quantity_trims_trailing_zeros_and_uses_a_german_decimal_separator' has InlineData duplicate(s).
+```
+
+**The analyser was right about more than it said.** The rows were `[InlineData(10, "10")]` next to `[InlineData(10.00, "10")]`, written to prove that a quantity's trailing zeros are trimmed. They cannot prove that: an `InlineData` argument is a compile-time constant passed as `int` or `double`, and neither carries a scale — only `decimal` does. So `10.00` arrived as the same value as `10`, and the rows were not merely redundant, they were **testing something other than what they appeared to test.**
+
+Fixed by removing the redundant rows and adding a separate `[Fact]` using real `decimal` literals (`10.00m`, `2.50m`, `0.7500m`), with an assertion first that those literals really do carry their scale — so the test proves its own premise rather than assuming it. Every other theory in the slice's new tests was swept for numerically-equal rows; none.
+
+### 6.10 CI round 4 — build clean, the partial rendered nothing
+
+**Run [33907803685](https://github.com/Keroleshanna/RenoTrack/actions/runs/33907803685), commit `eeec2ca`.** Build clean; `Failed: 13, Passed: 165, Total: 178` in `RenoTrack.Website.Tests`.
+
+Every failure was the same symptom: the page returned 200 and rendered `<!DOCTYPE html><html lang="de">…`, and **none of the document was in it** — no section title, no `m²`, no subtotal.
+
+~~**Cause: `@await Html.PartialAsync(...)` inside a `@switch` case body**… the `IHtmlContent` the call returns is simply discarded.~~ — **this diagnosis was wrong; see §6.11.** The partial was rendering all along. `Html.RenderPartialAsync` was adopted and is kept as the explicit form for a code block, but it fixed nothing, and round 5 returned the identical 13 failures.
+
+**The Slice 2 test that should have caught it did not, and it has been strengthened.** `An_available_angebot_shows_its_number` asserted only that the Angebot number appears somewhere in the HTML — and it does, in the `<title>`, which the page still set. It therefore passed while the feature was entirely broken. It now also anchors on the document container and the summary heading, so a page rendering only its chrome fails. This is precisely the pattern `CLAUDE.md` §23 already records from Phase 10: *"a caught error must not be able to make a broken feature look healthy"* — here it was a weak assertion rather than a swallowed exception, with the same result.
+
+**Three rounds, three different Razor context rules** — a directive collision, a code block reopened inside a code block, and a return value discarded in code context. None was visible in review, none is C#, and only the third produced no build error at all.
+
+### 6.11 CI round 5 — the same 13 failures, and the actual cause
+
+**Run [33908019337](https://github.com/Keroleshanna/RenoTrack/actions/runs/33908019337), commit `ee867e9`.** Build clean; `Failed: 13, Passed: 165, Total: 178` — **byte-identical to round 4.** Round 4's fix changed nothing, which is what forced a real diagnosis instead of a second guess.
+
+**The passing tests were the evidence, not the failing ones.**
+
+| Observation | What it ruled out |
+|---|---|
+| `Positions_are_numbered_per_wireframe_a3` passes on `1.001`, `Pos. 1` | The partial renders. Item rows render. |
+| `Free_text_is_html_encoded_not_executed` passes on `&lt;script&gt;` | The item description reaches the page. |
+| `The_document_is_labelled_in_german` passes on `Zwischensumme`, `Einzelpreis` | The table and summary render. |
+| **All 13 failures contain `ä`, `²` or `€`. Every passing content assertion is pure ASCII.** | Leaves exactly one explanation. |
+
+**Cause: ASP.NET Core's default `HtmlEncoder` allows only Basic Latin and escapes everything else to numeric character references.** `Wände` was served as `W&#xE4;nde`, `m²` as `m&#xB2;`, `1.650,00 €` as `1.650,00&#x20AC;`. A browser renders all of those identically to the intended text — which is exactly why this ships unnoticed — but the document is neither readable in view-source nor searchable, and on a page whose entire audience is German-speaking that is the wrong default.
+
+**Fixed by widening `WebEncoderOptions.TextEncoderSettings` to `UnicodeRanges.All`.** This does not weaken escaping: the range governs which characters pass through unescaped, while `< > & " '` are escaped regardless — so the protection over Inspector-typed free text, which `Free_text_is_html_encoded_not_executed` pins, is untouched. The page is served as UTF-8 and declares that charset.
+
+**A second weak assertion was exposed and fixed.** `Sections_and_lines_render_in_server_order` passed throughout, because `IndexOf` returns `-1` for an absent needle and `-1` is less than any real index — so it was ordering text that was not on the page. It now asserts presence before order.
+
+**Round 4's diagnosis was wrong and is withdrawn.** `@await Html.PartialAsync` in a code block was never the defect; the rule it produced has been removed from `CLAUDE.md` §24 and replaced with what the evidence actually supports. `RenderPartialAsync` is kept as the explicit form for a code block, on its own merits. **Five rounds, and the one that cost the most was the one where a plausible cause was accepted without checking what the passing tests already ruled out.**

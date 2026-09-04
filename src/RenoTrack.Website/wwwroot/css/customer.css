@@ -130,6 +130,191 @@ body {
     color: var(--ink-muted);
 }
 
+/* ---- The Angebot document (Wireframe A3) ------------------------------- */
+
+/* Decision state (Q4). Distinguished by a left rule and a label, never by colour alone. */
+.customer-status {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.customer-status-headline {
+    margin: 0;
+    font-weight: 600;
+}
+
+.customer-status-detail {
+    margin: 0.25rem 0 0;
+    font-size: 0.9375rem;
+    color: var(--ink-muted);
+}
+
+.customer-position {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+}
+
+.customer-position-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    overflow-wrap: break-word;
+}
+
+.customer-position-number {
+    display: inline-block;
+    margin-right: 0.5rem;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Wide content scrolls inside its own container; the page body never scrolls sideways. */
+.customer-table-scroll {
+    overflow-x: auto;
+}
+
+.customer-items {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+
+.customer-items th,
+.customer-items td {
+    padding: 0.5rem 0.5rem 0.5rem 0;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+}
+
+.customer-items thead th {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink-faint);
+    white-space: nowrap;
+}
+
+/* Figures align on the decimal and never wrap mid-amount. */
+.customer-col-num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.customer-items thead .customer-col-num {
+    text-align: right;
+}
+
+.customer-col-pos {
+    white-space: nowrap;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.customer-col-unit {
+    white-space: nowrap;
+}
+
+/* The description is the only column allowed to be long, so it absorbs the width. */
+.customer-col-text {
+    width: 100%;
+    min-width: 12rem;
+}
+
+.customer-item-description {
+    display: block;
+    overflow-wrap: break-word;
+}
+
+.customer-item-specification {
+    display: block;
+    margin-top: 0.125rem;
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+    overflow-wrap: break-word;
+}
+
+.customer-subtotal {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0.75rem 0 0;
+    font-size: 0.9375rem;
+}
+
+.customer-subtotal-label {
+    color: var(--ink-muted);
+}
+
+.customer-subtotal-value {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.customer-summary {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 2px solid var(--line);
+}
+
+.customer-summary-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.0625rem;
+    font-weight: 600;
+}
+
+.customer-summary-list {
+    margin: 0;
+}
+
+.customer-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.25rem 0;
+}
+
+.customer-summary-row dt {
+    color: var(--ink-muted);
+}
+
+.customer-summary-row dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.customer-summary-total {
+    margin-top: 0.5rem;
+    padding-top: 0.625rem;
+    border-top: 1px solid var(--line);
+    font-size: 1.0625rem;
+    font-weight: 600;
+}
+
+.customer-summary-total dt {
+    color: var(--ink);
+}
+
+/* Available to screen readers, absent from the visual layout. */
+.customer-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 @media (max-width: 30rem) {
     .customer-card {
         padding: 1.5rem 1.25rem;
@@ -143,6 +328,57 @@ body {
     .customer-contact {
         display: block;
         margin-left: 0;
+    }
+
+    /*
+       Six columns do not fit a phone, and a horizontally scrolled price table is a poor way to read
+       a quote. Each row becomes its own labelled block instead, with the header row hidden and the
+       column names supplied from data-label — so the information and its order are identical, only
+       the layout changes.
+    */
+    .customer-items thead {
+        display: none;
+    }
+
+    .customer-items,
+    .customer-items tbody,
+    .customer-items tr,
+    .customer-items td {
+        display: block;
+        width: auto;
+    }
+
+    .customer-items tr {
+        padding: 0.625rem 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .customer-items td {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.125rem 0;
+        border: 0;
+        text-align: right;
+    }
+
+    .customer-items td::before {
+        content: attr(data-label);
+        color: var(--ink-faint);
+        font-size: 0.8125rem;
+        text-align: left;
+        flex: 0 0 auto;
+    }
+
+    /* The description reads as a paragraph, not as a right-aligned value. */
+    .customer-items td.customer-col-text {
+        display: block;
+        text-align: left;
+    }
+
+    .customer-items td.customer-col-text::before {
+        display: block;
+        margin-bottom: 0.125rem;
     }
 }
 
@@ -172,5 +408,18 @@ body {
     .customer-card {
         border: 0;
         padding: 0;
+    }
+
+    /* A printed quote is the document: keep the tabular layout whatever the paper width. */
+    .customer-items thead {
+        display: table-header-group;
+    }
+
+    .customer-position {
+        break-inside: avoid;
+    }
+
+    .customer-summary {
+        break-inside: avoid;
     }
 }

@@ -92,13 +92,26 @@ public static class PublicAngebotMappingExtensions
     private static PublicSectionDto ToPublicDto(AngebotSection section) => new(
         section.Title,
         section.Subtotal.Amount,
-        [.. section.Items.Select(item => new PublicItemDto(
-            item.Description,
-            item.Specification,
-            item.Quantity,
-            item.Unit.Code,
-            item.UnitPrice.Amount,
-            item.LineTotal.Amount))]);
+
+        // Ordered for the same reason the sections above are, and it was missing here. AngebotItem
+        // has no SortOrder column and EF Core issues no ORDER BY for a collection navigation, so
+        // without this the line order is whatever SQL Server happens to return — in practice
+        // clustered-index order, but not guaranteed. A priced document whose lines can reorder
+        // between two reads is not a document, and the customer page's "Pos. 1.001" numbering is
+        // derived from position, so it would be numbering an arbitrary order.
+        //
+        // Id, not a new SortOrder column: ids are assigned in insertion order, which is the order
+        // the Inspector entered the lines — the intent a SortOrder column would have recorded, with
+        // no schema to add.
+        [.. section.Items
+            .OrderBy(item => item.Id)
+            .Select(item => new PublicItemDto(
+                item.Description,
+                item.Specification,
+                item.Quantity,
+                item.Unit.Code,
+                item.UnitPrice.Amount,
+                item.LineTotal.Amount))]);
 
     /// <summary>
     /// Every other internal state collapses to <see cref="PublicAngebotDecision.Pending"/> rather
