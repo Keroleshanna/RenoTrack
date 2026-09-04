@@ -52,10 +52,10 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 
 | # | Slice | Status |
 |---|---|---|
-| **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete** — build verified locally (0 errors, 0 warnings); tests blocked by the environment, see §4.5 |
-| **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete, pending CI verification** |
-| **3** | Render the quote (Wireframe A3) **and its decision state** | in progress |
-| 4 | Accept / Decline | not started |
+| **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`; build verified locally (0 errors, 0 warnings), tests blocked by the environment, see §4.5 |
+| **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`, CI green on both jobs |
+| **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
+| 4 | Accept / Decline | **not started — blocked pending explicit Product-Owner approval** |
 | 5 | Rejection reason (Q2) — migration #12 | not started |
 | 6 | Token re-issue (Q3) | not started |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
@@ -439,3 +439,37 @@ Every failure was the same symptom: the page returned 200 and rendered `<!DOCTYP
 **A second weak assertion was exposed and fixed.** `Sections_and_lines_render_in_server_order` passed throughout, because `IndexOf` returns `-1` for an absent needle and `-1` is less than any real index — so it was ordering text that was not on the page. It now asserts presence before order.
 
 **Round 4's diagnosis was wrong and is withdrawn.** `@await Html.PartialAsync` in a code block was never the defect; the rule it produced has been removed from `CLAUDE.md` §24 and replaced with what the evidence actually supports. `RenderPartialAsync` is kept as the explicit form for a code block, on its own merits. **Five rounds, and the one that cost the most was the one where a plausible cause was accepted without checking what the passing tests already ruled out.**
+
+### 6.12 CI round 6 — green
+
+**Run [33908391383](https://github.com/Keroleshanna/RenoTrack/actions/runs/33908391383), commit `5b78a7b`.** Both jobs succeeded: `build-and-test` (Linux) and `database-backed-tests` (Windows + LocalDB). **1,838 / 1,838 tests passing, 0 errors, 0 warnings.**
+
+Six rounds, five of them Razor or test-authoring defects invisible to review in an environment with no SDK. The one that cost the most was round 4, where a plausible cause was accepted without checking what the passing tests already ruled out.
+
+### 6.13 Browser QA
+
+A stated completion gate for this slice, and the reason it could finally be run: a .NET SDK was obtained in the authoring environment (`dotnet-sdk-10.0`, 10.0.111, from the distribution's own repository after switching its sources to HTTPS). **The API could not be run** — no SQL Server, no LocalDB, no container runtime — so the substitution point was chosen deliberately and is stated here rather than implied.
+
+**Method.** The real, unmodified `RenoTrack.Website` was built from `5b78a7b`, **published** (`dotnet publish`) and served over HTTPS with an OS-trusted development certificate. A throwaway stub, outside the repository and outside the solution, served `GET /api/v1/public/angebote/{token}` emitting the genuine `PublicAngebotDto` wire contract, with the token prefix selecting the state. **TLS validation was not disabled anywhere.** Everything from the Website's HTTP call inwards — deserialisation, the contract guard, outcome mapping, Razor rendering, `CustomerFormatting`, the stylesheet and the security headers — was exercised for real; **the API handler, the DTO projection, the `TokenLink` lookup and the database were not**, and remain covered by the automated suite alone.
+
+**Checks performed** (Chromium via Playwright 1.56.1, headless):
+
+| Surface | Result |
+|---|---|
+| Desktop 1280×900 | Title and `<h1>` both `ANG-2026-00042`; three `Pos. N` headings in server order; position numbers `1.001`–`2.004`; descriptions and specifications; quantities `1 / 42,5 / 62,25 / 48 / 2 / 86,4 / 12`; units `pauschal / m² / Stk / lfm / Sack`; subtotals `6.500,00 € / 11.930,00 € / 0,00 €`; summary `18.430,00 €`, `zzgl. 16% MwSt 1.040,00 €`, `zzgl. 19% MwSt 2.565,70 €`, `Gesamtsumme 22.035,70 €`. **0 scripts, 0 links**, no horizontal overflow. |
+| Decision state | `Pending` — no banner. `Approved` — *"Sie haben dieses Angebot angenommen."* **and the full document still below it.** `Rejected` — *"Sie haben dieses Angebot abgelehnt."*, likewise. No Accept/Decline control in any state. |
+| Mobile 390×844 and 320×720 (DPR 3) | No horizontal overflow on either; the list of elements wider than the viewport is **empty** on both. Rows collapse to labelled stacked pairs; `Gesamtsumme 22.035,70 €` readable and unwrapped at 320 px. |
+| Print | No navigation chrome, white background, `thead` as `table-header-group` so headers repeat. A4 PDF is **two pages**: the break falls between `Pos. 3`'s subtotal and `Zusammenfassung`, so **no row is split, nothing clipped, nothing missing.** |
+| German and typography | `Wände`, `Gerüst`, `Sanitär`, `Großformat`, `einschließlich`, `m²`, `€`, `60×120 cm` all render correctly **and are served as literal UTF-8**, verified over HTTP — §6.11's encoder fix confirmed end to end rather than only by unit test. |
+| Failure states | 404 *Dieser Link ist nicht gültig*; 410 *Dieser Link ist abgelaufen*; 503 *Ihr Angebot ist gerade nicht abrufbar*. Distinct, correct status codes, 0 scripts on each. |
+| Token leakage | The token appears in no page, no heading, no link and **no log line**, in every state. |
+
+**One finding, and it is not a product defect.** The first attempt showed an unstyled page and a 457 px overflow at 390 px, with Chromium refusing `customer.css` for an empty MIME type. It was **isolated rather than guessed at**: temporarily removing `app.UseCustomerSecurityHeaders();` changed nothing, ruling the middleware out (that edit was reverted immediately and the tree confirmed clean). The cause is that `dotnet run --no-build` serves `MapStaticAssets` from an incomplete asset manifest — the compressed variants only exist after `dotnet publish`. Against the published build the stylesheet is served as `text/css` with `Content-Encoding: br` and everything renders. **No repository change is required**, but it is worth knowing locally: a customer-facing rendering check run under `dotnet run` can look broken when the application is not.
+
+### 6.14 Merged
+
+**Approved for merge by the Product Owner on 2026-09-04** against the full completion gate — design and the Q4 decision-state change, checkpoints 3a/3b/3c, German formatting, security, both CI jobs, 1,838/1,838 tests, 0 warnings, desktop/390 px/320 px/print browser QA, the three decision states, the three failure states, token-leakage checks, clean working tree, and no out-of-scope functionality. The browser-QA methodology and its documented API/database limitation were accepted explicitly.
+
+**PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19) merged into `main` as `450ebbd`** (merge commit, parents `78a8406` and `5b78a7b`), per §19's "no direct commits to `main`" rule.
+
+**Slice 3 is complete. Slice 4 (Accept / Decline) is blocked pending explicit Product-Owner approval** and has not been started.
