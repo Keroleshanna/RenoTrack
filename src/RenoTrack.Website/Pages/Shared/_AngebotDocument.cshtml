@@ -1,0 +1,146 @@
+@model RenoTrack.Website.PublicApi.CustomerAngebot
+@using RenoTrack.Website.PublicApi
+@using RenoTrack.Website.Rendering
+@*
+    Wireframe A3's document: the positions, then the summary.
+
+    Every figure on screen is the server's figure (D78). Nothing here sums a column, derives a
+    subtotal or computes a VAT amount — BR-11's rounding belongs to the Domain, and recomputing in
+    the page is how a rendered quote starts disagreeing with the quote the company sent.
+
+    All free text (@item.Description, @item.Specification, @section.Title) is written with Razor's
+    default @-expressions, which HTML-encode. There is deliberately no Html.Raw anywhere on a
+    customer page: these strings are typed by an Inspector and rendered to an anonymous reader.
+*@
+
+@if (Model.Decision != CustomerAngebotDecision.Pending)
+{
+    @*
+        Q4: a decided Angebot must not read identically to a pending one. The customer is told what
+        they did, in their own terms — never the internal status name, and never a date, which would
+        require a timezone policy no document defines.
+
+        The document itself still follows, because BR-4 explicitly keeps viewing open after a
+        decision: "a customer who has approved must still be able to re-read what they agreed to".
+    *@
+    <aside class="customer-status customer-status-@(Model.Decision == CustomerAngebotDecision.Approved ? "approved" : "rejected")"
+           role="status">
+        @if (Model.Decision == CustomerAngebotDecision.Approved)
+        {
+            <p class="customer-status-headline">Sie haben dieses Angebot angenommen.</p>
+            <p class="customer-status-detail">Wir melden uns bei Ihnen, um die nächsten Schritte zu besprechen.</p>
+        }
+        else
+        {
+            <p class="customer-status-headline">Sie haben dieses Angebot abgelehnt.</p>
+            <p class="customer-status-detail">Sie können die Aufstellung weiterhin einsehen.</p>
+        }
+    </aside>
+}
+
+<article class="customer-card customer-document">
+    <p class="customer-eyebrow">Ihr Angebot</p>
+    <h1 class="customer-title">@Model.AngebotNumber</h1>
+
+    @for (var sectionIndex = 0; sectionIndex < Model.Sections.Count; sectionIndex++)
+    {
+        var section = Model.Sections[sectionIndex];
+
+        <section class="customer-position">
+            <h2 class="customer-position-title">
+                <span class="customer-position-number">Pos. @CustomerFormatting.SectionNumber(sectionIndex)</span>
+                @section.Title
+            </h2>
+
+            @if (section.Items.Count > 0)
+            {
+                @* Wide content scrolls inside its own container so the page body never scrolls. *@
+                <div class="customer-table-scroll">
+                    <table class="customer-items">
+                        <caption class="customer-visually-hidden">
+                            Positionen zu @section.Title
+                        </caption>
+                        <thead>
+                            <tr>
+                                <th scope="col" class="customer-col-pos">Pos.</th>
+                                <th scope="col" class="customer-col-text">Beschreibung</th>
+                                <th scope="col" class="customer-col-num">Menge</th>
+                                <th scope="col" class="customer-col-unit">Einheit</th>
+                                <th scope="col" class="customer-col-num">Einzelpreis</th>
+                                <th scope="col" class="customer-col-num">Gesamt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var itemIndex = 0; itemIndex < section.Items.Count; itemIndex++)
+                            {
+                                var item = section.Items[itemIndex];
+                                <tr>
+                                    <td class="customer-col-pos" data-label="Pos.">
+                                        @CustomerFormatting.PositionNumber(sectionIndex, itemIndex)
+                                    </td>
+                                    <td class="customer-col-text" data-label="Beschreibung">
+                                        <span class="customer-item-description">@item.Description</span>
+                                        @if (!string.IsNullOrWhiteSpace(item.Specification))
+                                        {
+                                            <span class="customer-item-specification">@item.Specification</span>
+                                        }
+                                    </td>
+                                    <td class="customer-col-num" data-label="Menge">
+                                        @CustomerFormatting.Quantity(item.Quantity)
+                                    </td>
+                                    <td class="customer-col-unit" data-label="Einheit">
+                                        @CustomerFormatting.Unit(item.Unit)
+                                    </td>
+                                    <td class="customer-col-num" data-label="Einzelpreis">
+                                        @CustomerFormatting.Money(item.UnitPrice)
+                                    </td>
+                                    <td class="customer-col-num" data-label="Gesamt">
+                                        @CustomerFormatting.Money(item.LineTotal)
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @*
+                A section with no items is rendered, not suppressed: only one section needs items for
+                an Angebot to be submittable, so this is reachable, and the Inspector put the section
+                in the document.
+            *@
+            <p class="customer-subtotal">
+                <span class="customer-subtotal-label">Zwischensumme</span>
+                <span class="customer-subtotal-value">@CustomerFormatting.Money(section.Subtotal)</span>
+            </p>
+        </section>
+    }
+
+    <section class="customer-summary">
+        <h2 class="customer-summary-title">Zusammenfassung</h2>
+        <dl class="customer-summary-list">
+            <div class="customer-summary-row">
+                <dt>Nettobetrag</dt>
+                <dd>@CustomerFormatting.Money(Model.NetTotal)</dd>
+            </div>
+
+            @*
+                One line per rate the server sent, in the order it sent them. A 0% line is rendered
+                like any other: suppressing a line the server included would be the page editing the
+                company's document.
+            *@
+            @foreach (var vatLine in Model.VatBreakdown)
+            {
+                <div class="customer-summary-row">
+                    <dt>zzgl. @CustomerFormatting.VatRate(vatLine.Rate)% MwSt</dt>
+                    <dd>@CustomerFormatting.Money(vatLine.VatAmount)</dd>
+                </div>
+            }
+
+            <div class="customer-summary-row customer-summary-total">
+                <dt>Gesamtsumme</dt>
+                <dd>@CustomerFormatting.Money(Model.GrossTotal)</dd>
+            </div>
+        </dl>
+    </section>
+</article>

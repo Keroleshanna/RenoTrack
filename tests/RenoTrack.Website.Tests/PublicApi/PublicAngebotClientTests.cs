@@ -30,12 +30,89 @@ public sealed class PublicAngebotClientTests
     public async Task A_200_yields_the_angebot()
     {
         var handler = StubHttpMessageHandler.Responding(
-            HttpStatusCode.OK, """{"angebotNumber":"ANG-2026-00042"}""");
+            HttpStatusCode.OK, CustomerAngebotBuilder.TypicalJson());
 
         var result = await ClientFor(handler).GetAngebotAsync(Token, CancellationToken.None);
 
         Assert.Equal(CustomerAngebotOutcome.Available, result.Outcome);
-        Assert.Equal("ANG-2026-00042", result.Angebot?.AngebotNumber);
+        Assert.Equal(CustomerAngebotBuilder.Number, result.Angebot?.AngebotNumber);
+    }
+
+    /// <summary>
+    /// The whole document survives the boundary, nested and in order — the round trip Slice 3 exists
+    /// to make real, and the thing that would break silently if either side changed shape.
+    /// </summary>
+    [Fact]
+    public async Task A_200_yields_every_part_of_the_document()
+    {
+        var handler = StubHttpMessageHandler.Responding(
+            HttpStatusCode.OK, CustomerAngebotBuilder.TypicalJson());
+
+        var angebot = (await ClientFor(handler).GetAngebotAsync(Token, CancellationToken.None)).Angebot;
+
+        Assert.NotNull(angebot);
+        Assert.Equal(CustomerAngebotDecision.Pending, angebot.Decision);
+        Assert.Equal(1_650.00m, angebot.NetTotal);
+        Assert.Equal(1_951.50m, angebot.GrossTotal);
+
+        Assert.Equal([16m, 19m], angebot.VatBreakdown.Select(line => line.Rate));
+        Assert.Equal([64.00m, 237.50m], angebot.VatBreakdown.Select(line => line.VatAmount));
+
+        Assert.Equal(["Abriss", "Baustelleneinrichtung"], angebot.Sections.Select(section => section.Title));
+        Assert.Equal([1_250.00m, 400.00m], angebot.Sections.Select(section => section.Subtotal));
+
+        var firstSection = angebot.Sections[0];
+        Assert.Equal(
+            ["Wände abbrechen", "Schutt entsorgen"],
+            firstSection.Items.Select(item => item.Description));
+
+        var firstItem = firstSection.Items[0];
+        Assert.Equal("Nichttragend, inkl. Entsorgung", firstItem.Specification);
+        Assert.Equal(10m, firstItem.Quantity);
+        Assert.Equal("m2", firstItem.Unit);
+        Assert.Equal(25.00m, firstItem.UnitPrice);
+        Assert.Equal(250.00m, firstItem.LineTotal);
+
+        // A null specification is a normal line, not a broken one.
+        Assert.Null(firstSection.Items[1].Specification);
+        Assert.Equal(2.5m, firstSection.Items[1].Quantity);
+    }
+
+    /// <summary>
+    /// A decided Angebot stays readable (BR-4) and its decision reaches the page, which is what
+    /// lets the page avoid rendering it identically to a pending one.
+    /// </summary>
+    [Theory]
+    [InlineData("Approved", CustomerAngebotDecision.Approved)]
+    [InlineData("Rejected", CustomerAngebotDecision.Rejected)]
+    [InlineData("Pending", CustomerAngebotDecision.Pending)]
+    public async Task The_decision_state_crosses_the_boundary(string wireValue, CustomerAngebotDecision expected)
+    {
+        var handler = StubHttpMessageHandler.Responding(
+            HttpStatusCode.OK, CustomerAngebotBuilder.TypicalJson(wireValue));
+
+        var result = await ClientFor(handler).GetAngebotAsync(Token, CancellationToken.None);
+
+        Assert.Equal(CustomerAngebotOutcome.Available, result.Outcome);
+        Assert.Equal(expected, result.Angebot?.Decision);
+    }
+
+    /// <summary>
+    /// An unrecognised decision is reported as an outage rather than defaulting to
+    /// <see cref="CustomerAngebotDecision.Pending"/>. Telling a customer their recorded answer is
+    /// still pending would be a wrong statement about their own decision — worse than an honest
+    /// "not available right now".
+    /// </summary>
+    [Fact]
+    public async Task An_unrecognised_decision_is_an_outage_not_a_pending_angebot()
+    {
+        var handler = StubHttpMessageHandler.Responding(
+            HttpStatusCode.OK, CustomerAngebotBuilder.TypicalJson("SomethingNew"));
+
+        var result = await ClientFor(handler).GetAngebotAsync(Token, CancellationToken.None);
+
+        Assert.Equal(CustomerAngebotOutcome.Unavailable, result.Outcome);
+        Assert.Null(result.Angebot);
     }
 
     /// <summary>
@@ -118,6 +195,10 @@ public sealed class PublicAngebotClientTests
     [InlineData("{}")]
     [InlineData("""{"angebotNumber":""}""")]
     [InlineData("not json at all")]
+    // A document with no sections array and one with no VAT array are contract breaks, not
+    // documents: the API always emits an array, so `[]` arrives as an empty list and never as null.
+    [InlineData("""{"angebotNumber":"ANG-1","decision":"Pending","netTotal":0,"grossTotal":0,"vatBreakdown":[]}""")]
+    [InlineData("""{"angebotNumber":"ANG-1","decision":"Pending","netTotal":0,"grossTotal":0,"sections":[]}""")]
     public async Task A_200_with_an_unusable_body_is_unavailable(string body)
     {
         var handler = StubHttpMessageHandler.Responding(HttpStatusCode.OK, body);
@@ -148,7 +229,7 @@ public sealed class PublicAngebotClientTests
     public async Task The_request_targets_the_public_angebot_route()
     {
         var handler = StubHttpMessageHandler.Responding(
-            HttpStatusCode.OK, """{"angebotNumber":"ANG-2026-00042"}""");
+            HttpStatusCode.OK, CustomerAngebotBuilder.TypicalJson());
 
         await ClientFor(handler).GetAngebotAsync(Token, CancellationToken.None);
 
@@ -191,7 +272,7 @@ public sealed class PublicAngebotClientTests
     [InlineData("   ")]
     public async Task An_empty_token_is_refused_without_calling_the_api(string token)
     {
-        var handler = StubHttpMessageHandler.Responding(HttpStatusCode.OK, """{"angebotNumber":"X"}""");
+        var handler = StubHttpMessageHandler.Responding(HttpStatusCode.OK, CustomerAngebotBuilder.TypicalJson());
 
         var result = await ClientFor(handler).GetAngebotAsync(token, CancellationToken.None);
 

@@ -38,7 +38,7 @@ public sealed class AngebotModelTests
     [Fact]
     public async Task An_available_angebot_is_shown_with_200()
     {
-        var client = new StubClient(CustomerAngebotResult.Available(new CustomerAngebot("ANG-2026-00042")));
+        var client = new StubClient(CustomerAngebotResult.Available(CustomerAngebotBuilder.Typical()));
         var model = ModelFor(client);
 
         await model.OnGetAsync(CancellationToken.None);

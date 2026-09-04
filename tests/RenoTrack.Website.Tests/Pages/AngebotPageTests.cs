@@ -23,7 +23,7 @@ public sealed class AngebotPageTests : IClassFixture<CustomerWebsiteFactory>
     {
         this.factory = factory;
         factory.RequestedTokens.Clear();
-        factory.Result = CustomerAngebotResult.Available(new CustomerAngebot("ANG-2026-00042"));
+        factory.Result = CustomerAngebotResult.Available(CustomerAngebotBuilder.Typical());
     }
 
     // ---- The route ---------------------------------------------------------
@@ -132,7 +132,7 @@ public sealed class AngebotPageTests : IClassFixture<CustomerWebsiteFactory>
     public async Task The_token_is_never_rendered_into_the_page(CustomerAngebotOutcome outcome)
     {
         factory.Result = outcome == CustomerAngebotOutcome.Available
-            ? CustomerAngebotResult.Available(new CustomerAngebot("ANG-2026-00042"))
+            ? CustomerAngebotResult.Available(CustomerAngebotBuilder.Typical())
             : new CustomerAngebotResult(outcome, null);
         using var client = factory.CreateClient();
 

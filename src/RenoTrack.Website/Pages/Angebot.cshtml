@@ -19,14 +19,8 @@
 @switch (Model.Outcome)
 {
     case CustomerAngebotOutcome.Available:
-        <article class="customer-card">
-            <p class="customer-eyebrow">Ihr Angebot</p>
-            <h1 class="customer-title">@Model.Angebot!.AngebotNumber</h1>
-            <p class="customer-lead">
-                Ihr Angebot ist für Sie bereit. Die vollständige Aufstellung mit allen Positionen
-                und Preisen finden Sie in Kürze an dieser Stelle.
-            </p>
-        </article>
+        @* The document and its decision state. The decision *buttons* are Slice 4's. *@
+        @await Html.PartialAsync("_AngebotDocument", Model.Angebot!)
         break;
 
     case CustomerAngebotOutcome.NotFound:
