@@ -1,3 +1,6 @@
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
+using Microsoft.Extensions.WebEncoders;
 using RenoTrack.Website.Content;
 using RenoTrack.Website.PublicApi;
 using RenoTrack.Website.Security;
@@ -5,6 +8,24 @@ using RenoTrack.Website.Security;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorPages();
+
+// German text must reach the customer as German text.
+//
+// ASP.NET Core's default HtmlEncoder allows only Basic Latin through and escapes everything else to
+// numeric character references, so "Wände" renders as "W&#xE4;nde", "m²" as "m&#xB2;" and every
+// price as "1.234,56&#x20AC;". A browser displays those identically, which is exactly why this is
+// easy to ship without noticing — but the served document is then neither readable in view-source
+// nor searchable, and on a page whose whole audience is German-speaking that is the wrong default.
+// It was found by CI: every failing assertion contained ä, ² or €, and every passing one was ASCII.
+//
+// **This does not weaken escaping.** The range setting governs which characters may pass through
+// unescaped; the HTML-significant ones (< > & " ') are escaped regardless of range, so the encoding
+// that makes Inspector-typed free text safe on this page is untouched. The document is served as
+// UTF-8 and declares that charset, so the characters are unambiguous on the wire.
+builder.Services.Configure<WebEncoderOptions>(options =>
+{
+    options.TextEncoderSettings = new TextEncoderSettings(UnicodeRanges.All);
+});
 
 // The forwarding handler needs the current request's connection address (D97).
 builder.Services.AddHttpContextAccessor();

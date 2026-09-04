@@ -130,6 +130,15 @@ public sealed class AngebotDocumentTests : IClassFixture<CustomerWebsiteFactory>
     {
         var html = await RenderAsync();
 
+        // Presence is asserted before order, because IndexOf returns -1 for an absent needle and
+        // -1 is less than any real index — so an order-only assertion passes when the first term is
+        // missing entirely. This test did exactly that while the document's non-ASCII text was being
+        // entity-encoded: "Wände abbrechen" was absent, and the comparison still succeeded.
+        foreach (var expected in (string[])["Abriss", "Baustelleneinrichtung", "Wände abbrechen", "Schutt entsorgen"])
+        {
+            Assert.Contains(expected, html, StringComparison.Ordinal);
+        }
+
         Assert.True(
             html.IndexOf("Abriss", StringComparison.Ordinal)
                 < html.IndexOf("Baustelleneinrichtung", StringComparison.Ordinal),

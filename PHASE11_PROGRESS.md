@@ -413,10 +413,29 @@ Fixed by removing the redundant rows and adding a separate `[Fact]` using real `
 
 Every failure was the same symptom: the page returned 200 and rendered `<!DOCTYPE html><html lang="de">…`, and **none of the document was in it** — no section title, no `m²`, no subtotal.
 
-**Cause: `@await Html.PartialAsync(...)` inside a `@switch` case body.** A case body is *code* context, not markup, so the `IHtmlContent` the call returns is simply discarded. The partial executed and nothing reached the page. **No error, no warning, and the build was clean** — the failure is invisible to everything except an assertion on the rendered content.
-
-Fixed with `await Html.RenderPartialAsync(...)`, which writes straight to the output.
+~~**Cause: `@await Html.PartialAsync(...)` inside a `@switch` case body**… the `IHtmlContent` the call returns is simply discarded.~~ — **this diagnosis was wrong; see §6.11.** The partial was rendering all along. `Html.RenderPartialAsync` was adopted and is kept as the explicit form for a code block, but it fixed nothing, and round 5 returned the identical 13 failures.
 
 **The Slice 2 test that should have caught it did not, and it has been strengthened.** `An_available_angebot_shows_its_number` asserted only that the Angebot number appears somewhere in the HTML — and it does, in the `<title>`, which the page still set. It therefore passed while the feature was entirely broken. It now also anchors on the document container and the summary heading, so a page rendering only its chrome fails. This is precisely the pattern `CLAUDE.md` §23 already records from Phase 10: *"a caught error must not be able to make a broken feature look healthy"* — here it was a weak assertion rather than a swallowed exception, with the same result.
 
 **Three rounds, three different Razor context rules** — a directive collision, a code block reopened inside a code block, and a return value discarded in code context. None was visible in review, none is C#, and only the third produced no build error at all.
+
+### 6.11 CI round 5 — the same 13 failures, and the actual cause
+
+**Run [33908019337](https://github.com/Keroleshanna/RenoTrack/actions/runs/33908019337), commit `ee867e9`.** Build clean; `Failed: 13, Passed: 165, Total: 178` — **byte-identical to round 4.** Round 4's fix changed nothing, which is what forced a real diagnosis instead of a second guess.
+
+**The passing tests were the evidence, not the failing ones.**
+
+| Observation | What it ruled out |
+|---|---|
+| `Positions_are_numbered_per_wireframe_a3` passes on `1.001`, `Pos. 1` | The partial renders. Item rows render. |
+| `Free_text_is_html_encoded_not_executed` passes on `&lt;script&gt;` | The item description reaches the page. |
+| `The_document_is_labelled_in_german` passes on `Zwischensumme`, `Einzelpreis` | The table and summary render. |
+| **All 13 failures contain `ä`, `²` or `€`. Every passing content assertion is pure ASCII.** | Leaves exactly one explanation. |
+
+**Cause: ASP.NET Core's default `HtmlEncoder` allows only Basic Latin and escapes everything else to numeric character references.** `Wände` was served as `W&#xE4;nde`, `m²` as `m&#xB2;`, `1.650,00 €` as `1.650,00&#x20AC;`. A browser renders all of those identically to the intended text — which is exactly why this ships unnoticed — but the document is neither readable in view-source nor searchable, and on a page whose entire audience is German-speaking that is the wrong default.
+
+**Fixed by widening `WebEncoderOptions.TextEncoderSettings` to `UnicodeRanges.All`.** This does not weaken escaping: the range governs which characters pass through unescaped, while `< > & " '` are escaped regardless — so the protection over Inspector-typed free text, which `Free_text_is_html_encoded_not_executed` pins, is untouched. The page is served as UTF-8 and declares that charset.
+
+**A second weak assertion was exposed and fixed.** `Sections_and_lines_render_in_server_order` passed throughout, because `IndexOf` returns `-1` for an absent needle and `-1` is less than any real index — so it was ordering text that was not on the page. It now asserts presence before order.
+
+**Round 4's diagnosis was wrong and is withdrawn.** `@await Html.PartialAsync` in a code block was never the defect; the rule it produced has been removed from `CLAUDE.md` §24 and replaced with what the evidence actually supports. `RenderPartialAsync` is kept as the explicit form for a code block, on its own merits. **Five rounds, and the one that cost the most was the one where a plausible cause was accepted without checking what the passing tests already ruled out.**
