@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
 using RenoTrack.Api.RateLimiting;
+using RenoTrack.Api.Security;
 using RenoTrack.Application;
 using RenoTrack.Infrastructure;
 using RenoTrack.Infrastructure.Email;
@@ -40,6 +41,14 @@ builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 // Abuse protection for the anonymous token-link surface (Architecture.md §12, D65). Scoped to the
 // public controller by an opt-in named policy, so no internal route can inherit it by accident.
 builder.Services.AddPublicRateLimiting(builder.Configuration);
+
+// The trust boundary D65 declined to invent, supplied by D97 now that the Website renders the
+// customer page server-side. Built here so a malformed proxy entry fails startup rather than
+// silently shrinking the trust list — a limiter that looks configured and is not would be worse
+// than one that is openly unconfigured.
+var trustedForwarders = builder.Configuration.GetSection(TrustedForwardersOptions.SectionName)
+    .Get<TrustedForwardersOptions>() ?? new TrustedForwardersOptions();
+var forwardedHeadersOptions = trustedForwarders.Build();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -106,6 +115,15 @@ if (app.Environment.IsDevelopment())
     // Interactive API documentation over the document MapOpenApi already serves. Development-only,
     // matching MapOpenApi's own existing guard — the docs are a developer tool, not a public surface.
     app.MapScalarApiReference();
+}
+
+// Before UseRateLimiter, which reads Connection.RemoteIpAddress to choose a partition, and before
+// UseHttpsRedirection, which reads the scheme. With no forwarder configured this is skipped
+// entirely, so the limiter keeps partitioning on the immediate peer exactly as it did before D97 —
+// less precise behind a proxy, never wrong, and never spoofable.
+if (trustedForwarders.IsConfigured)
+{
+    app.UseForwardedHeaders(forwardedHeadersOptions);
 }
 
 app.UseHttpsRedirection();

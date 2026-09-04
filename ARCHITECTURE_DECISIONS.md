@@ -2028,6 +2028,50 @@ Ten tests pin it: five repeated LocalDB races on the aggregate, four on `UnitOfW
 
 ---
 
+## D97 — The Customer Page Is Server-Rendered by `RenoTrack.Website`, and the API's Rate Limiter Finally Gets a Trust Boundary
+
+**Date:** 2026-09-04 (Phase 11, Slice 2). **Status:** Accepted. **No migration.**
+
+### Context
+
+`EmailMessageFactory.CreateAngebotReady` has been composing `{TokenLink:PublicBaseUrl}/angebot/{token}` since Phase 6 (D4.1), and `GET /api/v1/public/angebote/{token}` has answered it since then. Nothing served that URL: `RenoTrack.Website` was still the untouched Razor scaffold. Slice 2 builds the page.
+
+Two questions had to be settled before it could exist: **how the page reaches the API**, and **what that does to D65's rate limiter**.
+
+### Decision
+
+**The page is server-rendered Razor Pages in `RenoTrack.Website`, calling the API through a typed `HttpClient` on the server.** No browser-JS-to-API flow, no SPA, no script on the page at all. The boundary is one interface, `IPublicAngebotClient`, and the Website references no backend project — it mirrors the API's JSON contract in its own types.
+
+**`X-Forwarded-For` is now honoured on both sides, but only from an explicit allowlist.** `TrustedForwardersOptions` (one copy in each application) clears ASP.NET Core's pre-trusted loopback defaults and adds only what `TrustedForwarders:KnownProxies`/`KnownNetworks` name. **Empty is the default and means trust nothing**, in which case `UseForwardedHeaders` is not registered at all and behaviour is byte-for-byte what it was before D97. The Website sends the *connection's* address on each outgoing API call, never a header the customer supplied.
+
+### Why this shape
+
+**Server-side rendering keeps the token out of the browser's script context entirely**, needs no CORS surface (Architecture.md §12 records CORS as still unconfigured), and never discloses the API's origin to the customer. A browser-side flow would have required all three, on the one surface in this system any anonymous holder of a forwarded email can reach.
+
+**Server-side rendering is also what forced the trust boundary.** D65 partitions `/api/v1/public/*` per client IP and deliberately never read `X-Forwarded-For`, because believing a forwarded header with no known proxy trust boundary lets any caller mint a fresh partition per request and defeat the limiter entirely. That was right, and Architecture.md §12 recorded the consequence as a deployment prerequisite. Once the Website calls the API on the customer's behalf, it stops being a prerequisite and becomes a live defect: **every customer would share one 30-per-minute bucket**, so one busy afternoon — or one abusive visitor — throttles everybody else's quote. D97 supplies the half D65 declined to invent, and only that half: a named forwarder, or nothing.
+
+**Fail-closed when unconfigured is the whole design.** A trust list that silently defaults to trusting something is worse than none, because it looks configured. For the same reason a malformed entry **fails startup naming the key** rather than being skipped — a typo that quietly shrinks the list yields a limiter that appears to work and does not. This is the stance `LeadsController.RequestingInspectorId()` takes on role scope and `DevelopmentBootstrap` takes on provisioning: reach the permissive branch only by positively establishing it.
+
+**Nothing the API says reaches the customer.** `CustomerAngebotResult` carries one of four outcomes and never a status code, a ProblemDetails `detail`, an exception message or an internal id. Every mapped exception in the API is authored for an API caller in English and may name an aggregate or an id (D59). This is `CLAUDE.md` §23's Dashboard rule — map the outcome, never render the backend's `detail` — and it matters more here, because the audience is not staff.
+
+**An outage is not a bad link.** `Unavailable` is a distinct outcome from `NotFound` and answers **503**, not 404. Telling a customer their link is invalid when the API is merely unreachable sends them away permanently over a transient fault. Equally, a 200 whose body does not match the contract is reported as an outage, not as a missing quote — the quote may well exist.
+
+**The strict response headers are keyed on a route parameter named `token`**, exactly as `RouteDiagnostics` keys the API's redaction. It covers Slice 4's `{token}/entscheidung` and a future invoice route without anyone maintaining a list of paths. `Referrer-Policy: no-referrer` is not hygiene here: without it every outbound click hands the full token URL to whatever the customer clicked.
+
+**Two framework log sources had to be silenced, and one of them was found in review rather than by design.** `Microsoft.AspNetCore` stays at `Warning` because ASP.NET's hosting diagnostics log every request line at Information, and on `/angebot/{token}` the request line *is* the credential — `appsettings.json` now says so rather than leaving it looking like tidiness. The second was worse: **`IHttpClientFactory` attaches its own logging handlers** that write `Sending HTTP request GET {uri}` at Information, and every URI this Website requests contains the token. Those handlers log under `System.Net.Http.HttpClient.*`, *outside* the `Microsoft.AspNetCore` category, so the existing setting did not cover them and the `Default` level of Information would have written a live credential to every sink on every page view. It is removed **structurally**, with `RemoveAllLoggers()` on the client builder, so no configuration change can reintroduce it; the category is also pinned to `Warning` as defence in depth. **The general rule this produces: when a URL is a credential, enumerate every framework component that logs a URL, not just the obvious one.**
+
+### Consequences
+
+`Architecture.md` §12's "deployment prerequisite, not a code gap" bullet is superseded: the code half exists, and the deployment half is now naming the forwarder rather than accepting a degraded limiter. **A deployment that names none is unchanged, not broken.**
+
+**`TrustedForwardersOptions` is deliberately duplicated** between `RenoTrack.Api` and `RenoTrack.Website` rather than shared. The Website references no backend project (`CLAUDE.md` §1), and inventing a shared library to hold two short lists would breach that boundary to save a few lines.
+
+`RenoTrack.Website.Tests` is the fifth test project and joins CI's **Linux** job, because it deliberately needs no database — the API is stubbed at the `IPublicAngebotClient` boundary. That is a real gain: the customer-facing surface stays verifiable on any OS, unlike the LocalDB-bound suites (D40, D56).
+
+**Not decided here, and deliberately still open:** the rendered quote (Slice 3), the decision buttons and rejection reason (Slices 4–5), link re-issue (Slice 6), and the company identity and legal pages (Slice 7 — `CompanyIdentityOptions` is the structure, and no value is invented).
+
+---
+
 ## Decisions Explicitly Rejected (Collected for Quick Reference)
 
 | Rejected approach | Where | Why rejected |
@@ -2208,4 +2252,11 @@ Ten tests pin it: five repeated LocalDB races on the aggregate, four on `UnitOfW
 | Concurrency tokens on `Angebot` and `Lead` as well as `TokenLink` | D96 | Redundant — EF Core rolls back the loser's whole batch, so a token on the one row that gates the path already protects all three |
 | Mapping `DbUpdateConcurrencyException` in `ProblemDetailsExceptionHandler` | D96 | Pushes a persistence mechanism into the presentation layer's mapping table; §22 records that shape as an accepted risk, not a pattern to extend |
 | Catching `DbUpdateException` (the base) in `UnitOfWork` | D96 | A constraint violation is a defect, not a conflict — dressing it up as a retryable 409 would hide it |
+| A browser-side (JS) customer page calling the API directly | D97 | Puts the token in a script context, needs a CORS surface, and discloses the API origin — on the one endpoint any holder of a forwarded email can reach |
+| Trusting `X-Forwarded-For` unconditionally so the limiter partitions correctly | D97 | Exactly the attack D65 refused to enable: any caller mints a fresh partition per request |
+| Defaulting the trusted-forwarder list to loopback (ASP.NET Core's own default) | D97 | A trust list that trusts something by default is worse than none — it looks configured |
+| Skipping a malformed proxy entry instead of failing startup | D97 | Yields a limiter that appears to work and does not |
+| A shared library for `TrustedForwardersOptions` across Api and Website | D97 | The Website references no backend project (§1); a shared library to hold two short lists would breach that to save a few lines |
+| Rendering the API's ProblemDetails `detail` on the customer page | D97 | Authored for an API caller, in English, and may name an aggregate or an id (D59) |
+| Reporting an API outage as an invalid link | D97 | Sends a customer away permanently over a transient fault |
 | Refusing to remove a line that had been saved to the Catalog | D95 | Invents a rule no document states, and contradicts CLAUDE.md §2's "a draft line is unsent working material" |

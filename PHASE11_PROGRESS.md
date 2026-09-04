@@ -52,8 +52,8 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 
 | # | Slice | Status |
 |---|---|---|
-| **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete, pending CI verification** |
-| 2 | Customer page skeleton — Razor route, server-side API client, the four states, security headers | not started |
+| **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete** — build verified locally (0 errors, 0 warnings); tests blocked by the environment, see §4.5 |
+| **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete, pending CI verification** |
 | 3 | Render the quote (Wireframe A3) | not started |
 | 4 | Accept / Decline | not started |
 | 5 | Rejection reason (Q2) — migration #12 | not started |
@@ -119,3 +119,66 @@ CI is the gate: `.github/workflows/ci.yml` runs on `pull_request` and covers all
 3. **`dotnet ef migrations has-pending-model-changes` → clean.** Migration #11's `.cs`, `.Designer.cs` and the snapshot edit were **hand-produced** because `dotnet ef` was unavailable. The designer file is a byte-for-byte copy of the updated snapshot with the migration header substituted (verified by `diff`), which is exactly what the tool emits — but it has not been machine-verified, and this check is the thing that would catch it if it were wrong.
 
 If (3) reports a pending change, the fix is to delete the three hand-produced artefacts and regenerate with `dotnet ef migrations add AddTokenLinkConcurrencyToken` — never to hand-patch them further (**CLAUDE.md** §21).
+
+### 4.6 Verification outcome (Product Owner, 2026-09-04)
+
+- `dotnet build` — **passed, 0 errors, 0 warnings.**
+- `dotnet test` — **blocked by the environment, not by the code.** Windows Code Integrity / Application Control refuses to load `RenoTrack.Application.dll` (`0x800711C7`, Event 3077, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`). This is the same class of failure `PROJECT_STATE.md` §3 already records as an environment caveat, and it breaks test discovery rather than reporting failures.
+- `dotnet ef migrations has-pending-model-changes` — **inconclusive**, blocked by the same assembly-load refusal at design time.
+
+**Accepted by explicit decision**, with Slice 1 left exactly as written: no change to the concurrency implementation, no change to migration #11, and no project-side workaround for a host security policy. **The migration-artefact check in §4.5 therefore remains outstanding** and falls to CI or a later local run.
+
+---
+
+## 5. Slice 2 — Customer Website Skeleton
+
+### 5.1 What it delivers
+
+The route the customer's email has pointed at since Phase 6. `EmailMessageFactory.CreateAngebotReady` composes `{TokenLink:PublicBaseUrl}/angebot/{token}` (D4.1) and `GET /api/v1/public/angebote/{token}` has answered since Phase 6 — but `RenoTrack.Website` was still the untouched Razor scaffold, so that link resolved to a 404. It now resolves to a page.
+
+**Server-rendered, per Q1** (`ARCHITECTURE_DECISIONS.md` **D97**): Razor Pages, a typed `HttpClient` to the API on the server, no browser-JS-to-API flow, and no script element on a customer page at all.
+
+| Concern | How |
+|---|---|
+| Token entry route | `@page "/angebot/{token}"` on `Pages/Angebot.cshtml`, matching the emailed URL exactly |
+| Backend boundary | `IPublicAngebotClient` → `PublicAngebotClient`, a typed client; the Website references no backend project and mirrors the API's JSON contract in its own types |
+| Error handling | Four outcomes — `Available` (200), `NotFound` (404), `Expired` (410), `Unavailable` (503). Nothing the API says crosses the boundary |
+| Layout | `_CustomerLayout`, separate from the marketing `_Layout`: German, no navigation, responsive, print- and dark-mode aware |
+| Token security | Never rendered, never logged, escaped into the outgoing path, `no-store` / `noindex` / `no-referrer` on token routes |
+| Configuration | `PublicApi:BaseUrl` (required, absolute HTTPS, fails startup), `PublicApi:TimeoutSeconds` (defaults to 10), `CompanyIdentity:*` (optional content), `TrustedForwarders:*` (empty = trust nothing) |
+
+### 5.2 The one thing beyond the eight stated goals, and why
+
+**`X-Forwarded-For` handling on both the Website and the API** (D97, amending **D65**). Not in the eight Slice 2 goals, but mandated by the approved **Q1** answer and, more importantly, made urgent *by this slice*: D65 partitions the public rate limiter per client IP and deliberately never read `X-Forwarded-For` for want of a trust boundary. Once the Website calls the API on the customer's behalf, **every customer would share one 30-per-minute bucket** — one busy afternoon, or one abusive visitor, throttles everyone else's quote. Introducing that regression and deferring the fix is exactly what the Phase 11 assessment warned against.
+
+It is deliberately small and fails closed: **empty allowlist by default**, in which case `UseForwardedHeaders` is never registered and behaviour is byte-for-byte pre-D97. A malformed entry fails startup naming the key.
+
+### 5.3 Design points settled while building
+
+- **There is no "already used" state on the read path, and its absence is correct.** BR-4 makes a token single-use for *decisions* only and says outright that viewing remains allowed; `PermissionMatrix.md` §7 agrees, and `GetPublicAngebotByTokenQueryHandler` deliberately does not check `UsedAt`. A consumed link therefore reads exactly like an unconsumed one. Consumption matters on the decision surface, which is Slice 4's.
+- **An outage is a distinct outcome from an invalid link**, answering 503 rather than 404, because conflating them tells a customer to abandon a link that is perfectly good.
+- **HTTPS is required for `PublicApi:BaseUrl` in every environment, including Development.** The customer's token travels in that request's path, so `dotnet dev-certs https --trust` is a documented prerequisite rather than a plaintext escape hatch being added.
+- **The Development API URL lives in `Properties/launchSettings.json`**, which is tracked, rather than `appsettings.Development.json`, which is gitignored — a value there would work on one machine and fail on every fresh clone.
+- **A token-disclosure defect was found reviewing this slice's own diff, and fixed before commit.** `IHttpClientFactory` attaches logging handlers that write `Sending HTTP request GET {uri}` at Information, and every URI this Website requests contains the customer's token. They log under `System.Net.Http.HttpClient.*`, *outside* the `Microsoft.AspNetCore` category the site already pins to `Warning`, so at the `Default` level of Information a live credential would have reached every log sink on every page view. Removed structurally with `RemoveAllLoggers()` — a configuration change cannot reintroduce it — with the category pinned to `Warning` as well. **The general rule, now in `CLAUDE.md` §24: when a URL is a credential, enumerate every framework component that logs a URL, not just the obvious one.**
+
+### 5.4 Files changed
+
+**New — `src/RenoTrack.Website`:** `PublicApi/{PublicApiOptions, CustomerAngebot, IPublicAngebotClient, PublicAngebotClient, ClientAddressForwardingHandler}.cs`, `Security/{TrustedForwardersOptions, CustomerSecurityHeaders}.cs`, `Content/CompanyIdentityOptions.cs`, `Pages/Angebot.cshtml{,.cs}`, `Pages/Shared/_CustomerLayout.cshtml`, `wwwroot/css/customer.css`.
+**Modified — Website:** `Program.cs`, `appsettings.json`, `Properties/launchSettings.json`, `RenoTrack.Website.csproj`.
+**New — API:** `Security/TrustedForwardersOptions.cs`. **Modified — API:** `Program.cs`, `appsettings.json`.
+**New — tests:** `tests/RenoTrack.Website.Tests/` (project, `CustomerWebsiteFactory`, `PublicApi/{StubHttpMessageHandler, PublicAngebotClientTests, PublicApiOptionsTests, ClientAddressForwardingHandlerTests}`, `Security/TrustedForwardersOptionsTests`, `Pages/{AngebotModelTests, AngebotPageTests}`).
+**Modified:** `RenoTrack.slnx`, `.github/workflows/ci.yml`, `ARCHITECTURE_DECISIONS.md` (D97), `CLAUDE.md` (§24), `Architecture.md` (§2, §12), `PROJECT_STATE.md`, `NEXT_STEPS.md`.
+
+**Sixty-two tests**, all database-free and therefore running in CI's **Linux** job. Nothing was added to the Windows job.
+
+### 5.5 Deliberately not in this slice
+
+Angebot rendering and details (Slice 3), Accept/Decline and `DecisionReason` (Slices 4–5), link re-issue (Slice 6), the contact form (Phase 13), real company and legal content (Slice 7), and the development SMTP sink (Q5, folded into Slice 8's end-to-end run). `CustomerAngebot` carries one field because one field is what the skeleton renders — §7's growth-on-demand discipline, not an omission.
+
+### 5.6 Verification status
+
+**Unchanged from Slice 1: this environment has no .NET SDK** (`builds.dotnet.microsoft.com` is blocked by egress policy), so `dotnet build` and `dotnet test` were **not run** for Slice 2 either. Every file was reviewed by hand against the conventions above.
+
+CI is the gate, and for this slice it is a genuinely strong one: **all sixty-two new tests run in the Linux job**, which needs no LocalDB and is unaffected by the Windows Application Control policy that blocked local verification. A green `build-and-test` job therefore verifies essentially all of Slice 2.
+
+Most likely places for a compile error, since nothing was compiled: the Razor pages and layout (not type-checked by inspection), `WebApplicationFactory<Program>` resolving the Website's internal `Program`, the framework's `IPNetwork` overload in `TrustedForwardersOptions.Build` (deliberately written as a target-typed `new` to survive either namespace), and `RemoveAll<IPublicAngebotClient>` in the test factory.

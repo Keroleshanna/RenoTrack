@@ -1,0 +1,176 @@
+/*
+  The customer-facing token-link pages (Wireframe A3).
+
+  Deliberately hand-written and self-contained rather than Bootstrap: this is one document read
+  once by one person, and pulling in the marketing site's framework would ship a stylesheet and a
+  grid system to render four paragraphs. It is also the same stance CLAUDE.md §23 records for the
+  Dashboard — behaviour from a library where it earns its place, the visual layer ours.
+
+  No JavaScript is loaded on these pages at all. The customer flow is server-rendered end to end
+  (D97), so there is nothing for a script to do, and the fewer things that run beside a page whose
+  URL is a credential, the better.
+*/
+
+:root {
+    --ink: #1c2128;
+    --ink-muted: #5b6672;
+    --ink-faint: #7b8794;
+    --surface: #ffffff;
+    --page: #f5f6f8;
+    --line: #e2e5ea;
+    --accent: #1f4b7a;
+    --radius: 10px;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 1rem;
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* One shared measure, so header, content and footer align on every screen size. */
+.customer-shell {
+    width: 100%;
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+}
+
+.customer-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 1.25rem 0;
+}
+
+.customer-brand {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--accent);
+}
+
+.customer-main {
+    flex: 1 0 auto;
+    padding-top: 2.5rem;
+    padding-bottom: 3rem;
+}
+
+.customer-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 2rem;
+}
+
+.customer-card-notice {
+    border-left: 3px solid var(--accent);
+}
+
+.customer-eyebrow {
+    margin: 0 0 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+}
+
+.customer-title {
+    margin: 0 0 1rem;
+    font-size: 1.625rem;
+    font-weight: 600;
+    line-height: 1.25;
+    /* An Angebot number must never be broken across lines by a narrow screen. */
+    overflow-wrap: break-word;
+}
+
+.customer-lead {
+    margin: 0 0 0.75rem;
+    color: var(--ink-muted);
+}
+
+.customer-hint {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--ink-faint);
+}
+
+.customer-footer {
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding: 1.25rem 0;
+}
+
+.customer-footer-line {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--ink-faint);
+}
+
+.customer-contact {
+    display: inline-block;
+    margin-left: 0.75rem;
+    color: var(--ink-muted);
+}
+
+@media (max-width: 30rem) {
+    .customer-card {
+        padding: 1.5rem 1.25rem;
+    }
+
+    .customer-title {
+        font-size: 1.375rem;
+    }
+
+    /* Stacked, so two contact details never crowd each other on a phone. */
+    .customer-contact {
+        display: block;
+        margin-left: 0;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ink: #e8eaed;
+        --ink-muted: #b3bac3;
+        --ink-faint: #929aa5;
+        --surface: #1b1f24;
+        --page: #121519;
+        --line: #2c323a;
+        --accent: #7fb0e0;
+    }
+}
+
+/* Ink on white, no page furniture: a customer printing their quote should get the document. */
+@media print {
+    body {
+        background: #ffffff;
+    }
+
+    .customer-header,
+    .customer-footer {
+        border: 0;
+    }
+
+    .customer-card {
+        border: 0;
+        padding: 0;
+    }
+}

@@ -25,10 +25,15 @@ jobs:
       - name: Build
         run: dotnet build RenoTrack.slnx --no-restore --configuration Release
 
-      - name: Test (Domain, Application)
+      # RenoTrack.Website.Tests joins this job rather than the Windows one: it deliberately needs no
+      # database. The customer-facing surface is stubbed at the IPublicAngebotClient boundary
+      # (D97), so it runs on any OS — which is the point, since the LocalDB-backed suites cannot
+      # run here at all (D56).
+      - name: Test (Domain, Application, Website)
         run: |
           dotnet test tests/RenoTrack.Domain.Tests/RenoTrack.Domain.Tests.csproj --no-build --configuration Release
           dotnet test tests/RenoTrack.Application.Tests/RenoTrack.Application.Tests.csproj --no-build --configuration Release
+          dotnet test tests/RenoTrack.Website.Tests/RenoTrack.Website.Tests.csproj --no-build --configuration Release
 
   # RenoTrack.Infrastructure.Tests deliberately runs against real SQL Server LocalDB, never EF
   # Core InMemory or SQLite (D40) — LocalDB doesn't enforce the unique constraints, FKs, or

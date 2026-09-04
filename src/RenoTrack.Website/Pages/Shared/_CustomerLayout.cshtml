@@ -1,0 +1,73 @@
+@using Microsoft.Extensions.Options
+@using RenoTrack.Website.Content
+@inject IOptions<CompanyIdentityOptions> CompanyIdentity
+@{
+    var company = CompanyIdentity.Value;
+}
+@*
+    The customer-facing layout, deliberately separate from _Layout.cshtml.
+
+    _Layout is the marketing site's chrome (Phase 13 owns it) and carries site navigation. This one
+    carries none: a token-link page is a document handed to one person, not an entry point into a
+    site, and every link on it is a chance for the customer to lose the page they were sent to.
+    PermissionMatrix.md §7 grants a token holder exactly two things — view, and decide — so anything
+    else on screen would imply access they do not have.
+
+    German only (Phase 11 Q8). The Dashboard's runtime language switch (D79) is a staff feature;
+    a customer receives a German email and follows it to a German page.
+*@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    @* Belt and braces alongside the X-Robots-Tag header: the URL is a credential. *@
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="referrer" content="no-referrer" />
+    <title>@ViewData["Title"]@(company.HasDisplayName ? $" · {company.DisplayName}" : string.Empty)</title>
+    <link rel="stylesheet" href="~/css/customer.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="customer-header">
+        <div class="customer-shell">
+            @*
+                Rendered only when configured. No placeholder name is invented (Q7) — a fabricated
+                company name on a page a real customer reads would be worse than a plain one.
+            *@
+            @if (company.HasDisplayName)
+            {
+                <p class="customer-brand">@company.DisplayName</p>
+            }
+        </div>
+    </header>
+
+    <main class="customer-shell customer-main">
+        @RenderBody()
+    </main>
+
+    <footer class="customer-footer">
+        <div class="customer-shell">
+            @if (company.HasContactDetails)
+            {
+                <p class="customer-footer-line">
+                    Fragen zu Ihrem Angebot?
+                    @if (!string.IsNullOrWhiteSpace(company.ContactPhone))
+                    {
+                        <span class="customer-contact">@company.ContactPhone</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(company.ContactEmail))
+                    {
+                        <span class="customer-contact">@company.ContactEmail</span>
+                    }
+                </p>
+            }
+            @*
+                Impressum and Datenschutzerklärung are legally required for a German public site
+                (FR-1.4) and are Slice 7's, together with the company identity above. They are
+                deliberately absent rather than stubbed: a link to an empty legal page is worse than
+                no link, and inventing the text is exactly what Q7 forbids.
+            *@
+        </div>
+    </footer>
+</body>
+</html>
