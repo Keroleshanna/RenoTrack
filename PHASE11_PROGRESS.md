@@ -54,7 +54,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 |---|---|---|
 | **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete** — build verified locally (0 errors, 0 warnings); tests blocked by the environment, see §4.5 |
 | **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete, pending CI verification** |
-| 3 | Render the quote (Wireframe A3) | not started |
+| **3** | Render the quote (Wireframe A3) **and its decision state** | in progress |
 | 4 | Accept / Decline | not started |
 | 5 | Rejection reason (Q2) — migration #12 | not started |
 | 6 | Token re-issue (Q3) | not started |
@@ -282,3 +282,46 @@ The second round-3 failure — `A_malformed_network_fails_startup_naming_the_key
 **`0.0.0.0/0` is deliberately not covered.** It is canonical and would be accepted, and it trusts every address on the internet. Rejecting it would be a new production rule beyond Option B's approved scope, and a test asserting acceptance would enshrine something questionable — so neither was written. **Recorded as a follow-up in `NEXT_STEPS.md`.**
 
 **The other failure** — `PublicApiOptionsTests.A_relative_base_url_fails_startup("/api/v1")` — was a wrong expectation about *which* guard fires. `/api/v1` is refused either way, but on Unix `Uri.TryCreate(…, UriKind.Absolute, …)` succeeds with the `file` scheme, so the HTTPS guard rejects it, while on Windows the absolute-URL guard does. **Neither branch is pinned:** the test now asserts only that the value is refused and that the message names the key, both true on every OS. Pinning the Linux branch would have passed in CI and failed on a contributor's Windows machine — the exact failure mode `CLAUDE.md` §22 records for `Path.GetInvalidFileNameChars()`.
+
+---
+
+## 6. Slice 3 — Customer Angebot Rendering
+
+### 6.1 Approved design
+
+Reviewed and approved on 2026-09-04. The proposal is summarised here so the branch carries its own decision record.
+
+**The headline is that almost nothing changes outside `RenoTrack.Website`.** `PublicAngebotDto` was built complete in Phase 6 and already carries every field Wireframe A3 renders, so Slice 3 grows the Website's mirrored type from Slice 2's single skeleton field and renders it. `GET /api/v1/public/angebote/{token}` is unchanged, there is no new endpoint, no schema, no migration, and no permission change — `PermissionMatrix.md` §7 already grants "View Angebot via token link".
+
+| Question | Decision |
+|---|---|
+| **Q1** — commercial validity date ("gültig bis") | **No.** `TokenLink.ExpiresAt` is not exposed. Token expiry and commercial offer validity are different business rules, and conflating them would tell the customer something the business never decided. |
+| **Q2** — document date | **No.** `CreatedAt`/`SentAt` are not added to the public contract for this page. Wireframe A3 shows neither. |
+| **Q3** — quantity formatting | Explicit `de-DE`, up to 2 decimals, trailing zeros trimmed: `10`, `2,5`, `0,75`. **Never the ambient server culture.** |
+| **Q4** — decision state | **Rendered — this reverses the proposal's recommendation.** `PublicAngebotDto` already carries `decision`, and BR-4 lets a customer re-read a quote they have already answered; showing a decided Angebot exactly like a pending one is misleading. |
+
+### 6.2 Q4 in detail — what Slice 3 does and does not do
+
+The responsibilities stay split at the same line as before; only the *read* half moves forward.
+
+**Slice 3 renders the current decision state.** `Pending` renders the document as normal. `Approved` and `Rejected` render the same document plus a clear German status message saying the Angebot was already accepted or rejected. Nothing internal is exposed — no ids, no employee information, no token, and **no internal status vocabulary**: the customer is told what they did, not that the aggregate is in `CustomerApproved`.
+
+**Slice 3 performs no mutation.** Accept/Decline, the decision request, the concurrency handling (D96) and the resulting state transitions all remain Slice 4's. **Decision mutation logic must not move into Slice 3.**
+
+**`decisionAt` is deliberately not rendered and not mirrored into the Website's type.** The status message conveys the state without it, and rendering a UTC timestamp as a German date raises a timezone-policy question no document answers. Slice 4 can add it if it needs it — the growth-on-demand discipline `CLAUDE.md` §7 applies to this DTO like any other.
+
+### 6.3 The one API-side change
+
+**Deterministic item ordering.** `PublicAngebotMappingExtensions.ToPublicDto` orders sections explicitly (`SortOrder`, then `Id`) but does **not** order items, and `AngebotItem` has no `SortOrder` column. EF Core issues no `ORDER BY` for the collection, so item order is whatever SQL Server returns — usually clustered-index order, but not guaranteed. A priced document that can reorder its own lines between two reads is not a document, and the position numbers Wireframe A3 shows (`1.001`) are meaningless without it.
+
+`.OrderBy(item => item.Id)` — insertion order, which is the order the Inspector entered the lines. No schema, no new field. **This is the only production change outside the Website.**
+
+### 6.4 Sequencing
+
+Three checkpoints on one branch: **3a** ordering + its test, **3b** the mirrored contract + deserialization tests, **3c** rendering + formatting/safety/edge tests.
+
+**These are planned checkpoints, not claims.** None is green until CI proves it — the Slices 1–2 record (three defects, none found by inspection) is why that distinction is written down rather than assumed.
+
+### 6.5 Out of scope
+
+Accept/Decline and `DecisionReason` (Slice 4–5), link re-issue (6), company and legal identity and the A3 logo (7), PDF (Phase 14, gap `G-4`), the contact form (Phase 13). No unrelated refactors.
