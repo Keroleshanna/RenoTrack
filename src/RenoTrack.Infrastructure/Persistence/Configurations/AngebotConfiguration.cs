@@ -53,6 +53,13 @@ public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
         builder.Property(a => a.ReviewedByAdminId);
         builder.Property(a => a.SentAt);
         builder.Property(a => a.DecisionAt);
+
+        // FR-6.3's optional rejection reason (D98, migration #12). Nullable with no default and no
+        // sentinel: NULL means "not given", which is true of every historical rejection and of any
+        // future one the customer leaves blank. The length matches
+        // Angebot.MaxDecisionReasonLength rather than repeating 1000, so the column and the
+        // aggregate's own guard cannot drift apart.
+        builder.Property(a => a.DecisionReason).HasMaxLength(Angebot.MaxDecisionReasonLength);
         builder.Property(a => a.CreatedAt).IsRequired();
 
         builder.Property(a => a.NetTotal)

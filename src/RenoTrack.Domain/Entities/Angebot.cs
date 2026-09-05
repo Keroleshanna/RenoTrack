@@ -34,6 +34,32 @@ public sealed class Angebot
     public DateTime? DecisionAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>
+    /// The optional reason a customer may give when rejecting (SRS FR-6.3, Wireframe A3, D98).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Rejection-only, and immutable once recorded.</b> Only
+    /// <see cref="RecordCustomerRejection"/> ever writes it — <see cref="RecordCustomerApproval"/>
+    /// deliberately takes no such parameter, because an approval has nothing to justify and a
+    /// parameter would invite a caller to store one anyway. There is no method to change or clear
+    /// it: the decision it belongs to is terminal and single-use under BR-4, so the reason is part
+    /// of a finished record (BR-12's stance applied to a field rather than a row).
+    /// </para>
+    /// <para>
+    /// <c>null</c> means "not given" and is the honest value for every rejection without one and
+    /// every historical row — there is no sentinel.
+    /// </para>
+    /// </remarks>
+    public string? DecisionReason { get; private set; }
+
+    /// <summary>
+    /// The stored maximum for <see cref="DecisionReason"/>, matching `Angebote.DecisionReason`'s
+    /// <c>nvarchar(1000)</c> (migration #12). Public so the Application layer's shape validator
+    /// states the same number rather than repeating a literal that could drift from this one.
+    /// </summary>
+    public const int MaxDecisionReasonLength = 1000;
+
     public IReadOnlyList<AngebotSection> Sections => _sections;
 
     /// <summary>
@@ -306,12 +332,52 @@ public sealed class Angebot
         DecisionAt = DateTime.UtcNow;
     }
 
-    /// <summary>StateMachine.md §2.3: <c>Sent → CustomerRejected</c> (terminal). Same TokenLink precondition as <see cref="RecordCustomerApproval"/>.</summary>
-    public void RecordCustomerRejection()
+    /// <summary>
+    /// StateMachine.md §2.3: <c>Sent → CustomerRejected</c> (terminal). Same TokenLink
+    /// precondition as <see cref="RecordCustomerApproval"/>.
+    /// </summary>
+    /// <param name="reason">
+    /// FR-6.3's optional reason. Trimmed; whitespace-only becomes <c>null</c>, so "", "   " and
+    /// absent are one stored state rather than three.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// The reason exceeds <see cref="MaxDecisionReasonLength"/>.
+    /// </exception>
+    /// <remarks>
+    /// <b>The length guard lives here and not in the constructor</b>, deliberately: EF Core
+    /// materialises a persisted row by calling the private constructor, so a guard there would run
+    /// on every read and throw on a value the database legitimately holds — the `TokenLink`
+    /// lesson recorded in `CLAUDE.md` §2. A rule about what may be *recorded* belongs to the
+    /// method that records it.
+    ///
+    /// <para>
+    /// The Application layer validates the same length first, to produce a field-keyed 400 rather
+    /// than an exception. That is a friendlier front door, not a substitute — this guard is the
+    /// backstop, and it is what a caller reaching the Domain directly still meets (§5).
+    /// </para>
+    /// <para>
+    /// <b>The parameter is optional rather than required</b>, because FR-6.3's reason genuinely is
+    /// optional and <c>RecordCustomerRejection(null)</c> reads worse than
+    /// <c>RecordCustomerRejection()</c> at the call sites that mean "no reason". The guarantee that
+    /// the real caller actually passes one is executable rather than compiler-enforced: an
+    /// end-to-end test asserts a submitted reason reaches this aggregate and is persisted.
+    /// </para>
+    /// </remarks>
+    public void RecordCustomerRejection(string? reason = null)
     {
         EnsureStatus(AngebotStatus.Sent, nameof(RecordCustomerRejection));
+
+        var trimmed = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        if (trimmed is not null && trimmed.Length > MaxDecisionReasonLength)
+        {
+            throw new ArgumentException(
+                $"A rejection reason may be at most {MaxDecisionReasonLength} characters.",
+                nameof(reason));
+        }
+
         Status = AngebotStatus.CustomerRejected;
         DecisionAt = DateTime.UtcNow;
+        DecisionReason = trimmed;
     }
 
     /// <summary>

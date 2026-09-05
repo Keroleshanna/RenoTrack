@@ -1,3 +1,4 @@
+using System.Reflection;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
 using RenoTrack.Domain.ValueObjects;
@@ -444,6 +445,142 @@ public class AngebotTests
         angebot.RecordCustomerRejection();
 
         Assert.NotNull(angebot.DecisionAt);
+    }
+
+    // ---- FR-6.3's optional rejection reason (D98) --------------------
+
+    [Fact]
+    public void RecordCustomerRejection_StoresTheReason()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+
+        angebot.RecordCustomerRejection("Zu teuer im Vergleich zum Wettbewerb.");
+
+        Assert.Equal("Zu teuer im Vergleich zum Wettbewerb.", angebot.DecisionReason);
+    }
+
+    [Fact]
+    public void RecordCustomerRejection_TrimsTheReason()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+
+        angebot.RecordCustomerRejection("   Zu teuer.\n  ");
+
+        Assert.Equal("Zu teuer.", angebot.DecisionReason);
+    }
+
+    /// <summary>
+    /// "", "   " and absent are one stored state, not three — so nothing downstream has to decide
+    /// whether an empty string means "gave no reason" or "gave an empty reason".
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n ")]
+    public void RecordCustomerRejection_TreatsBlankAsNoReason(string? reason)
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+
+        angebot.RecordCustomerRejection(reason);
+
+        Assert.Null(angebot.DecisionReason);
+    }
+
+    [Fact]
+    public void RecordCustomerRejection_AcceptsTheReasonAtExactlyTheLimit()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+        var atLimit = new string('x', Angebot.MaxDecisionReasonLength);
+
+        angebot.RecordCustomerRejection(atLimit);
+
+        Assert.Equal(atLimit, angebot.DecisionReason);
+    }
+
+    /// <summary>
+    /// The Domain is the backstop, not the Application validator (§5). A caller reaching this
+    /// method directly still meets the limit.
+    /// </summary>
+    [Fact]
+    public void RecordCustomerRejection_RejectsAReasonOverTheLimit()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+        var tooLong = new string('x', Angebot.MaxDecisionReasonLength + 1);
+
+        var exception = Assert.Throws<ArgumentException>(() => angebot.RecordCustomerRejection(tooLong));
+
+        Assert.Equal("reason", exception.ParamName);
+        Assert.Null(angebot.DecisionReason);
+        Assert.Equal(AngebotStatus.Sent, angebot.Status);
+    }
+
+    /// <summary>
+    /// Trimming happens before the length check, so 1000 characters padded with whitespace is
+    /// accepted rather than refused for being 1002 long.
+    /// </summary>
+    [Fact]
+    public void RecordCustomerRejection_MeasuresTheReasonAfterTrimming()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+        var padded = "  " + new string('x', Angebot.MaxDecisionReasonLength) + "  ";
+
+        angebot.RecordCustomerRejection(padded);
+
+        Assert.Equal(Angebot.MaxDecisionReasonLength, angebot.DecisionReason!.Length);
+    }
+
+    /// <summary>An approval has nothing to justify, and D98 keeps it that way structurally.</summary>
+    [Fact]
+    public void RecordCustomerApproval_NeverStoresAReason()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Sent);
+
+        angebot.RecordCustomerApproval();
+
+        Assert.Null(angebot.DecisionReason);
+    }
+
+    /// <summary>
+    /// D98's structural half of "an approval carries no reason": the API's 400 is the friendly
+    /// refusal, but the aggregate offers no overload that could store one even if a caller wanted
+    /// to. Asserted by reflection, per §14, because a comment is not a guarantee.
+    /// </summary>
+    [Fact]
+    public void RecordCustomerApproval_HasNoOverloadThatCouldTakeAReason()
+    {
+        var overloads = typeof(Angebot)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => method.Name == nameof(Angebot.RecordCustomerApproval))
+            .ToList();
+
+        var overload = Assert.Single(overloads);
+        Assert.Empty(overload.GetParameters());
+    }
+
+    /// <summary>
+    /// The reason is immutable once recorded (D98): the decision is terminal and single-use under
+    /// BR-4, so there is no member that can change or clear it. Reflection rather than a comment,
+    /// and it names what it is looking for so a future `ClearDecisionReason` fails here first.
+    /// </summary>
+    [Fact]
+    public void DecisionReason_HasNoPublicWriterOfAnyKind()
+    {
+        var setter = typeof(Angebot).GetProperty(nameof(Angebot.DecisionReason))!.SetMethod;
+        Assert.NotNull(setter);
+        Assert.False(setter.IsPublic, "DecisionReason must not have a public setter.");
+
+        // IsSpecialName excludes the property's own accessors — get_DecisionReason is a public
+        // method whose name contains "DecisionReason", and reading it is exactly what the
+        // Dashboard needs. What must not exist is a real method that writes it.
+        var mutators = typeof(Angebot)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => !method.IsSpecialName)
+            .Where(method => method.Name.Contains("DecisionReason", StringComparison.Ordinal))
+            .Select(method => method.Name)
+            .ToList();
+
+        Assert.Empty(mutators);
     }
 
     // ---- Test helpers ------------------------------------------------
