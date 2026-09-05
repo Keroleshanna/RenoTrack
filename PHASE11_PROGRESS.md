@@ -57,7 +57,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
 | **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
-| **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and approved, awaiting merge** — design and all three commits approved 2026-09-05 (§9), **D99**; PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23) open as a draft, CI green on both jobs, browser QA passed (§9.6, §9.7) |
+| **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and merged** — PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23), merge commit `314f486`; CI green on both jobs including Windows/LocalDB, browser QA passed (§9.6, §9.7), **D99** |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
@@ -776,6 +776,6 @@ It also **strengthens** the customer path: a decision arriving through a link su
 
 **The published bundle the browser QA ran against was verified rather than assumed.** Its timestamp was *older* than the source files', which a `git stash`/`stash pop` during a formatting comparison had rewritten with identical content. Rather than reason about that, the committed source was built to a separate directory and every emitted JS chunk hashed identically to the bundle under test. **A build output's mtime is not evidence about its provenance** — an ordinary git operation can invert it — so where a QA result depends on which code was running, compare the artefacts.
 
-**PR #23 is not merged as of this entry.** Slice 6's work is complete and accepted; the merge is a separate authorisation.
+**Merged as `314f486`** on 2026-09-05, a true merge commit whose parents are `5514b17` (Slice 5's merge) and `98e8b97` (this slice's head).
 
 **What Slice 6 leaves for later, unchanged:** OQ-4's revise-and-resend, a filtered unique index (Mechanism 3, explicitly declined for this slice), and everything in Slice 7+.
