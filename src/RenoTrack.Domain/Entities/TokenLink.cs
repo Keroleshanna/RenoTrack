@@ -119,4 +119,48 @@ public sealed class TokenLink
 
         UsedAt = now;
     }
+
+    /// <summary>
+    /// Supersedes this link by closing its validity window now (FR-6.1a, <b>D99</b>). Called when an
+    /// Admin re-issues the customer's link, immediately before the replacement is created in the
+    /// same transaction.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The link has already carried a decision. BR-4 makes that terminal: a link whose decision is
+    /// recorded is finished, and there is nothing left to supersede.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Expiry rather than <see cref="UsedAt"/>, and rather than a new column.</b> <c>UsedAt</c>
+    /// means "a decision was recorded through this link" (BR-4) <i>and</i> is the optimistic
+    /// concurrency token D96 added; writing it here would make the audit trail lie and corrupt the
+    /// decision race. A separate <c>RevokedAt</c> would be schema plus a third "why is this link
+    /// dead?" state for an outcome the customer page already answers correctly — a superseded link
+    /// <i>is</i> expired, and that page already offers to send a new one.
+    /// </para>
+    /// <para>
+    /// <b>This method always writes, even when the link has already lapsed, and that is
+    /// load-bearing rather than lazy.</b> <c>ExpiresAt</c> is an optimistic-concurrency token
+    /// (D99), so the <c>UPDATE</c> this assignment produces is what carries
+    /// <c>WHERE ExpiresAt = @original</c> — the predicate that lets exactly one of two concurrent
+    /// re-issues win. An implementation that "helpfully" skipped the write for an already-expired
+    /// link would emit no <c>UPDATE</c> at all, leaving no predicate and silently removing the
+    /// serialisation for precisely the case re-issue exists to serve: a customer whose link lapsed
+    /// before they answered. A test pins the write.
+    /// </para>
+    /// <para>
+    /// Deliberately does not guard on already being expired: re-issuing a lapsed link is the most
+    /// valuable case, not an error.
+    /// </para>
+    /// </remarks>
+    public void Expire()
+    {
+        if (UsedAt is not null)
+        {
+            throw new InvalidOperationException(
+                $"Token link {Id} was already used at {UsedAt:O} and cannot be superseded (BR-4).");
+        }
+
+        ExpiresAt = DateTime.UtcNow;
+    }
 }

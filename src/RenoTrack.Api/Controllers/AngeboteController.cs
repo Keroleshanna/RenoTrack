@@ -11,6 +11,7 @@ using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.ResendAngebot;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
@@ -73,7 +74,8 @@ public sealed class AngeboteController(
     ICommandHandler<RequestAngebotChangesCommand, AngebotDto> requestChangesHandler,
     IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>> getReviewCommentsHandler,
     ICommandHandler<DuplicateAngebotCommand, AngebotDto> duplicateHandler,
-    ICommandHandler<SendAngebotCommand, AngebotDto> sendHandler) : ControllerBase
+    ICommandHandler<SendAngebotCommand, AngebotDto> sendHandler,
+    ICommandHandler<ResendAngebotCommand, AngebotDto> resendHandler) : ControllerBase
 {
     /// <summary>
     /// Creates a Draft Angebot for a Lead (SRS FR-4.1). Owning Inspector only.
@@ -437,6 +439,42 @@ public sealed class AngeboteController(
     {
         var angebot = await sendHandler.HandleAsync(
             new SendAngebotCommand(id, SentByAdminId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// Re-issues the customer's token link (SRS FR-6.1a, <b>D99</b>). Admin only, "F".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For a lost email, a link that lapsed before the Lead answered, or a corrected address. The
+    /// previous link is superseded — expired, never deleted and never marked used — in the same
+    /// transaction that creates its replacement, so a Lead never holds two working links.
+    /// </para>
+    /// <para>
+    /// <b>The response carries no token</b>, for the reason <c>Send</c> records above: the
+    /// credential's whole security model is that only the customer who receives the email knows it.
+    /// </para>
+    /// <para>
+    /// <b>409 covers three distinct refusals, all of them "the state says no"</b>: the Angebot is
+    /// not <c>Sent</c>; the existing link already carried the customer's decision (BR-4); or a
+    /// concurrent re-issue or decision won the race — in which case nothing at all was written,
+    /// because EF rolls the losing batch back and takes its staged replacement with it.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/resend")]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Resend(int id, CancellationToken cancellationToken)
+    {
+        var angebot = await resendHandler.HandleAsync(
+            new ResendAngebotCommand(id, ResentByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(angebot);

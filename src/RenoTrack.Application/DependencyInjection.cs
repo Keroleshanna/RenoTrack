@@ -7,6 +7,7 @@ using RenoTrack.Application.Angebote.Commands.CreateAngebot;
 using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
 using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
+using RenoTrack.Application.Angebote.Commands.ResendAngebot;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
@@ -164,6 +165,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<UpdateAngebotItemCommand>, UpdateAngebotItemCommandValidator>();
         services.AddScoped<IValidator<DuplicateAngebotCommand>, DuplicateAngebotCommandValidator>();
         services.AddScoped<IValidator<SendAngebotCommand>, SendAngebotCommandValidator>();
+        services.AddScoped<IValidator<ResendAngebotCommand>, ResendAngebotCommandValidator>();
         services.AddScoped<IValidator<GetPublicAngebotByTokenQuery>, GetPublicAngebotByTokenQueryValidator>();
         services.AddScoped<IValidator<RecordAngebotDecisionCommand>, RecordAngebotDecisionCommandValidator>();
 
@@ -214,6 +216,7 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<UpdateAngebotItemCommand, AngebotSummaryDto>, UpdateAngebotItemCommandHandler>();
         services.AddScoped<ICommandHandler<DuplicateAngebotCommand, AngebotDto>, DuplicateAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<SendAngebotCommand, AngebotDto>, SendAngebotCommandHandler>();
+        services.AddScoped<ICommandHandler<ResendAngebotCommand, AngebotDto>, ResendAngebotCommandHandler>();
 
         // The customer's own decision — last in the Angebot workflow, and the only path to Lead Won/Lost.
         services.AddScoped<ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto>, RecordAngebotDecisionCommandHandler>();

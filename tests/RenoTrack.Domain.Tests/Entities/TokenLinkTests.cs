@@ -203,4 +203,86 @@ public class TokenLinkTests
 
         Assert.Null(link.UsedAt);
     }
+
+    // ---- Expire: superseding a link on re-issue (FR-6.1a, D99) -------------------------------
+
+    [Fact]
+    public void Expire_ClosesTheValidityWindowImmediately()
+    {
+        var link = CreateValid();
+
+        link.Expire();
+
+        Assert.True(link.IsExpired(DateTime.UtcNow));
+    }
+
+    /// <summary>
+    /// <b>The load-bearing test of this slice.</b> D99 makes <c>ExpiresAt</c> an optimistic-
+    /// concurrency token, so the <c>UPDATE</c> this write produces is what carries
+    /// <c>WHERE ExpiresAt = @original</c> — the predicate that lets exactly one of two concurrent
+    /// re-issues win. An implementation that skipped the write for an already-lapsed link would
+    /// emit no <c>UPDATE</c>, leaving no predicate and silently removing the serialisation for
+    /// precisely the case re-issue exists to serve.
+    ///
+    /// <para>
+    /// Asserted as "the value changed", which is what EF needs to see, rather than as "it is now
+    /// expired" — the latter is already true beforehand and would pass without any write at all.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Expire_StillWritesWhenTheLinkHasAlreadyLapsed()
+    {
+        var link = CreateValid(lifetime: TimeSpan.FromMilliseconds(50));
+        Thread.Sleep(120);
+        var lapsedAt = link.ExpiresAt;
+        Assert.True(link.IsExpired(DateTime.UtcNow), "precondition: the link must already be expired");
+
+        link.Expire();
+
+        Assert.NotEqual(lapsedAt, link.ExpiresAt);
+        Assert.True(link.ExpiresAt > lapsedAt);
+    }
+
+    /// <summary>
+    /// BR-4 makes a decided link terminal: there is nothing left to supersede, and the Application
+    /// layer turns this into a 409 rather than issuing a replacement for a finished conversation.
+    /// </summary>
+    [Fact]
+    public void Expire_RefusesALinkThatAlreadyCarriedADecision()
+    {
+        var link = CreateValid();
+        link.MarkUsed();
+        var expiryBefore = link.ExpiresAt;
+
+        Assert.Throws<InvalidOperationException>(link.Expire);
+
+        Assert.Equal(expiryBefore, link.ExpiresAt);
+    }
+
+    /// <summary>
+    /// <c>UsedAt</c> keeps its single meaning — "a decision was recorded" (BR-4) — and a re-issue
+    /// must never borrow it for revocation, which would both corrupt the audit trail and break the
+    /// decision-versus-re-issue race D96 protects.
+    /// </summary>
+    [Fact]
+    public void Expire_NeverTouchesUsedAt()
+    {
+        var link = CreateValid();
+
+        link.Expire();
+
+        Assert.Null(link.UsedAt);
+    }
+
+    /// <summary>A superseded link cannot then carry a decision — the customer's old link is dead.</summary>
+    [Fact]
+    public void MarkUsed_AfterExpire_IsRefused()
+    {
+        var link = CreateValid();
+        link.Expire();
+
+        Assert.Throws<InvalidOperationException>(link.MarkUsed);
+
+        Assert.Null(link.UsedAt);
+    }
 }

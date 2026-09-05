@@ -33,7 +33,21 @@ public sealed class TokenLinkConfiguration : IEntityTypeConfiguration<TokenLink>
         // buildable (SQL Server cannot index nvarchar(max)).
         builder.Property(t => t.Token).IsRequired().HasMaxLength(200);
 
-        builder.Property(t => t.ExpiresAt).IsRequired();
+        // An optimistic-concurrency token as well as a required column (D99). ExpiresAt is the
+        // column a re-issue writes, so it is the column that can gate one re-issue against another:
+        // both readers see the same original value, the first commits, the second's UPDATE matches
+        // zero rows, and EF rolls its whole batch back — taking the replacement link it had already
+        // staged with it, which is what keeps "at most one usable credential" true.
+        //
+        // UsedAt (below) gates a different race — a customer decision against a re-issue — because
+        // the decision is what writes UsedAt. Neither token protects the other's race: a guarantee
+        // comes from the column the operation actually writes, never from a token being present on
+        // the row. The first design of this slice got that wrong and it was caught in review.
+        //
+        // No schema change: a non-rowversion token is client-side WHERE-clause behaviour. It is
+        // recorded in the model snapshot, so migration #13 exists with legitimately empty Up/Down —
+        // the same situation as migration #11.
+        builder.Property(t => t.ExpiresAt).IsRequired().IsConcurrencyToken();
 
         // Optimistic concurrency, and the whole reason BR-4 is enforceable rather than merely
         // intended (D96). UsedAt is the only column any code path ever mutates on this table
