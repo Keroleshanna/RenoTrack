@@ -206,6 +206,15 @@ export interface AngebotDetailDto {
   readonly reviewedByAdminId: number | null;
   readonly sentAt: string | null;
   readonly decisionAt: string | null;
+
+  /**
+   * FR-6.3's optional reason a customer may give when rejecting (D98).
+   *
+   * `null` whenever none was given, and on every approval — there is no sentinel, so the screen
+   * renders nothing rather than captioning an absence. Deliberately absent from the public
+   * customer contract: the customer writes it, staff read it here.
+   */
+  readonly decisionReason: string | null;
   readonly createdAt: string;
   readonly netTotal: number;
   readonly grossTotal: number;

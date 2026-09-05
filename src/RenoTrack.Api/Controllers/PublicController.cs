@@ -97,7 +97,14 @@ public sealed class PublicController(
     /// </para>
     /// <para>
     /// Returns the updated public view, so the page can render the recorded outcome without a
-    /// second round trip.
+    /// second round trip. <b>That view carries no rejection reason</b> (D98): the customer submits
+    /// it, staff read it back on the Angebot detail endpoint, and the public contract is not
+    /// widened to echo customer-authored free text through a credential anyone holding a forwarded
+    /// email can present.
+    /// </para>
+    /// <para>
+    /// <b>400 for a reason sent with an approval</b>, and for one over 1000 characters — shape
+    /// rules, refused rather than dropped (D98, following K-4/D67).
     /// </para>
     /// </remarks>
     [HttpPost("angebote/{token}/decision")]
@@ -112,7 +119,7 @@ public sealed class PublicController(
         CancellationToken cancellationToken)
     {
         var angebot = await recordDecisionHandler.HandleAsync(
-            new RecordAngebotDecisionCommand(token, request.Decision),
+            new RecordAngebotDecisionCommand(token, request.Decision, request.Reason),
             cancellationToken);
 
         return Ok(angebot);

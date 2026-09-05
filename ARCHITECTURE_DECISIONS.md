@@ -2268,3 +2268,43 @@ Left alone, that is a **silent widening**: an operator who wrote a host address 
 | Rendering the API's ProblemDetails `detail` on the customer page | D97 | Authored for an API caller, in English, and may name an aggregate or an id (D59) |
 | Reporting an API outage as an invalid link | D97 | Sends a customer away permanently over a transient fault |
 | Refusing to remove a line that had been saved to the Catalog | D95 | Invents a rule no document states, and contradicts CLAUDE.md §2's "a draft line is unsent working material" |
+
+---
+
+## D98 — The FR-6.3 Rejection Reason Lives on `Angebote`, and an Approval That Carries One Is a 400
+
+**Problem:** SRS FR-6.3 permits an optional reason with a rejection and Wireframe A3 shows the field, but `POST /api/v1/public/angebote/{token}/decision` has never accepted one. Phase 6 deferred the question to its own ADR rather than guessing, recorded the gap in `NEXT_STEPS.md` with a revisit trigger — "any requirement that reads a reason back" — and **pinned the gap with a test** so it could not drift into accept-and-discard. Phase 11 Slice 5 is that trigger firing: the customer-facing decision UI now exists and the Product Owner requires the reason captured and readable by staff.
+
+**Alternatives considered:**
+
+(a) `AuditLog.Details`. (b) Reuse `AngebotReviewComment`. (c) Accept it and discard it. (d) A new `AngebotDecisionReason` table. (e) **A nullable `DecisionReason` column on `Angebote`, owned by the `Angebot` aggregate.**
+
+**Final decision:** (e), with the reason **rejection-only**, **immutable once recorded**, **never echoed to the customer**, and **never placed in an email**.
+
+**Why chosen:**
+
+- **(a) is ruled out by D50, not by taste.** Audit writes are best-effort and swallow their own failures; business data must never depend on them. A reason that vanishes when the audit write fails is worse than no reason.
+- **(b) misattributes authorship through the schema itself.** `AngebotReviewComment.AdminUserId` is a *required* FK to `AspNetUsers` and the type is documented as the internal review loop. A customer has no account, so the row could not even be written honestly — and if it were, a customer's words would surface in the Inspector's staff-review history as though a colleague had written them.
+- **(c) was already refused in Phase 6** and refused again for the Project completion override (K-4/D67): if the API accepts a value, a caller may reasonably expect it kept.
+- **(d) is a table for one nullable string on a 1:1 relationship.** The reason has no independent lifecycle, no identity of its own, and is written in the same transaction as the decision it belongs to. It is an attribute of the decision, and the decision is an attribute of the Angebot.
+- **(e) puts the fact where the aggregate that owns the decision already lives.** `DecisionAt` is already there; the reason is the same event's second attribute.
+
+**Four boundaries, each decided rather than defaulted:**
+
+1. **Rejection-only.** `RecordCustomerRejection(string? reason)` takes it; `RecordCustomerApproval()` deliberately does not. An approval has nothing to justify, and giving the method the parameter would invite a caller to store one.
+2. **An approval carrying a reason is a 400, never a silent drop.** This is not a new judgement — it is K-4/D67's existing rule applied unchanged: `POST /projects/{id}/complete` already answers 400 to a reason without an override, explicitly because accepting a value and ignoring it is the accept-and-discard pattern this project has now refused three times.
+3. **Never in the public DTO.** The customer submits it; only staff read it back. The anonymous token is already a credential, and echoing customer-authored free text back through that credential widens the one contract in this system that any holder of a forwarded email can reach — for no benefit, since the Dashboard is where the reason is acted on. `PublicAngebotDto` stays a separate hierarchy from `AngebotDetailDto` precisely so a field added for staff cannot appear there by accident.
+4. **Never in the notification email.** FR-9.2's trigger is "a decision was received", and the notification stays exactly that. Copying customer-authored free text into mailbox storage moves it into the least-controlled channel in the system, outside the Dashboard's access model and outside any retention this project controls. `AngebotDecisionNotification` is unchanged, which also means D70's manual retry keeps working untouched.
+
+**Immutability.** Once recorded, the reason cannot be changed or cleared: no edit endpoint, no clear endpoint, no Domain method. The decision itself is already terminal and single-use under BR-4, and the reason is part of it. This is BR-12's "retire, never delete" stance applied to a field rather than a row.
+
+**Validation is layered, and the Domain is the backstop** (§5). `maxlength` on the textarea is convenience; FluentValidation produces a friendly 400; `Angebot.RecordCustomerRejection` trims, maps whitespace-only to `null`, and throws above 1000 characters. The guard lives in the method rather than the constructor because EF Core materialises persisted rows through the constructor — a length guard there would throw on every read of a legitimately stored value (the `TokenLink` lesson in `CLAUDE.md` §2).
+
+**Concurrency needs nothing new.** D96's `TokenLinks.UsedAt` token already serialises this path; the reason is written in the same EF batch as `MarkUsed()`, the Angebot transition and the Lead transition, so a loser's batch rolls back and takes the reason with it. `Angebote` gets no token of its own, for the same reason D96 gave for `Angebot` and `Lead`.
+
+**Consequences:**
+
+- Migration **#12**, `AddAngebotDecisionReason`: `Angebote.DecisionReason nvarchar(1000) NULL`. **No backfill** — `NULL` means "not given", which is the truth for every historical rejection and for future ones without a reason. No sentinel.
+- `PublicAngebotDecisionEndpointTests.A_rejection_reason_is_not_part_of_the_contract` is **replaced, not deleted.** The gap it guarded is closed, so the executable guarantee moves to the new contract: the reason is accepted, persisted, returned to staff, refused with an approval, refused over-length, and absent from the public DTO. Deleting it would remove the only thing keeping any of that from drifting.
+- `NEXT_STEPS.md`'s gap entry is removed rather than amended — its revisit trigger fired and the question is answered here.
+- This is the **second** untrusted-text surface on the customer site and the first written by the customer themselves. It is HTML-encoded wherever it renders, proven by a test with a hostile payload rather than by inspection.

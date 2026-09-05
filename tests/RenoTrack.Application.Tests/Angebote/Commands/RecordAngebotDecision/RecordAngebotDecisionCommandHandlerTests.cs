@@ -298,4 +298,129 @@ public class RecordAngebotDecisionCommandHandlerTests
             () => _handler.HandleAsync(
                 new RecordAngebotDecisionCommand(Token, (CustomerDecision)99), CancellationToken.None));
     }
+
+    // ---- FR-6.3's optional rejection reason (D98) --------------------
+
+    /// <summary>
+    /// <b>The end-to-end proof that the reason is carried, not just accepted.</b>
+    /// <c>RecordCustomerRejection</c>'s parameter is optional, so a handler that forgot to pass it
+    /// would still compile — this is what makes that safe.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_PassesTheRejectionReasonToTheAggregate()
+    {
+        var (angebot, _, _) = await SeedSentAngebotAsync();
+
+        await _handler.HandleAsync(
+            new RecordAngebotDecisionCommand(Token, CustomerDecision.Reject, "Zu teuer für unser Budget."),
+            CancellationToken.None);
+
+        Assert.Equal("Zu teuer für unser Budget.", angebot.DecisionReason);
+    }
+
+    [Fact]
+    public async Task HandleAsync_RecordsARejectionWithNoReasonAsNull()
+    {
+        var (angebot, _, _) = await SeedSentAngebotAsync();
+
+        await _handler.HandleAsync(
+            new RecordAngebotDecisionCommand(Token, CustomerDecision.Reject), CancellationToken.None);
+
+        Assert.Equal(AngebotStatus.CustomerRejected, angebot.Status);
+        Assert.Null(angebot.DecisionReason);
+    }
+
+    /// <summary>
+    /// Refused rather than dropped (D98, following K-4/D67) — and refused <b>before</b> anything is
+    /// mutated, which is why the aggregates are asserted untouched rather than only the exception
+    /// being asserted.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_RefusesAReasonSentWithAnApproval()
+    {
+        var (angebot, lead, link) = await SeedSentAngebotAsync();
+
+        await Assert.ThrowsAsync<ValidationException>(
+            () => _handler.HandleAsync(
+                new RecordAngebotDecisionCommand(Token, CustomerDecision.Approve, "Sehr gerne!"),
+                CancellationToken.None));
+
+        Assert.Equal(AngebotStatus.Sent, angebot.Status);
+        Assert.Equal(LeadStatus.AngebotSent, lead.Status);
+        Assert.Null(link.UsedAt);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+    }
+
+    /// <summary>
+    /// Whitespace carries no content, so nothing is discarded by ignoring it and the approval is
+    /// allowed through — the validator must not be stricter than the rule it enforces.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task HandleAsync_AllowsAnApprovalWithNoRealReason(string? reason)
+    {
+        var (angebot, _, _) = await SeedSentAngebotAsync();
+
+        await _handler.HandleAsync(
+            new RecordAngebotDecisionCommand(Token, CustomerDecision.Approve, reason), CancellationToken.None);
+
+        Assert.Equal(AngebotStatus.CustomerApproved, angebot.Status);
+        Assert.Null(angebot.DecisionReason);
+    }
+
+    [Fact]
+    public async Task HandleAsync_RefusesAReasonOverTheStoredLimit()
+    {
+        await SeedSentAngebotAsync();
+
+        await Assert.ThrowsAsync<ValidationException>(
+            () => _handler.HandleAsync(
+                new RecordAngebotDecisionCommand(
+                    Token,
+                    CustomerDecision.Reject,
+                    new string('x', Angebot.MaxDecisionReasonLength + 1)),
+                CancellationToken.None));
+    }
+
+    /// <summary>
+    /// D98: the reason is staff-facing. The response this handler returns is the *public* view, and
+    /// it must not carry it — the type has no such member, and this pins that the recorded value is
+    /// genuinely absent from what an anonymous caller receives.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_NeverReturnsTheReasonInThePublicResponse()
+    {
+        await SeedSentAngebotAsync();
+
+        var result = await _handler.HandleAsync(
+            new RecordAngebotDecisionCommand(Token, CustomerDecision.Reject, "Zu teuer."),
+            CancellationToken.None);
+
+        Assert.DoesNotContain(
+            typeof(PublicAngebotDto).GetProperties(),
+            property => property.Name.Contains("Reason", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Zu teuer", System.Text.Json.JsonSerializer.Serialize(result), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D98 Q2: the notification stays a notification. Customer-authored free text is not copied
+    /// into mailbox storage, which also leaves D70's manual retry working untouched.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_NeverPutsTheReasonInTheAdminNotification()
+    {
+        await SeedSentAngebotAsync();
+
+        await _handler.HandleAsync(
+            new RecordAngebotDecisionCommand(Token, CustomerDecision.Reject, "Zu teuer."),
+            CancellationToken.None);
+
+        var notification = Assert.Single(_emailSender.AngebotDecisionNotifications);
+        Assert.DoesNotContain(
+            notification.GetType().GetProperties(),
+            property => property.Name.Contains("Reason", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Zu teuer", System.Text.Json.JsonSerializer.Serialize(notification), StringComparison.Ordinal);
+    }
 }

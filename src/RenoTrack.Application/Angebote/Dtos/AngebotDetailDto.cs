@@ -45,6 +45,7 @@ public sealed record AngebotDetailDto(
     int? ReviewedByAdminId,
     DateTime? SentAt,
     DateTime? DecisionAt,
+    string? DecisionReason,
     DateTime CreatedAt,
     decimal NetTotal,
     decimal GrossTotal,
@@ -72,6 +73,12 @@ public static class AngebotDetailMappingExtensions
         angebot.ReviewedByAdminId,
         angebot.SentAt,
         angebot.DecisionAt,
+
+        // FR-6.3's optional rejection reason (D98). This is the *only* DTO that carries it:
+        // PublicAngebotDto deliberately does not, so a field added for staff cannot reach an
+        // anonymous token holder — which is exactly why the two are separate hierarchies rather
+        // than one projected from the other.
+        angebot.DecisionReason,
         angebot.CreatedAt,
         angebot.NetTotal.Amount,
         angebot.GrossTotal.Amount,

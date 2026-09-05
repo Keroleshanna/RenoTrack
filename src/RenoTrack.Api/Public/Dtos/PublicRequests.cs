@@ -9,11 +9,19 @@ namespace RenoTrack.Api.Public.Dtos;
 /// account at all (Architecture.md §7.2).
 /// </summary>
 /// <remarks>
-/// Sequence Diagram §6 draws the body as <c>{ result, reason? }</c>. <b>The reason is deliberately
-/// absent</b>: where it would be stored is an open architecture decision, it must not go into
-/// <c>AuditLog</c> (D50 — audit is best-effort, business data must never depend on it), and
-/// accepting a value only to discard it would break the reasonable expectation that anything the
-/// API accepts is kept. Not accepting one is the honest contract until that ADR is made. This is a
-/// tracked gap against FR-6.3, recorded in <c>NEXT_STEPS.md</c>.
+/// Sequence Diagram §6 draws the body as <c>{ result, reason? }</c>, and as of Phase 11 Slice 5
+/// (<b>D98</b>) that is what this accepts. The reason is stored on the <c>Angebot</c> aggregate,
+/// never in <c>AuditLog</c> (D50 — audit is best-effort, business data must never depend on it) and
+/// never as an <c>AngebotReviewComment</c> (whose <c>AdminUserId</c> is a required FK to
+/// <c>AspNetUsers</c>, so a customer's words cannot be written there honestly).
 /// </remarks>
-public sealed record RecordDecisionRequest(CustomerDecision Decision);
+/// <param name="Reason">
+/// FR-6.3's optional reason, and <b>rejection-only</b>: sending one alongside
+/// <see cref="CustomerDecision.Approve"/> is a 400, never a silent drop — the same rule
+/// <c>POST /projects/{id}/complete</c> already applies to a reason without an override (K-4/D67).
+/// Capped at 1000 characters. <b>It is staff-facing:</b> it is returned on the Dashboard's Angebot
+/// detail read and deliberately never echoed through <c>PublicAngebotDto</c>, because the
+/// anonymous token is a credential and the public contract is not widened to carry
+/// customer-authored free text back through it.
+/// </param>
+public sealed record RecordDecisionRequest(CustomerDecision Decision, string? Reason = null);

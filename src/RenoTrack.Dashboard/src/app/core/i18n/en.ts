@@ -281,6 +281,8 @@ export const EN: Strings = {
     vatLine: 'plus {0} % VAT',
     positions: 'Positions',
     positionsHint: 'The sections and line items of this quote.',
+    customerRejectedTitle: 'The customer rejected this Angebot',
+    customerRejectionReason: "The customer's reason",
     position: 'Pos.',
     subtotal: 'Subtotal',
     emptyTitle: 'No positions yet',

@@ -129,6 +129,7 @@ public sealed class PublicAngebotClient(
     public async Task<CustomerDecisionOutcome> RecordDecisionAsync(
         string token,
         CustomerDecisionChoice choice,
+        string? reason,
         CancellationToken cancellationToken)
     {
         // Refused before a request is made, for the reason the read gives: an empty token cannot
@@ -145,7 +146,7 @@ public sealed class PublicAngebotClient(
             // route value and a token-link customer has no identity to send).
             using var response = await httpClient.PostAsJsonAsync(
                 $"api/v1/public/angebote/{Uri.EscapeDataString(token)}/decision",
-                new RecordDecisionRequest(choice),
+                new RecordDecisionRequest(choice, reason),
                 SerializerOptions,
                 cancellationToken);
 
@@ -169,12 +170,13 @@ public sealed class PublicAngebotClient(
                 case HttpStatusCode.Conflict:
                     return CustomerDecisionOutcome.AlreadyDecided;
 
-                // The API's validator rejects only an empty token and an unparseable decision,
-                // both impossible from here — so a 400 means the two sides disagree about the
-                // contract, which is this side's fault and must not read as "your link is wrong".
+                // A 400 became customer-reachable in Slice 5: an over-length reason is refused by
+                // the API's shape validator. The textarea's maxlength prevents it in a browser, so
+                // reaching here means a non-browser caller or a bypassed attribute — either way the
+                // customer's own input is the cause, and reporting it as an outage would be a lie
+                // that also loses what they typed. It is no longer logged as this Website's fault.
                 case HttpStatusCode.BadRequest:
-                    logger.LogError("The public decision endpoint rejected this Website's request as malformed.");
-                    return CustomerDecisionOutcome.Unavailable;
+                    return CustomerDecisionOutcome.Invalid;
 
                 default:
                     logger.LogWarning(
@@ -200,8 +202,9 @@ public sealed class PublicAngebotClient(
 
     /// <summary>
     /// The API's <c>RecordDecisionRequest</c> body, mirrored rather than shared — the Website
-    /// references no backend project (§1). One property, because the token is a route value and a
-    /// token-link customer has no identity to send.
+    /// references no backend project (§1). The token is deliberately not among its members: it is a
+    /// route value on both sides, and putting it in a body would place a credential somewhere
+    /// request logging routinely captures.
     /// </summary>
-    private sealed record RecordDecisionRequest(CustomerDecisionChoice Decision);
+    private sealed record RecordDecisionRequest(CustomerDecisionChoice Decision, string? Reason);
 }

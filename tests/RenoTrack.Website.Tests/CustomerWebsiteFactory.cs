@@ -41,7 +41,7 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
     /// Every decision the Website tried to record. <b>Its emptiness is the assertion</b> that the
     /// confirmation step records nothing — the property the whole two-step design exists for.
     /// </summary>
-    public List<(string Token, CustomerDecisionChoice Choice)> RecordedDecisions { get; } = [];
+    public List<(string Token, CustomerDecisionChoice Choice, string? Reason)> RecordedDecisions { get; } = [];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -75,9 +75,10 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
         public Task<CustomerDecisionOutcome> RecordDecisionAsync(
             string token,
             CustomerDecisionChoice choice,
+            string? reason,
             CancellationToken cancellationToken)
         {
-            owner.RecordedDecisions.Add((token, choice));
+            owner.RecordedDecisions.Add((token, choice, reason));
             return Task.FromResult(owner.DecisionOutcome);
         }
     }

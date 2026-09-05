@@ -32,6 +32,7 @@ public sealed class AngebotModelTests
         public Task<CustomerDecisionOutcome> RecordDecisionAsync(
             string token,
             CustomerDecisionChoice choice,
+            string? reason,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("The document page must never record a decision.");
     }

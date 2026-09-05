@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using RenoTrack.Website.Pages;
 using RenoTrack.Website.PublicApi;
 
 namespace RenoTrack.Website.Tests.Pages;
@@ -335,18 +336,168 @@ public sealed partial class AngebotDecisionPageTests : IClassFixture<CustomerWeb
     /// Walks the flow as a browser does: GET the confirmation, take the antiforgery token the form
     /// carries, POST it back. Cookies flow through the factory's own handler.
     /// </summary>
-    private static async Task<HttpResponseMessage> PostConfirmationAsync(HttpClient client, string url)
+    private static async Task<HttpResponseMessage> PostConfirmationAsync(
+        HttpClient client,
+        string url,
+        string? reason = null)
     {
         var html = await client.GetStringAsync(url);
         var token = AntiforgeryField().Match(html);
         Assert.True(token.Success, "The confirmation form carried no antiforgery token.");
 
-        return await client.PostAsync(
-            url,
-            new FormUrlEncodedContent(
-                [new KeyValuePair<string, string>("__RequestVerificationToken", token.Groups[1].Value)]));
+        List<KeyValuePair<string, string>> fields =
+            [new("__RequestVerificationToken", token.Groups[1].Value)];
+
+        if (reason is not null)
+        {
+            fields.Add(new KeyValuePair<string, string>("Reason", reason));
+        }
+
+        return await client.PostAsync(url, new FormUrlEncodedContent(fields));
     }
 
     [GeneratedRegex("name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"")]
     private static partial Regex AntiforgeryField();
+
+    // ---- FR-6.3's optional reason (Slice 5, D98) ---------------------------
+
+    /// <summary>
+    /// Offered on the Ablehnen confirmation only. The API refuses a reason sent with an approval,
+    /// and this page does not rely on that refusal to keep the customer right — the field is simply
+    /// not there, so the refusal is unreachable through the UI.
+    /// </summary>
+    [Fact]
+    public async Task The_reject_confirmation_offers_an_optional_reason()
+    {
+        using var client = CreateClient();
+
+        var html = await client.GetStringAsync(RejectUrl);
+
+        Assert.Contains("name=\"Reason\"", html, StringComparison.Ordinal);
+        Assert.Contains("<textarea", html, StringComparison.Ordinal);
+        Assert.Contains("(optional)", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_approve_confirmation_offers_no_reason_field()
+    {
+        using var client = CreateClient();
+
+        var html = await client.GetStringAsync(ApproveUrl);
+
+        Assert.DoesNotContain("<textarea", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("name=\"Reason\"", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The browser enforces the API's own limit, so the 400 is unreachable by ordinary typing. A
+    /// mirrored constant rather than a literal, because a screen that degrades on a server contract
+    /// must not restate that contract from memory (§23).
+    /// </summary>
+    [Fact]
+    public async Task The_reason_field_carries_the_api_limit()
+    {
+        using var client = CreateClient();
+
+        var html = await client.GetStringAsync(RejectUrl);
+
+        Assert.Contains($"maxlength=\"{AngebotDecisionModel.MaxReasonLength}\"", html, StringComparison.Ordinal);
+        Assert.Equal(1000, AngebotDecisionModel.MaxReasonLength);
+    }
+
+    [Fact]
+    public async Task A_submitted_reason_reaches_the_client()
+    {
+        using var client = CreateClient();
+
+        await PostConfirmationAsync(client, RejectUrl, reason: "Zu teuer für unser Budget.");
+
+        var recorded = Assert.Single(factory.RecordedDecisions);
+        Assert.Equal(CustomerDecisionChoice.Reject, recorded.Choice);
+        Assert.Equal("Zu teuer für unser Budget.", recorded.Reason);
+    }
+
+    /// <summary>
+    /// Blank stays blank all the way down. The aggregate normalises it too, but a page that turned
+    /// "no answer" into an empty string would be inventing content the customer did not give.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task An_empty_reason_is_submitted_as_written_and_never_invented(string reason)
+    {
+        using var client = CreateClient();
+
+        await PostConfirmationAsync(client, RejectUrl, reason);
+
+        var recorded = Assert.Single(factory.RecordedDecisions);
+        Assert.True(string.IsNullOrWhiteSpace(recorded.Reason));
+    }
+
+    /// <summary>
+    /// An approval can never carry one, even if a field were forged into the request: the page
+    /// passes null on that path rather than trusting the form's shape.
+    /// </summary>
+    [Fact]
+    public async Task An_approval_never_carries_a_reason_even_when_one_is_posted()
+    {
+        using var client = CreateClient();
+
+        await PostConfirmationAsync(client, ApproveUrl, reason: "Sehr gerne!");
+
+        var recorded = Assert.Single(factory.RecordedDecisions);
+        Assert.Equal(CustomerDecisionChoice.Approve, recorded.Choice);
+        Assert.Null(recorded.Reason);
+    }
+
+    /// <summary>
+    /// A refusal re-offers the form with the text still in it — replacing the page with an error
+    /// the customer cannot act on without retyping would lose what they wrote.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_reason_re_offers_the_form_with_the_text_preserved()
+    {
+        factory.DecisionOutcome = CustomerDecisionOutcome.Invalid;
+        using var client = CreateClient();
+
+        using var response = await PostConfirmationAsync(client, RejectUrl, reason: "Viel zu lang.");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("zu lang", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Viel zu lang.", html, StringComparison.Ordinal);
+        Assert.Contains("<textarea", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The one place a customer's own words return to the screen, so the one place this must be
+    /// proven rather than assumed. Razor's encoding expression, no Html.Raw anywhere.
+    /// </summary>
+    [Fact]
+    public async Task A_hostile_reason_returns_to_the_page_inert()
+    {
+        factory.DecisionOutcome = CustomerDecisionOutcome.Invalid;
+        using var client = CreateClient();
+
+        using var response = await PostConfirmationAsync(
+            client, RejectUrl, reason: "<script>alert(1)</script>");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("<script>alert(1)</script>", html, StringComparison.Ordinal);
+        Assert.Contains("&lt;script&gt;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The credential stays where Slice 4 put it, form field or not.</summary>
+    [Fact]
+    public async Task The_reason_form_does_not_move_the_token_anywhere_new()
+    {
+        factory.DecisionOutcome = CustomerDecisionOutcome.Invalid;
+        using var client = CreateClient();
+
+        using var response = await PostConfirmationAsync(client, RejectUrl, reason: "Zu teuer.");
+        var html = await response.Content.ReadAsStringAsync();
+
+        TokenExposure.AssertOnlyInSameOriginLinks(html, Token);
+    }
 }

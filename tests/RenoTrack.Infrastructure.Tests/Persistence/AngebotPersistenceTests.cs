@@ -186,4 +186,156 @@ public sealed class AngebotPersistenceTests(RenoTrackDbContextFixture fixture)
             await Assert.ThrowsAsync<DbUpdateException>(() => writeContext.SaveChangesAsync());
         }
     }
+
+    // ---- FR-6.3's rejection reason (D98, migration #12) ----------------
+
+    /// <summary>
+    /// Drives a fresh Angebot through its real transitions to <c>Sent</c>, so a decision can be
+    /// recorded without reaching past the aggregate.
+    /// </summary>
+    private async Task<Angebot> SeedSentAngebotAsync(string angebotNumber)
+    {
+        var leadId = await SeedLeadAsync();
+        var inspectorId = await SeedApplicationUserAsync();
+        var angebot = Angebot.Create(leadId, null, angebotNumber, inspectorId);
+        var section = angebot.AddSection("Pos. 1", 1);
+        angebot.AddItemToSection(section, "Arbeit", 1m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard);
+        angebot.SubmitForReview();
+        angebot.Approve(inspectorId);
+        angebot.Send();
+        return angebot;
+    }
+
+    /// <summary>
+    /// German free text with umlauts and an eszett, because the column is <c>nvarchar</c> and a
+    /// <c>varchar</c> would corrupt exactly this and only this.
+    /// </summary>
+    [Fact]
+    public async Task ADecisionReason_RoundTripsThroughTheDatabase()
+    {
+        var angebot = await SeedSentAngebotAsync("ANG-2026-00020");
+        const string reason = "Zu teuer für unser Budget — wir müssen leider absagen. Größe passt auch nicht.";
+        angebot.RecordCustomerRejection(reason);
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.Angebote.Add(angebot);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var reloaded = await readContext.Angebote.SingleAsync(a => a.Id == angebot.Id);
+
+        Assert.Equal(reason, reloaded.DecisionReason);
+        Assert.Equal(AngebotStatus.CustomerRejected, reloaded.Status);
+    }
+
+    /// <summary>
+    /// No sentinel: a rejection without a reason stores <c>NULL</c>, which is the same value every
+    /// pre-migration row carries. That is what makes the migration need no backfill.
+    /// </summary>
+    [Fact]
+    public async Task ARejectionWithoutAReason_StoresNull()
+    {
+        var angebot = await SeedSentAngebotAsync("ANG-2026-00021");
+        angebot.RecordCustomerRejection();
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.Angebote.Add(angebot);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var stored = await readContext.Angebote
+            .Where(a => a.Id == angebot.Id)
+            .Select(a => a.DecisionReason)
+            .SingleAsync();
+
+        Assert.Null(stored);
+    }
+
+    /// <summary>An approval stores no reason, all the way down to the column.</summary>
+    [Fact]
+    public async Task AnApproval_StoresNoReason()
+    {
+        var angebot = await SeedSentAngebotAsync("ANG-2026-00022");
+        angebot.RecordCustomerApproval();
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.Angebote.Add(angebot);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var stored = await readContext.Angebote
+            .Where(a => a.Id == angebot.Id)
+            .Select(a => a.DecisionReason)
+            .SingleAsync();
+
+        Assert.Null(stored);
+    }
+
+    /// <summary>
+    /// Exactly at the limit, stored whole. A column narrower than the Domain guard would truncate
+    /// silently here rather than fail, which is why this asserts the length back rather than only
+    /// that the write succeeded.
+    /// </summary>
+    [Fact]
+    public async Task AReasonAtExactlyTheLimit_IsStoredWhole()
+    {
+        var angebot = await SeedSentAngebotAsync("ANG-2026-00023");
+        var atLimit = new string('ä', Angebot.MaxDecisionReasonLength);
+        angebot.RecordCustomerRejection(atLimit);
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.Angebote.Add(angebot);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var stored = await readContext.Angebote
+            .Where(a => a.Id == angebot.Id)
+            .Select(a => a.DecisionReason)
+            .SingleAsync();
+
+        Assert.Equal(Angebot.MaxDecisionReasonLength, stored!.Length);
+        Assert.Equal(atLimit, stored);
+    }
+
+    /// <summary>
+    /// The column is the backstop behind the Domain guard. An over-length reason cannot reach here
+    /// through the aggregate at all — <c>RecordCustomerRejection</c> throws first — so this drives
+    /// raw SQL to prove that if one ever did, SQL Server <b>rejects</b> it rather than truncating.
+    /// A silently shortened reason would misquote the customer, which is worse than no reason.
+    /// </summary>
+    [Fact]
+    public async Task AReasonLongerThanTheColumn_IsRejectedByTheDatabase()
+    {
+        var angebot = await SeedSentAngebotAsync("ANG-2026-00024");
+        angebot.RecordCustomerRejection("Kurz.");
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            writeContext.Angebote.Add(angebot);
+            await writeContext.SaveChangesAsync();
+        }
+
+        var tooLong = new string('x', Angebot.MaxDecisionReasonLength + 1);
+
+        await using var context = fixture.CreateContext();
+        await Assert.ThrowsAnyAsync<Exception>(() => context.Database.ExecuteSqlAsync(
+            $"UPDATE Angebote SET DecisionReason = {tooLong} WHERE Id = {angebot.Id}"));
+
+        // And the stored value is untouched by the refused write.
+        await using var readContext = fixture.CreateContext();
+        var stored = await readContext.Angebote
+            .Where(a => a.Id == angebot.Id)
+            .Select(a => a.DecisionReason)
+            .SingleAsync();
+
+        Assert.Equal("Kurz.", stored);
+    }
 }

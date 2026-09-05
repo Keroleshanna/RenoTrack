@@ -64,6 +64,26 @@
         <p class="banner">{{ t().angebotDetail.inReviewHint }}</p>
       }
 
+      <!--
+        FR-6.3's rejection reason (D98). Shown only when the customer actually gave one: a rejection
+        without a reason is entirely normal, and captioning its absence would imply something is
+        missing. There is deliberately no placeholder.
+
+        Interpolation, never innerHTML and never a bypassSecurityTrust call — this is the only
+        customer-authored free text on any staff screen, and Angular's default escaping is what
+        keeps it inert. Attributed as the customer's words rather than left to read as staff
+        commentary, which is also why it is not reusing the review-comment block above.
+      -->
+      @if (angebot.status === 'CustomerRejected' && angebot.decisionReason) {
+        <section class="callout" role="status">
+          <h2 class="rt-subtitle">{{ t().angebotDetail.customerRejectedTitle }}</h2>
+          <figure class="callout__quote">
+            <blockquote class="rt-body">{{ angebot.decisionReason }}</blockquote>
+            <figcaption class="rt-caption">{{ t().angebotDetail.customerRejectionReason }}</figcaption>
+          </figure>
+        </section>
+      }
+
       <section class="rt-panel document">
         <header class="rt-panel__head">
           <div>

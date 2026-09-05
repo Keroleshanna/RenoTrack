@@ -91,15 +91,53 @@ else
             Fragen haben, melden Sie sich gerne bei uns, bevor Sie bestätigen.
         </p>
 
+        @if (Model.ReasonWasRefused)
+        {
+            <p class="customer-form-error" role="alert">
+                Ihre Begründung ist zu lang. Bitte kürzen Sie den Text auf höchstens
+                @AngebotDecisionModel.MaxReasonLength Zeichen.
+            </p>
+        }
+
         @*
             The only form on any customer page. The antiforgery token the tag helper emits is a
             hidden field; the link token is not, and never is — it stays in the route.
         *@
-        <form method="post" class="customer-confirm-actions">
-            <button type="submit" class="customer-button customer-button-primary">
-                @(Model.IsApproval ? "Annahme bestätigen" : "Ablehnung bestätigen")
-            </button>
-            <a class="customer-button customer-button-quiet" href="@Model.DocumentUrl">Abbrechen</a>
+        <form method="post">
+            @if (!Model.IsApproval)
+            {
+                @*
+                    FR-6.3's optional reason (D98), offered on this confirmation only — an approval
+                    has nothing to justify, and the API refuses one sent with it. maxlength rather
+                    than a live counter, because a counter needs JavaScript and no customer page
+                    runs any.
+
+                    The value is written back through Razor's encoding expression, so a hostile
+                    reason returns to the page inert. It is the customer's own unsaved input, not
+                    the persisted value — the API never sends that back (Q1).
+                *@
+                <div class="customer-field">
+                    <label class="customer-field-label" for="reason">
+                        Möchten Sie uns kurz sagen, warum? (optional)
+                    </label>
+                    <textarea class="customer-textarea"
+                              id="reason"
+                              name="Reason"
+                              rows="4"
+                              maxlength="@AngebotDecisionModel.MaxReasonLength"
+                              autocomplete="off">@Model.Reason</textarea>
+                    <p class="customer-field-hint">
+                        Ihre Rückmeldung hilft uns, Sie beim nächsten Mal besser zu beraten.
+                    </p>
+                </div>
+            }
+
+            <div class="customer-confirm-actions">
+                <button type="submit" class="customer-button customer-button-primary">
+                    @(Model.IsApproval ? "Annahme bestätigen" : "Ablehnung bestätigen")
+                </button>
+                <a class="customer-button customer-button-quiet" href="@Model.DocumentUrl">Abbrechen</a>
+            </div>
         </form>
     </article>
 }
