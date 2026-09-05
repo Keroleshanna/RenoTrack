@@ -125,4 +125,83 @@ public sealed class PublicAngebotClient(
             return CustomerAngebotResult.Unavailable();
         }
     }
+
+    public async Task<CustomerDecisionOutcome> RecordDecisionAsync(
+        string token,
+        CustomerDecisionChoice choice,
+        CancellationToken cancellationToken)
+    {
+        // Refused before a request is made, for the reason the read gives: an empty token cannot
+        // identify a link, and sending it would post to a different resource entirely.
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return CustomerDecisionOutcome.NotFound;
+        }
+
+        try
+        {
+            // The token stays in the route and the decision stays in the body, matching the API's
+            // own contract (RecordDecisionRequest carries only the outcome, because the token is a
+            // route value and a token-link customer has no identity to send).
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/v1/public/angebote/{Uri.EscapeDataString(token)}/decision",
+                new RecordDecisionRequest(choice),
+                SerializerOptions,
+                cancellationToken);
+
+            switch (response.StatusCode)
+            {
+                // The API returns the updated document, which is deliberately not read: the caller
+                // redirects and re-reads, so parsing it here would only create a second copy that
+                // can disagree with the next request.
+                case HttpStatusCode.OK:
+                    return CustomerDecisionOutcome.Recorded;
+
+                case HttpStatusCode.NotFound:
+                    return CustomerDecisionOutcome.NotFound;
+
+                case HttpStatusCode.Gone:
+                    return CustomerDecisionOutcome.Expired;
+
+                // BR-4: the link has already been used for a decision. Reached by an honest
+                // double-click or by two people holding one link, so it is a state to report, never
+                // a fault to blame the customer for.
+                case HttpStatusCode.Conflict:
+                    return CustomerDecisionOutcome.AlreadyDecided;
+
+                // The API's validator rejects only an empty token and an unparseable decision,
+                // both impossible from here — so a 400 means the two sides disagree about the
+                // contract, which is this side's fault and must not read as "your link is wrong".
+                case HttpStatusCode.BadRequest:
+                    logger.LogError("The public decision endpoint rejected this Website's request as malformed.");
+                    return CustomerDecisionOutcome.Unavailable;
+
+                default:
+                    logger.LogWarning(
+                        "The public decision endpoint answered {StatusCode}.",
+                        (int)response.StatusCode);
+                    return CustomerDecisionOutcome.Unavailable;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            // Worth being explicit about what this does *not* tell us: a request that failed after
+            // reaching the API may still have recorded the decision. That is why the customer is
+            // sent back to the document page to re-read rather than told the decision failed — the
+            // page shows whatever was actually persisted.
+            logger.LogError(exception, "The public decision endpoint could not be reached.");
+            return CustomerDecisionOutcome.Unavailable;
+        }
+    }
+
+    /// <summary>
+    /// The API's <c>RecordDecisionRequest</c> body, mirrored rather than shared — the Website
+    /// references no backend project (§1). One property, because the token is a route value and a
+    /// token-link customer has no identity to send.
+    /// </summary>
+    private sealed record RecordDecisionRequest(CustomerDecisionChoice Decision);
 }

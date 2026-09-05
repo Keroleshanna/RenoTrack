@@ -1,0 +1,105 @@
+@page "/angebot/{token}/entscheidung/{choice:regex(^(annehmen|ablehnen)$)}"
+@model RenoTrack.Website.Pages.AngebotDecisionModel
+@using RenoTrack.Website.PublicApi
+@using RenoTrack.Website.Rendering
+@{
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = Model.FailureOutcome is null && Model.Angebot is not null
+        ? (Model.IsApproval ? "Angebot annehmen" : "Angebot ablehnen")
+        : "Angebot";
+}
+@*
+    The confirmation step (D83): a customer decision is irreversible under BR-4, so it is confirmed
+    before it runs — server-rendered, with no JavaScript and no confirm() dialog.
+
+    This page is reached by GET, which is why it cannot record anything: the mutation is the POST
+    below, and nothing else on this route touches the TokenLink. The decision itself is the last
+    route segment, so no hidden field or query string carries it.
+*@
+
+@if (Model.FailureOutcome is CustomerAngebotOutcome.NotFound)
+{
+    <article class="customer-card customer-card-notice">
+        <h1 class="customer-title">Dieser Link ist nicht gültig</h1>
+        <p class="customer-lead">
+            Der Link konnte keinem Angebot zugeordnet werden. Möglicherweise wurde er beim
+            Kopieren unvollständig übernommen.
+        </p>
+        <p class="customer-hint">
+            Bitte öffnen Sie den Link noch einmal direkt aus unserer E-Mail.
+        </p>
+    </article>
+}
+else if (Model.FailureOutcome is CustomerAngebotOutcome.Expired)
+{
+    <article class="customer-card customer-card-notice">
+        <h1 class="customer-title">Dieser Link ist abgelaufen</h1>
+        <p class="customer-lead">
+            Aus Sicherheitsgründen sind unsere Angebotslinks nur für einen begrenzten Zeitraum
+            gültig. Dieser Zeitraum ist abgelaufen.
+        </p>
+        <p class="customer-hint">
+            Wenn Sie das Angebot noch einmal einsehen möchten, senden wir Ihnen gerne einen
+            neuen Link zu.
+        </p>
+    </article>
+}
+else if (Model.FailureOutcome is not null)
+{
+    @*
+        Deliberately distinct from "not valid" — and on this route it carries a second meaning the
+        read page does not have: the request may have reached the API and been recorded before the
+        failure, so the customer is invited to look again rather than told their answer was lost.
+    *@
+    <article class="customer-card customer-card-notice">
+        <h1 class="customer-title">Ihre Antwort konnte nicht gespeichert werden</h1>
+        <p class="customer-lead">
+            Wir konnten Ihre Antwort im Moment nicht entgegennehmen. Das liegt an uns, nicht an
+            Ihrem Link.
+        </p>
+        <p class="customer-hint">
+            Bitte öffnen Sie Ihr Angebot in einigen Minuten noch einmal.
+            Dort sehen Sie, ob Ihre Antwort angekommen ist.
+        </p>
+    </article>
+}
+else
+{
+    <article class="customer-card customer-confirm">
+        <h1 class="customer-title">
+            @(Model.IsApproval ? "Angebot annehmen" : "Angebot ablehnen")
+        </h1>
+
+        <p class="customer-lead">
+            @if (Model.IsApproval)
+            {
+                <text>
+                    Sie sind dabei, das Angebot @Model.Angebot!.AngebotNumber über
+                    @CustomerFormatting.Money(Model.Angebot.GrossTotal) verbindlich anzunehmen.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Sie sind dabei, das Angebot @Model.Angebot!.AngebotNumber abzulehnen.
+                </text>
+            }
+        </p>
+
+        <p class="customer-hint">
+            Diese Entscheidung können Sie anschließend nicht mehr selbst ändern. Wenn Sie noch
+            Fragen haben, melden Sie sich gerne bei uns, bevor Sie bestätigen.
+        </p>
+
+        @*
+            The only form on any customer page. The antiforgery token the tag helper emits is a
+            hidden field; the link token is not, and never is — it stays in the route.
+        *@
+        <form method="post" class="customer-confirm-actions">
+            <button type="submit" class="customer-button customer-button-primary">
+                @(Model.IsApproval ? "Annahme bestätigen" : "Ablehnung bestätigen")
+            </button>
+            <a class="customer-button customer-button-quiet" href="@Model.DocumentUrl">Abbrechen</a>
+        </form>
+    </article>
+}

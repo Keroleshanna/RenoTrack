@@ -55,7 +55,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`; build verified locally (0 errors, 0 warnings), tests blocked by the environment, see §4.5 |
 | **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`, CI green on both jobs |
 | **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
-| 4 | Accept / Decline | **not started — blocked pending explicit Product-Owner approval** |
+| **4** | Accept / Decline | in progress — design approved 2026-09-05 (§7), two-step confirmation required |
 | 5 | Rejection reason (Q2) — migration #12 | not started |
 | 6 | Token re-issue (Q3) | not started |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
@@ -473,3 +473,151 @@ A stated completion gate for this slice, and the reason it could finally be run:
 **PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19) merged into `main` as `450ebbd`** (merge commit, parents `78a8406` and `5b78a7b`), per §19's "no direct commits to `main`" rule.
 
 **Slice 3 is complete. Slice 4 (Accept / Decline) is blocked pending explicit Product-Owner approval** and has not been started.
+
+---
+
+## 7. Slice 4 — Accept / Decline
+
+### 7.1 Approved design
+
+Reviewed and approved on 2026-09-05. **The API needs no change at all.** `POST /api/v1/public/angebote/{token}/decision`, `RecordAngebotDecisionCommandHandler` and the three-aggregate single commit were all built complete in Phase 6, and Slice 1 (D96) already made the double-decision race a deterministic 409. Slice 4 is therefore a **Website-only** slice: no endpoint, no Domain change, no schema, no migration, no permission change. Should any of that turn out to be factually untrue during implementation, the instruction is to **stop and report the discrepancy**, never to widen scope silently.
+
+| Question | Decision |
+|---|---|
+| **Q1** — confirmation before recording | **Yes, for both choices.** The decision is irreversible under BR-4, which is exactly D83's test. Server-rendered, no JavaScript, no `confirm()`. |
+| **Q2** — behaviour on 409 | **Re-read and show the persisted decision.** The API and database are authoritative; what the customer *attempted* is not. |
+| **Q3** — render `decisionAt` | **No.** No timezone policy is invented for this feature. |
+
+### 7.2 The two-step flow, exactly
+
+This is the flow the implementation must produce, and the property that matters most is on the third line: **the first click changes nothing.**
+
+```
+GET  /angebot/{token}                          → the document, Pending, with two buttons
+  │
+  ├─ "Angebot annehmen"  ─┐
+  └─ "Angebot ablehnen"  ─┴─→ GET /angebot/{token}/entscheidung/{annehmen|ablehnen}
+                                    │   re-reads the Angebot; renders the confirmation page
+                                    │   NO TokenLink consumption, NO business mutation
+                                    │
+                                    ├─ "Abbrechen"   → back to GET /angebot/{token}
+                                    └─ "Bestätigen"  → POST /angebot/{token}/entscheidung/{choice}
+                                                            │  antiforgery validated
+                                                            │  → API POST .../decision
+                                                            │
+                                                            └─ 302 → GET /angebot/{token}
+                                                                        → Approved / Rejected banner
+```
+
+**The first step is a `GET` and therefore cannot mutate.** That is not a convention being trusted — it is the reason the step is a GET rather than a POST: an HTTP-safe method makes "the confirmation page records nothing" a property of the shape of the request, not of the care taken inside a handler. A test pins it anyway (§7.5).
+
+**The decision travels in the route, never anywhere else.** `{choice}` is a route segment, exactly as `{token}` is. No hidden field carries it, no query string carries it, no cookie, no `TempData`, no session — so there is no client-supplied state for a customer to edit into a different decision than the one whose confirmation page they read. The two buttons on the document are ordinary links to two distinct URLs; `Referrer-Policy: no-referrer` already covers the only concern that raises.
+
+**German route segments** (`entscheidung`, `annehmen`, `ablehnen`) match `/angebot/` itself. §23's "URLs are never translated" governs multi-language URL variants, which cannot arise here — the customer surface is German-only by Q8, so there is nothing to translate and no second variant to drift.
+
+**`CustomerSecurityHeaders` already covers the new routes with no change**, because its strict rules key on a route *parameter named `token`* rather than on a path — the case its own remarks anticipated by name (`{token}/entscheidung`). `no-store`, `noindex` and `no-referrer` apply to the confirmation page and the POST response for free.
+
+### 7.3 Post-Redirect-Get, and the 409
+
+**Every terminating outcome of the POST redirects to `GET /angebot/{token}`.** Without it, a refresh or a back-then-forward re-POSTs a consumed link and shows a failure for an action that actually succeeded.
+
+**The 409 redirects to the same place, and that is how Q2 is satisfied.** The document page re-reads the Angebot and renders whatever the API says is persisted:
+
+> Customer A approves (200). Customer B rejects (409). **B is shown the Angebot as approved** — the real state — not a message about the rejection they attempted.
+
+**The "already answered" sentence proposed at design review is deliberately dropped.** Carrying a one-off message across a redirect means `TempData`, which in Razor Pages is cookie-backed by default — client-side state on a page whose entire design avoids it, for a sentence the banner already makes true. The persisted banner is the honest and sufficient answer. This is a narrowing of the reviewed design, recorded here rather than made quietly.
+
+### 7.4 The boundary grows by the minimum
+
+`IPublicAngebotClient` gains **one method**, per §4's growth-on-demand discipline:
+
+```csharp
+Task<CustomerDecisionOutcome> RecordDecisionAsync(
+    string token, CustomerDecisionChoice choice, CancellationToken cancellationToken);
+```
+
+Two small enums and nothing else. **No result record**, because there is no payload to carry: every outcome ends in a redirect that re-reads the document, so a returned DTO would be a second, staler copy of what the next request fetches authoritatively.
+
+- `CustomerDecisionChoice` — `Approve`, `Reject`. **Two values, never three.** It is an action, and `Pending` would be meaningless as an input; the API's own `CustomerDecision` makes the same distinction for the same reason.
+- `CustomerDecisionOutcome` — `Recorded`, `NotFound`, `Expired`, `AlreadyDecided`, `Unavailable`.
+
+**`AlreadyDecided` is the one outcome the read surface does not have, and its absence there was never an omission.** Slice 2's `CustomerAngebotOutcome` documents why: BR-4 makes a link single-use *for decisions only*, and viewing stays open, so a consumed link reads exactly like an unconsumed one. Slice 4 is where consumption finally becomes observable, which is exactly where that value appears.
+
+The API-status mapping is preserved unchanged from the read client: 404 → invalid, 410 → expired, **409 → already decided**, 5xx / network / timeout / unparseable → unavailable. The mapping stays in `PublicAngebotClient` so it remains reviewable in one file.
+
+### 7.5 Tests this slice must carry
+
+- The two buttons appear **only** for `Pending`, and are absent for `Approved` and `Rejected`.
+- The confirmation page renders for both choices, names the Angebot, and offers Bestätigen and Abbrechen.
+- **The confirmation step records nothing** — driving the GET leaves the decision client uncalled. This is the test the whole two-step design exists for.
+- The final POST calls the client exactly once, with the choice taken from the route.
+- PRG: a recorded decision answers **302** to `/angebot/{token}`, not 200.
+- **409 re-read**: the losing customer ends on the document page showing the *persisted* decision.
+- Every outcome maps to the right page and status: 404, 410, 409, unavailable.
+- **Antiforgery**: a POST without a valid token is rejected.
+- **Token non-leakage**: the token appears in no form field, no hidden input, no link body and no log line, on both new routes.
+
+### 7.6 Out of scope
+
+`DecisionReason` (Slice 5, migration #12 — the API deliberately does not accept one today, and sending a value it discards would break the expectation that anything accepted is kept), link re-issue (Slice 6), company and legal identity (Slice 7), PDF (Phase 14), the contact form (Phase 13). No JavaScript, on any page, at all.
+
+### 7.7 Implementation record
+
+**Branch:** `claude/customer-workflow-phase-rvh4rj`, restarted from `main` at `702e1ff` (PR #20 merged, so the branch is reused for fresh work rather than stacked on merged history).
+
+**The design held: no API, Domain, Infrastructure or database change was needed, and none was made.** The endpoint, the handler, the three-aggregate commit and D96's concurrency token were all already there.
+
+**Files added** — `PublicApi/CustomerDecision.cs` (the two enums), `Pages/AngebotDecision.cshtml(.cs)` (the confirmation and the POST), `tests/.../TokenExposure.cs`, `tests/.../Pages/AngebotDecisionPageTests.cs`.
+**Files changed** — `PublicApi/IPublicAngebotClient.cs` and `PublicAngebotClient.cs` (one method), `Pages/Angebot.cshtml(.cs)` (the two buttons and the URL helper), `wwwroot/css/customer.css`, and four existing test files.
+
+**The mechanism, as built.** The buttons are two ordinary links to `/angebot/{token}/entscheidung/{annehmen|ablehnen}`. `GET` renders the confirmation; `POST` to the same URL records the decision and redirects to the document. The first step is a GET **so that "the confirmation records nothing" is a property of the HTTP method rather than of care taken inside a handler** — and a test asserts the decision client is never called by it, because the property is worth more than the reasoning.
+
+The action links live in `Angebot.cshtml`, not in `_AngebotDocument.cshtml`: the partial is the priced document the customer reads and prints, and these are navigation. That separation is also why the print stylesheet needed only one rule for them rather than a rethink.
+
+### 7.8 Two defects found while building, neither by review
+
+**1 — A capitalised URL would have inverted the customer's decision.** `ASP.NET` matches route constraints **case-insensitively**, so `/entscheidung/Annehmen` routes to this page perfectly happily. The first implementation compared the segment with `StringComparison.Ordinal`, fell through to the `else`, and would have **rejected the Angebot the customer was trying to accept** — the worst available failure in this flow, silently, on a link a mail client had merely title-cased.
+
+It was found by a test written on the opposite assumption: `An_unknown_choice_segment_is_not_routable` included `"Annehmen"` expecting a 404. The 404 never came. §14 says a failing test that reveals a mistake in its own expectation is still valuable — here correcting the expectation also uncovered the defect, and the test that replaced it (`A_capitalised_route_records_the_choice_it_names`) pins the behaviour rather than the assumption. The comparison is now `OrdinalIgnoreCase`, and the unreachable fallback resolves to `Reject`, which is the direction a customer can still recover from.
+
+**2 — The blanket "the token is never rendered into the page" assertion could no longer hold.** Slices 2 and 3 asserted the token appeared nowhere in the HTML at all, and that was right while the page had no navigation. Slice 4's decision routes live *under* the token — which is exactly what keeps the credential in the route and out of a hidden field, a query string and the request body, as required — so a link to one necessarily contains it. Two existing tests failed.
+
+**The assertion was narrowed, not deleted.** Deleting it is how a security property disappears without anyone deciding to give it up. `TokenExposure.AssertOnlyInSameOriginLinks` now proves the token appears in **no visible text, no `input` of any kind, and no query string**, and that every remaining occurrence is inside an `href` under `/angebot/`. The narrower rule is safe for reasons that do not extend to the excluded places: the browser is already on a URL containing the token, `Referrer-Policy: no-referrer` means clicking a link hands it to nobody, and no script runs on these pages to read the DOM. Both rules are now in `CLAUDE.md` §24.
+
+### 7.9 Local verification
+
+`dotnet build` — **0 errors, 0 warnings** (solution-wide, `TreatWarningsAsErrors`).
+
+| Suite | Result |
+|---|---|
+| `RenoTrack.Domain.Tests` | 372 / 372 |
+| `RenoTrack.Application.Tests` | 444 / 444 |
+| `RenoTrack.Website.Tests` | **218 / 218** (up from 178) |
+
+`RenoTrack.Infrastructure.Tests` and `RenoTrack.Api.Tests` need LocalDB and run in CI's Windows job (D40, D56); this slice touches neither project.
+
+### 7.10 Browser QA
+
+Run against a **`dotnet publish` output**, never `dotnet run`, per §24's rule. Chromium via Playwright, driving the real unmodified Website; the API stubbed at its HTTP boundary as in Slice 3 — but this time the stub **records decisions**, so BR-4's single use is genuine rather than simulated and the second attempt on a link really does get a 409.
+
+| Check | Result |
+|---|---|
+| Pending document | Both actions present, `href`s `/angebot/{token}/entscheidung/{annehmen,ablehnen}`, 0 scripts, no overflow |
+| Confirmation (annehmen) | "Sie sind dabei, das Angebot ANG-2026-00042 über 22.035,70 € verbindlich anzunehmen."; Annahme bestätigen / Abbrechen; **the only hidden input is `__RequestVerificationToken`** |
+| Confirmation (ablehnen) | Correct heading and "Ablehnung bestätigen" |
+| **Confirmation records nothing** | Document still Pending afterwards; Abbrechen returns to it still undecided |
+| Approve flow | Ends on `/angebot/{token}`, banner "Sie haben dieses Angebot angenommen.", actions gone, document still shown |
+| Reject flow | Ends on the document, banner "Sie haben dieses Angebot abgelehnt." |
+| **Double submit — reload** | URL after deciding is the document; **reload answers 200 with the banner and re-posts nothing** |
+| **Double submit — back button** | Returning to the confirmation and re-opening it redirects to the document and shows the persisted decision |
+| **Two customers, one link** | A approves and wins; **B, who pressed *ablehnen*, ends on the document reading "Sie haben dieses Angebot angenommen."** — the persisted state, with no rejection message anywhere |
+| Failure states | 404 "nicht gültig", 410 "abgelaufen", 503 "Ihre Antwort konnte nicht gespeichert werden", 0 scripts each |
+| Mobile 390×844 and 320×720 | No overflow on document or confirmation; submit button 44 px tall on both |
+| Print | The actions are `display: none` on paper |
+| Token leakage | **The token appears in no Website log line at all** across the whole run |
+
+**An independent confirmation of the two-step property:** the stub recorded exactly **five** decisions across a run that opened the confirmation page nine times. Had the first step mutated, the count would have matched the page views.
+
+**One observation, not a defect, and not changed here.** In the two-customer case the losing reader is shown Slice 3's approved banner, which is phrased *"**Sie** haben dieses Angebot angenommen."* — accurate for the link holder, mildly odd for a second person sharing one link. The wording is Slice 3's, already approved, and one link is one customer by design; raising it rather than silently rewording approved copy.
+
+**A harness artefact worth naming:** QA ran the Website over HTTP because Chromium in this container no longer trusts the local development certificate (`certutil` is gone, so the NSS store could not be refreshed). Nothing under test depends on the Website's own scheme — the security headers, rendering, routing, antiforgery and the flow are identical — and the Website→API call stayed HTTPS throughout, as `PublicApi:BaseUrl` requires. The one visible consequence is a `Failed to determine the https port for redirect` warning in the log, which is the HTTPS-redirection middleware correctly reporting that no HTTPS port was configured for this run.
