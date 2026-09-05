@@ -26,6 +26,14 @@ public sealed class AngebotModelTests
             Tokens.Add(token);
             return Task.FromResult(result);
         }
+
+        // This model never records a decision — that is AngebotDecisionModel's job — so reaching
+        // this is a defect, and it says so rather than quietly returning a plausible outcome.
+        public Task<CustomerDecisionOutcome> RecordDecisionAsync(
+            string token,
+            CustomerDecisionChoice choice,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The document page must never record a decision.");
     }
 
     private static AngebotModel ModelFor(StubClient client, string token = "a-token") =>

@@ -279,4 +279,97 @@ public sealed class PublicAngebotClientTests
         Assert.Equal(CustomerAngebotOutcome.NotFound, result.Outcome);
         Assert.Empty(handler.Requests);
     }
+
+    // ---- Recording a decision (Slice 4) ------------------------------------
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, CustomerDecisionOutcome.Recorded)]
+    [InlineData(HttpStatusCode.NotFound, CustomerDecisionOutcome.NotFound)]
+    [InlineData(HttpStatusCode.Gone, CustomerDecisionOutcome.Expired)]
+    [InlineData(HttpStatusCode.Conflict, CustomerDecisionOutcome.AlreadyDecided)]
+    [InlineData(HttpStatusCode.BadRequest, CustomerDecisionOutcome.Unavailable)]
+    [InlineData(HttpStatusCode.InternalServerError, CustomerDecisionOutcome.Unavailable)]
+    [InlineData(HttpStatusCode.TooManyRequests, CustomerDecisionOutcome.Unavailable)]
+    public async Task A_decision_maps_every_documented_status(
+        HttpStatusCode status,
+        CustomerDecisionOutcome expected)
+    {
+        var handler = StubHttpMessageHandler.Responding(status);
+
+        var outcome = await ClientFor(handler)
+            .RecordDecisionAsync(Token, CustomerDecisionChoice.Approve, CancellationToken.None);
+
+        Assert.Equal(expected, outcome);
+    }
+
+    /// <summary>
+    /// 409 is the only status whose meaning differs between the two endpoints: the read has no
+    /// "already used" outcome at all, because BR-4 keeps viewing open after a decision.
+    /// </summary>
+    [Fact]
+    public async Task A_409_is_already_decided_and_never_an_outage()
+    {
+        var handler = StubHttpMessageHandler.Responding(HttpStatusCode.Conflict);
+
+        var outcome = await ClientFor(handler)
+            .RecordDecisionAsync(Token, CustomerDecisionChoice.Reject, CancellationToken.None);
+
+        Assert.Equal(CustomerDecisionOutcome.AlreadyDecided, outcome);
+        Assert.NotEqual(CustomerDecisionOutcome.Unavailable, outcome);
+    }
+
+    [Theory]
+    [InlineData(CustomerDecisionChoice.Approve, "Approve")]
+    [InlineData(CustomerDecisionChoice.Reject, "Reject")]
+    public async Task A_decision_posts_the_token_in_the_route_and_the_choice_in_the_body(
+        CustomerDecisionChoice choice,
+        string expectedName)
+    {
+        string? body = null;
+        Uri? uri = null;
+        var handler = new StubHttpMessageHandler(async (request, ct) =>
+        {
+            uri = request.RequestUri;
+            body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        await ClientFor(handler).RecordDecisionAsync(Token, choice, CancellationToken.None);
+
+        Assert.Equal($"/api/v1/public/angebote/{Token}/decision", uri?.AbsolutePath);
+
+        // The enum crosses as a name, matching the API's JsonStringEnumConverter (D61) — an ordinal
+        // would silently change meaning if anyone reordered either enum.
+        Assert.Contains(expectedName, body ?? string.Empty, StringComparison.Ordinal);
+
+        // The token is a route value on both sides. It must not also travel in the body, where it
+        // would end up in request logs that the route form is deliberately kept out of.
+        Assert.DoesNotContain(Token, body ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>Refused before a socket is opened, exactly as the read refuses it.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task An_empty_token_records_nothing(string token)
+    {
+        var handler = StubHttpMessageHandler.Responding(HttpStatusCode.OK);
+
+        var outcome = await ClientFor(handler)
+            .RecordDecisionAsync(token, CustomerDecisionChoice.Approve, CancellationToken.None);
+
+        Assert.Equal(CustomerDecisionOutcome.NotFound, outcome);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task An_unreachable_api_is_an_outage_not_a_broken_link()
+    {
+        var handler = StubHttpMessageHandler.Throwing(new HttpRequestException("connection refused"));
+
+        var outcome = await ClientFor(handler)
+            .RecordDecisionAsync(Token, CustomerDecisionChoice.Approve, CancellationToken.None);
+
+        Assert.Equal(CustomerDecisionOutcome.Unavailable, outcome);
+    }
 }

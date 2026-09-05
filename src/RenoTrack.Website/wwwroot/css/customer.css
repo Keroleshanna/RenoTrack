@@ -395,9 +395,86 @@ body {
 }
 
 /* Ink on white, no page furniture: a customer printing their quote should get the document. */
+/*
+  The decision actions (Slice 4).
+
+  Anchors and a submit button share one class, because to a customer they are the same control and
+  differing only in element type would be a visual inconsistency with no meaning behind it. The
+  44px minimum height is the touch target a phone needs — the confirmation is the one screen where
+  a mis-tap costs something irreversible.
+*/
+.customer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.customer-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.6rem 1.4rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    font: inherit;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.customer-button-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+}
+
+.customer-button-secondary {
+    background: var(--surface);
+    border-color: var(--line);
+    color: var(--ink);
+}
+
+.customer-button-quiet {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-muted);
+}
+
+.customer-button:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.customer-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+/* One column on a narrow phone, so neither control is a sliver next to the other. */
+@media (max-width: 30rem) {
+    .customer-actions,
+    .customer-confirm-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
 @media print {
     body {
         background: #ffffff;
+    }
+
+    /* A printed quote is a document, not a screen: nothing on paper is clickable. */
+    .customer-actions,
+    .customer-confirm-actions {
+        display: none;
     }
 
     .customer-header,

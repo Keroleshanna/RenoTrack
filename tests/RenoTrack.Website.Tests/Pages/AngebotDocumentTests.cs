@@ -241,7 +241,7 @@ public sealed class AngebotDocumentTests : IClassFixture<CustomerWebsiteFactory>
     [Fact]
     public async Task The_token_is_never_rendered_into_the_populated_document()
     {
-        Assert.DoesNotContain(Token, await RenderAsync(), StringComparison.Ordinal);
+        TokenExposure.AssertOnlyInSameOriginLinks(await RenderAsync(), Token);
     }
 
     /// <summary>

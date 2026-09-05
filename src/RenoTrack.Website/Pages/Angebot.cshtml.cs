@@ -35,6 +35,20 @@ public sealed class AngebotModel(IPublicAngebotClient client) : PageModel
     public CustomerAngebot? Angebot { get; private set; }
 
     /// <summary>
+    /// Where the "Angebot annehmen" / "Angebot ablehnen" buttons lead: the confirmation step, whose
+    /// POST performs the decision.
+    /// </summary>
+    /// <remarks>
+    /// Built here rather than in the view so the route segments have exactly one definition, shared
+    /// with the page that consumes them. The token is escaped for the same reason the client
+    /// escapes it — what arrives is whatever was in the address bar, not necessarily a token this
+    /// system issued.
+    /// </remarks>
+    public string DecisionUrl(bool approve) =>
+        $"/angebot/{Uri.EscapeDataString(Token)}/entscheidung/"
+        + (approve ? AngebotDecisionModel.ApproveSegment : AngebotDecisionModel.RejectSegment);
+
+    /// <summary>
     /// Answers with the HTTP status that matches what the customer is being told, so the page is
     /// honest to a proxy or a crawler as well as to a reader — and so an outage is never cached or
     /// reported as a success.

@@ -29,6 +29,28 @@
             review: the page rendered its layout and its title, and every content assertion failed.
         *@
         await Html.RenderPartialAsync("_AngebotDocument", Model.Angebot!);
+
+        @*
+            The decision actions, and deliberately not part of the document partial: the partial is
+            the priced document the customer reads and prints, while these are navigation. Keeping
+            them out of it is also why the print stylesheet needs no rule to hide them.
+
+            Offered only while the decision is still open — an answered Angebot has a banner instead,
+            and no reopen path exists (BR-4).
+
+            Two links, not two forms, because the first step must not be able to record anything:
+            each leads to a server-rendered confirmation whose POST performs the decision (D83).
+            The decision is the last route segment, so nothing on this page carries it as state.
+        *@
+        if (Model.Angebot!.Decision == CustomerAngebotDecision.Pending)
+        {
+            <nav class="customer-actions" aria-label="Ihre Entscheidung">
+                <a class="customer-button customer-button-primary"
+                   href="@Model.DecisionUrl(approve: true)">Angebot annehmen</a>
+                <a class="customer-button customer-button-secondary"
+                   href="@Model.DecisionUrl(approve: false)">Angebot ablehnen</a>
+            </nav>
+        }
         break;
 
     case CustomerAngebotOutcome.NotFound:

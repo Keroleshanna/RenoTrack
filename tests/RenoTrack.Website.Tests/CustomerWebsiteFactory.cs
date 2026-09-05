@@ -34,6 +34,15 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
     /// <summary>Every token the Website asked the API about.</summary>
     public List<string> RequestedTokens { get; } = [];
 
+    /// <summary>What the stubbed decision endpoint returns.</summary>
+    public CustomerDecisionOutcome DecisionOutcome { get; set; } = CustomerDecisionOutcome.Recorded;
+
+    /// <summary>
+    /// Every decision the Website tried to record. <b>Its emptiness is the assertion</b> that the
+    /// confirmation step records nothing — the property the whole two-step design exists for.
+    /// </summary>
+    public List<(string Token, CustomerDecisionChoice Choice)> RecordedDecisions { get; } = [];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Never Development: the customer surface must be tested as it will actually be served, and
@@ -61,6 +70,15 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
         {
             owner.RequestedTokens.Add(token);
             return Task.FromResult(owner.Result);
+        }
+
+        public Task<CustomerDecisionOutcome> RecordDecisionAsync(
+            string token,
+            CustomerDecisionChoice choice,
+            CancellationToken cancellationToken)
+        {
+            owner.RecordedDecisions.Add((token, choice));
+            return Task.FromResult(owner.DecisionOutcome);
         }
     }
 }

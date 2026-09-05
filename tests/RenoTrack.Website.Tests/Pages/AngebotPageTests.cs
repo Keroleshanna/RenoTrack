@@ -147,7 +147,10 @@ public sealed class AngebotPageTests : IClassFixture<CustomerWebsiteFactory>
         using var response = await client.GetAsync($"/angebot/{Token}");
         var html = await response.Content.ReadAsStringAsync();
 
-        Assert.DoesNotContain(Token, html, StringComparison.Ordinal);
+        // Narrowed in Slice 4, deliberately and not quietly: the decision routes live under the
+        // token, so the two action links necessarily carry it. Everywhere else it is still absent —
+        // see TokenExposure for why those places differ.
+        TokenExposure.AssertOnlyInSameOriginLinks(html, Token);
     }
 
     // ---- Security headers --------------------------------------------------
