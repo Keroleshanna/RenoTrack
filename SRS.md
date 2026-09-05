@@ -172,6 +172,7 @@ Each feature below is written as: **Description**, **Actors**, **Requirements** 
 **Actors:** Admin (sends), Lead (decides).
 
 - FR-6.1: When the Admin approves an Angebot for sending, the system shall generate a unique, unguessable, expiring **token link** and email it to the Lead.
+- FR-6.1a: The Admin shall be able to **re-issue** that token link while the Angebot is still awaiting a decision — for a lost email, a link that lapsed before the Lead answered, or a corrected address. Re-issuing **supersedes** the previous link in the same transaction that creates the replacement, so a Lead never holds two working links, and the new email carries only the new link. *(Added Phase 11 Slice 6 to formalise an approved Product-Owner requirement that no requirement document previously named — see `ARCHITECTURE_DECISIONS.md` D99. Distinct from **OQ-4**, "revise and resend" after a rejection, which remains open.)*
 - FR-6.2: Opening the token link shall show the Lead a read-only, presentable view of the Angebot (sections, line items, totals, VAT breakdown) without requiring login.
 - FR-6.3: The Lead shall be able to **Approve** or **Reject** the Angebot from that page. A rejection may optionally include a reason/comment.
 - FR-6.4: A token link shall expire after a configurable period (e.g. 30 days) and/or become invalid once a decision has been made, to prevent re-use.

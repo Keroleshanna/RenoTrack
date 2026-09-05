@@ -61,6 +61,7 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 | Approve Angebot | F | — | Admin-only — this is the entire point of the internal review gate (BR-1) |
 | Request changes (with comment) | F | — | Admin-only |
 | Send Angebot to Lead (generate token link) | F | — | Admin-only (FR-6.1) |
+| Resend Angebot link (re-issue token) | F | — | Admin-only (FR-6.1a, added Phase 11 Slice 6, **D99**). Only while the Angebot is `Sent`. Re-issuing **supersedes** the previous link by expiring it in the same transaction, so there is never more than one usable credential for an Angebot. No state transition and no change to `SentAt` — each re-issue is recorded in the audit trail |
 | View review comment history | F | R | Both can read; only Admin writes new review comments |
 
 ---

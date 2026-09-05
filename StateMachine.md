@@ -95,6 +95,7 @@ stateDiagram-v2
 | `ChangesRequested` | (Inspector edits items — no explicit state event) | — | `Draft` | Angebot moves back to Draft the moment editing resumes, so it must be resubmitted |
 | `ChangesRequested` | `SubmitForReview` | At least 1 section with at least 1 item | `InReview` | Notify Admin. **Row added in Phase 10** (`ARCHITECTURE_DECISIONS.md` **D94**) — see the note below |
 | `ApprovedInternally` | `Send` | Lead has a valid email address | `Sent` | TokenLink generated; email sent; `SentAt` timestamp set |
+| `Sent` | `ResendAngebot` | Angebot is `Sent`; the existing TokenLink has not carried a decision | **`Sent` (unchanged)** | **No transition.** The previous TokenLink is expired and a new one issued in the same transaction (FR-6.1a, **D99**); `SentAt` is deliberately *not* updated — it records the original send, and each re-issue appears in the audit trail. Listed here because silence would read as an omission rather than as a decision |
 | `Sent` | `RecordDecision(Approve)` | TokenLink valid, unused, not expired | `CustomerApproved` | `DecisionAt`/`DecisionResult` set; Lead → `Won`; notify Admin |
 | `Sent` | `RecordDecision(Reject)` | TokenLink valid, unused, not expired | `CustomerRejected` | `DecisionAt`/`DecisionResult` set; Lead → `Lost`; notify Admin |
 

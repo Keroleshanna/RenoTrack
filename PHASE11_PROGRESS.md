@@ -56,8 +56,8 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`, CI green on both jobs |
 | **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
-| **5** | Rejection reason (Q2) — migration #12 | in progress — design approved 2026-09-05 (§8), **D98** |
-| 6 | Token re-issue (Q3) | not started |
+| **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
+| **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | in progress — design approved 2026-09-05 (§9), **D99** |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
@@ -699,3 +699,56 @@ Against a **`dotnet publish` output**, Chromium via Playwright, with the stub en
 | Mobile 390 × 844 and 320 × 720 | No overflow; the textarea fits the viewport on both |
 | Print | The actions stay hidden on paper |
 | Leakage | The only `input` on the page is `__RequestVerificationToken`; the token appears **only** in `href` attributes; **neither the token nor the reason appears in any Website log line** |
+
+---
+
+## 9. Slice 6 — Token Re-issue
+
+### 9.1 Approved design
+
+Reviewed and approved on 2026-09-05, **after one round that found a real concurrency flaw in the first proposal**. The decision record is `ARCHITECTURE_DECISIONS.md` **D99**.
+
+**No requirement document named this capability.** SRS had no FR, `PermissionMatrix.md` §4 no row, `Architecture.md` §5.2 no endpoint — it exists because of the Product Owner's **Q3** decision, which is the footing `Angebot.UpdateItem` stood on in Phase 10. So the documents moved first (§15), and **`SRS.md` gains FR-6.1a** rather than leaving an approved requirement recorded only in a phase note. SRS **OQ-4** ("revise and resend" after a rejection) is a different question and stays open.
+
+| Question | Decision |
+|---|---|
+| **Q1** — where the "`Sent` only" check lives | **The Application handler**, throwing `ConflictException`. A documented exception to §6, because re-issuing changes no aggregate state, so there is no mutator to call and let throw — and a public `Angebot.EnsureResendable()` probe is exactly what D29 rejected for `Inspection.IsEditable`. |
+| **Q2** — re-issue a link that already lapsed | **Allowed.** The Angebot is still `Sent` and the customer has a dead link; this is the most valuable case. |
+| **Q3** — how the old link dies | **`ExpiresAt` set to now.** Not `UsedAt` (that means "a decision was recorded" and is D96's token), not a new `RevokedAt` column, not deletion. The customer page's existing 410 wording becomes literally true. |
+| **Q4** — update `SentAt`? | **No.** It records the original send; re-issues live in the audit trail. |
+| **Q5** — serialising concurrent re-issues | **`ExpiresAt` becomes an optimistic-concurrency token**, alongside `UsedAt`. |
+
+### 9.2 The flaw the review caught, and why it matters more than the fix
+
+The first design claimed D96's `UsedAt` token already serialised two simultaneous re-issues. **It does not, and the Product Owner caught it.**
+
+EF Core puts a concurrency token's *original* value in the `WHERE` clause. A re-issue never writes `UsedAt`, so two concurrent re-issues both issue `WHERE Id = @id AND UsedAt IS NULL`, both match, both commit, and **two usable credentials exist** — violating the invariant the mechanism was cited to protect.
+
+`UsedAt` does gate a customer decision against a re-issue, because the decision writes it. It gates nothing between two writers that both leave it alone.
+
+**The rule, sharpened:** a concurrency guarantee comes from **the column the operation actually writes**, never from the presence of a token on the row. The first design inferred protection from the token existing — the same shape of error `CLAUDE.md` §21 already warns about, one level further in.
+
+### 9.3 The accepted concurrency model
+
+| Race | Gate | Why it works |
+|---|---|---|
+| Customer decision vs. re-issue | **`UsedAt`** | The decision writes it |
+| Re-issue vs. re-issue | **`ExpiresAt`** | The re-issue writes it |
+
+Both readers see the same original `ExpiresAt`; the first commits; the second matches zero rows; EF throws; `UnitOfWork` translates to `ConflictException` → **409**. **The loser's new link is never persisted**, because EF wraps its `UPDATE` and `INSERT` in one batch and rolls the whole batch back — the property D96 already recorded, applied to the correct column.
+
+It also **strengthens** the customer path: a decision arriving through a link superseded mid-flight now conflicts deterministically rather than committing against a replaced credential.
+
+**Rejected mechanisms**, each on its own terms: a pessimistic row lock satisfies the invariant but *chains* rather than refuses, so the customer receives two emails and the first link is dead on arrival; a unique filtered index is the only schema-level guarantee but cannot be expressed on today's columns, because expiry is time-relative and `GETUTCDATE()` is non-deterministic in a filtered-index predicate — adopting it would reopen the `RevokedAt` column Q3 closed, and it is a deliberate non-goal here; serializable isolation buys nothing the chosen mechanism does not, at a higher cost.
+
+### 9.4 The trap in Q2, recorded before it can be walked into
+
+**`TokenLink.Expire()` must always write, even when the link is already expired.** An implementation that skips the write when `IsExpired` is already true would cause EF to issue no `UPDATE`, the concurrency predicate would not exist, and the serialisation would silently vanish for exactly the case Q2 added. The write *is* the guard. Pinned by a test, not by this paragraph.
+
+### 9.5 Scope and implementation order
+
+**In scope:** `TokenLink.Expire()`; `ExpiresAt` as a concurrency token (migration #13, empty `Up`/`Down`); `ResendAngebotCommand` + validator + handler; `POST /api/v1/angebote/{id}/resend` (Admin-only, no token in the response); one new `ITokenLinkRepository` method; a new `AuditAction`; the Dashboard's confirmed "Link erneut senden" action behind a tested `canResend` flag.
+
+**Out of scope:** any schema state beyond the concurrency token, a filtered unique index, `RevokedAt`/`IsCurrent`, changing `SentAt`, OQ-4's revise-and-resend, and all Slice 7+ work. **`NotificationRetryExecutor` needs no change** — it already takes the newest link and refuses an expired or used one; this slice makes that foresight load-bearing, so a test pins it.
+
+**Three commits, each stopping for review:** documentation + D99 → Domain + Application + API + migration + tests → Dashboard + browser QA.
