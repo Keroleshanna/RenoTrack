@@ -47,12 +47,13 @@ describe('Angebot capabilities', () => {
       expect(capabilitiesFor('inspector', 'Draft').awaitingRework).toBeFalse();
     });
 
-    it('never reviews, sends or converts — every one of those is Admin "F" (§4, §5)', () => {
+    it('never reviews, sends, re-sends or converts — every one of those is Admin "F" (§4, §5)', () => {
       for (const status of OTHER) {
         const capabilities = capabilitiesFor('inspector', status);
 
         expect(capabilities.canReview).toBeFalse();
         expect(capabilities.canSend).toBeFalse();
+        expect(capabilities.canResend).toBeFalse();
         expect(capabilities.canConvertToProject).toBeFalse();
       }
     });
@@ -92,6 +93,12 @@ describe('Angebot capabilities', () => {
       expect(sendable).toEqual(['ApprovedInternally']);
     });
 
+    it('re-issues the link only while Sent — the one window a link exists undecided (D99)', () => {
+      const resendable = OTHER.filter((status) => capabilitiesFor('admin', status).canResend);
+
+      expect(resendable).toEqual(['Sent']);
+    });
+
     it('converts only a customer-approved quote (BR-2)', () => {
       const convertible = OTHER.filter(
         (status) => capabilitiesFor('admin', status).canConvertToProject,
@@ -128,6 +135,7 @@ describe('Angebot capabilities', () => {
       expect(capabilities.canSubmitForReview).toBeFalse();
       expect(capabilities.canReview).toBeFalse();
       expect(capabilities.canSend).toBeFalse();
+      expect(capabilities.canResend).toBeFalse();
       expect(capabilities.canConvertToProject).toBeFalse();
       expect(capabilities.canSaveCustomItemToCatalog).toBeFalse();
       expect(capabilities.canDuplicate).toBeFalse();

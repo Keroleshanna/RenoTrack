@@ -56,8 +56,8 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`, CI green on both jobs |
 | **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
-| **5** | Rejection reason (Q2) — migration #12 | in progress — design approved 2026-09-05 (§8), **D98** |
-| 6 | Token re-issue (Q3) | not started |
+| **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
+| **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and approved, awaiting merge** — design and all three commits approved 2026-09-05 (§9), **D99**; PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23) open as a draft, CI green on both jobs, browser QA passed (§9.6, §9.7) |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
@@ -699,3 +699,83 @@ Against a **`dotnet publish` output**, Chromium via Playwright, with the stub en
 | Mobile 390 × 844 and 320 × 720 | No overflow; the textarea fits the viewport on both |
 | Print | The actions stay hidden on paper |
 | Leakage | The only `input` on the page is `__RequestVerificationToken`; the token appears **only** in `href` attributes; **neither the token nor the reason appears in any Website log line** |
+
+---
+
+## 9. Slice 6 — Token Re-issue
+
+### 9.1 Approved design
+
+Reviewed and approved on 2026-09-05, **after one round that found a real concurrency flaw in the first proposal**. The decision record is `ARCHITECTURE_DECISIONS.md` **D99**.
+
+**No requirement document named this capability.** SRS had no FR, `PermissionMatrix.md` §4 no row, `Architecture.md` §5.2 no endpoint — it exists because of the Product Owner's **Q3** decision, which is the footing `Angebot.UpdateItem` stood on in Phase 10. So the documents moved first (§15), and **`SRS.md` gains FR-6.1a** rather than leaving an approved requirement recorded only in a phase note. SRS **OQ-4** ("revise and resend" after a rejection) is a different question and stays open.
+
+| Question | Decision |
+|---|---|
+| **Q1** — where the "`Sent` only" check lives | **The Application handler**, throwing `ConflictException`. A documented exception to §6, because re-issuing changes no aggregate state, so there is no mutator to call and let throw — and a public `Angebot.EnsureResendable()` probe is exactly what D29 rejected for `Inspection.IsEditable`. |
+| **Q2** — re-issue a link that already lapsed | **Allowed.** The Angebot is still `Sent` and the customer has a dead link; this is the most valuable case. |
+| **Q3** — how the old link dies | **`ExpiresAt` set to now.** Not `UsedAt` (that means "a decision was recorded" and is D96's token), not a new `RevokedAt` column, not deletion. The customer page's existing 410 wording becomes literally true. |
+| **Q4** — update `SentAt`? | **No.** It records the original send; re-issues live in the audit trail. |
+| **Q5** — serialising concurrent re-issues | **`ExpiresAt` becomes an optimistic-concurrency token**, alongside `UsedAt`. |
+
+### 9.2 The flaw the review caught, and why it matters more than the fix
+
+The first design claimed D96's `UsedAt` token already serialised two simultaneous re-issues. **It does not, and the Product Owner caught it.**
+
+EF Core puts a concurrency token's *original* value in the `WHERE` clause. A re-issue never writes `UsedAt`, so two concurrent re-issues both issue `WHERE Id = @id AND UsedAt IS NULL`, both match, both commit, and **two usable credentials exist** — violating the invariant the mechanism was cited to protect.
+
+`UsedAt` does gate a customer decision against a re-issue, because the decision writes it. It gates nothing between two writers that both leave it alone.
+
+**The rule, sharpened:** a concurrency guarantee comes from **the column the operation actually writes**, never from the presence of a token on the row. The first design inferred protection from the token existing — the same shape of error `CLAUDE.md` §21 already warns about, one level further in.
+
+### 9.3 The accepted concurrency model
+
+| Race | Gate | Why it works |
+|---|---|---|
+| Customer decision vs. re-issue | **`UsedAt`** | The decision writes it |
+| Re-issue vs. re-issue | **`ExpiresAt`** | The re-issue writes it |
+
+Both readers see the same original `ExpiresAt`; the first commits; the second matches zero rows; EF throws; `UnitOfWork` translates to `ConflictException` → **409**. **The loser's new link is never persisted**, because EF wraps its `UPDATE` and `INSERT` in one batch and rolls the whole batch back — the property D96 already recorded, applied to the correct column.
+
+It also **strengthens** the customer path: a decision arriving through a link superseded mid-flight now conflicts deterministically rather than committing against a replaced credential.
+
+**Rejected mechanisms**, each on its own terms: a pessimistic row lock satisfies the invariant but *chains* rather than refuses, so the customer receives two emails and the first link is dead on arrival; a unique filtered index is the only schema-level guarantee but cannot be expressed on today's columns, because expiry is time-relative and `GETUTCDATE()` is non-deterministic in a filtered-index predicate — adopting it would reopen the `RevokedAt` column Q3 closed, and it is a deliberate non-goal here; serializable isolation buys nothing the chosen mechanism does not, at a higher cost.
+
+### 9.4 The trap in Q2, recorded before it can be walked into
+
+**`TokenLink.Expire()` must always write, even when the link is already expired.** An implementation that skips the write when `IsExpired` is already true would cause EF to issue no `UPDATE`, the concurrency predicate would not exist, and the serialisation would silently vanish for exactly the case Q2 added. The write *is* the guard. Pinned by a test, not by this paragraph.
+
+### 9.5 Scope and implementation order
+
+**In scope:** `TokenLink.Expire()`; `ExpiresAt` as a concurrency token (migration #13, empty `Up`/`Down`); `ResendAngebotCommand` + validator + handler; `POST /api/v1/angebote/{id}/resend` (Admin-only, no token in the response); one new `ITokenLinkRepository` method; a new `AuditAction`; the Dashboard's confirmed "Link erneut senden" action behind a tested `canResend` flag.
+
+**Out of scope:** any schema state beyond the concurrency token, a filtered unique index, `RevokedAt`/`IsCurrent`, changing `SentAt`, OQ-4's revise-and-resend, and all Slice 7+ work. **`NotificationRetryExecutor` needs no change** — it already takes the newest link and refuses an expired or used one; this slice makes that foresight load-bearing, so a test pins it.
+
+**Three commits, each stopping for review:** documentation + D99 → Domain + Application + API + migration + tests → Dashboard + browser QA.
+
+### 9.6 What the Dashboard's browser QA found
+
+**Every confirmation dialog on the Angebot screen stayed open when the server refused the write.** `perform()` ran its caller's callback — which is what closes the dialog — only in the `next` branch, so a 409 left the confirmation sitting on top of the message explaining the refusal, one click from an identical second refusal. That is exactly the rule `CLAUDE.md` §23 already records, learned from the notification-retry dialog; the Angebot screen had never been driven against a refusal, so it had gone unnoticed across all four confirmed actions (submit, approve, send, and now resend) rather than one.
+
+**The first fix was wrong, and the second QA case is what caught it.** Making the callback run on both outcomes fixed the confirmations and silently broke the *form* dialogs, which pass the same parameter to close themselves — an ordinary 400 on a section title would have closed the form and discarded what the user had typed, along with the message telling them to fix it. `perform()` therefore takes **two** callbacks, and the split is the rule rather than an accident of the signature: `onSuccess` closes a form dialog, on success only, because a refusal there is the user's own input still waiting to be corrected; `onSettled` closes a confirmation, on both outcomes, because a refusal is terminal for that click and there is nothing in the dialog to preserve. The reload stays success-only either way. Both halves are pinned by a browser case — a refused resend closing its confirmation, and a refused section keeping `Dachgeschoss` in its field.
+
+**Found by driving the built Dashboard against a stub that returns 409, not by review** — the same shape as every other Phase 10/11 QA finding: the defect is invisible while only the happy path is exercised, and a green suite is a precondition for QA rather than a substitute for it. `canResend` itself is covered exhaustively over every status and role in `angebot-capabilities.spec.ts`, which is what keeps it agreeing with the handler's own `Sent`-only check.
+
+### 9.7 Closure
+
+**Approved and closed 2026-09-05**, across four review checkpoints: the design (with the concurrency flaw the Product Owner found in it), Commit 1's documentation, Commit 2 under a hold that demanded code-level evidence rather than a summary, and Commit 3 with a focused re-review of the shared `perform()` change because it altered Submit/Approve/Send outside the new feature.
+
+| Commit | Contents |
+|---|---|
+| `4df0750` | Documentation + D99 |
+| `fb73e11` | Domain + Application + API + migration #13 + tests |
+| `b8fe044` | Test-only fix to the race harness |
+| `eb15e96` | Dashboard + the `perform()` split |
+
+**CI green on `eb15e96`, both jobs.** Infrastructure 412/412 and Api 464/464 against real Windows/LocalDB; Domain, Application and Website green on Linux; 81/81 in the Dashboard's own suite locally, since CI does not build the Dashboard. Build 0 errors / 0 warnings, `has-pending-model-changes` clean.
+
+**The published bundle the browser QA ran against was verified rather than assumed.** Its timestamp was *older* than the source files', which a `git stash`/`stash pop` during a formatting comparison had rewritten with identical content. Rather than reason about that, the committed source was built to a separate directory and every emitted JS chunk hashed identically to the bundle under test. **A build output's mtime is not evidence about its provenance** — an ordinary git operation can invert it — so where a QA result depends on which code was running, compare the artefacts.
+
+**PR #23 is not merged as of this entry.** Slice 6's work is complete and accepted; the merge is a separate authorisation.
+
+**What Slice 6 leaves for later, unchanged:** OQ-4's revise-and-resend, a filtered unique index (Mechanism 3, explicitly declined for this slice), and everything in Slice 7+.

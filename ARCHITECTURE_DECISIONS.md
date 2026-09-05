@@ -2308,3 +2308,75 @@ Left alone, that is a **silent widening**: an operator who wrote a host address 
 - `PublicAngebotDecisionEndpointTests.A_rejection_reason_is_not_part_of_the_contract` is **replaced, not deleted.** The gap it guarded is closed, so the executable guarantee moves to the new contract: the reason is accepted, persisted, returned to staff, refused with an approval, refused over-length, and absent from the public DTO. Deleting it would remove the only thing keeping any of that from drifting.
 - `NEXT_STEPS.md`'s gap entry is removed rather than amended — its revisit trigger fired and the question is answered here.
 - This is the **second** untrusted-text surface on the customer site and the first written by the customer themselves. It is HTML-encoded wherever it renders, proven by a test with a hostile payload rather than by inspection.
+
+---
+
+## D99 — Re-issuing an Angebot Token Link: Expiry Supersedes, and `ExpiresAt` Is the Gate That Serialises It
+
+**Problem:** A customer loses the email, the link lapses before they answer, or the address needed correcting. Phase 11's approved **Q3** requires an Admin-triggered re-issue: only while the Angebot is `Sent`, the old credential invalidated **in the same transaction** that creates the new one, and **never more than one live credential per Angebot**. No requirement document named this capability — SRS had no FR, `PermissionMatrix.md` §4 no row, `Architecture.md` §5.2 no endpoint. It exists because the Product Owner required it, which is the same footing `Angebot.UpdateItem` stood on in Phase 10, so the documents move first (`CLAUDE.md` §15). SRS **OQ-4** ("revise and resend" after a rejection, which would need `Lost → AngebotInProgress`) is a different question and stays open.
+
+### Part 1 — How the old link is invalidated
+
+**Alternatives considered:** (a) Set `UsedAt`. (b) Add a `RevokedAt`/`IsCurrent` column. (c) Delete the old row. (d) **Set `ExpiresAt` to now.**
+
+**Final decision:** (d).
+
+**Why chosen:**
+
+- **(a) would destroy two meanings at once.** `UsedAt` means "a decision was recorded through this link" (BR-4) *and* is the optimistic-concurrency token D96 added. Writing it for a re-issue would make the audit trail lie and would corrupt the decision race.
+- **(b) is schema and a third "why is this link dead?" state** for an outcome that already has a correct customer-facing page.
+- **(c) contradicts this codebase's standing position** that historical records are retired, never deleted (BR-12's stance, applied to a row).
+- **(d) makes the customer-facing wording literally true.** The public page already answers an expired link with *"Dieser Link ist abgelaufen … senden wir Ihnen gerne einen neuen Link zu."* A superseded link **is** expired, so the honest message and the accurate message are the same message, with no new state to map.
+
+**Consequence:** multiple `TokenLinks` rows per Angebot are now expected, with **at most one usable** (`UsedAt IS NULL` and not expired). Old rows are kept.
+
+### Part 2 — No state transition, and the `Sent`-only check lives in the handler
+
+Re-issuing changes no aggregate state: the Angebot stays `Sent`, the Lead stays `AngebotSent`, and **`SentAt` is not updated** — it records the original send, and each re-issue is recorded in the audit trail instead.
+
+That leaves "only while `Sent`" with nowhere Domain-shaped to live. `CLAUDE.md` §6 forbids a handler inspecting an aggregate's state field, on the grounds that it should call the Domain method and let it throw — **but there is no mutator to call**, because nothing about the Angebot changes. The alternative, a public `Angebot.EnsureResendable()` probe, is precisely the read-only precondition method D29 rejected for `Inspection.IsEditable`: Domain surface grown to answer a question no mutator asks.
+
+**Decision: the check lives in the handler and throws `ConflictException`, recorded here as a deliberate, reasoned exception to §6 rather than an oversight.** The rule §6 protects — *don't duplicate a guard the Domain already enforces* — is not in play, because no Domain guard exists to duplicate.
+
+### Part 3 — Serialising concurrent re-issues, and a flaw caught in review
+
+**The first design was wrong, and the way it was wrong is the lesson.** It claimed that D96's `UsedAt` concurrency token already serialised two simultaneous re-issues. It does not. EF Core puts a token's *original* value in the `WHERE` clause, and a re-issue never writes `UsedAt` — so both concurrent operations issue `WHERE Id = @id AND UsedAt IS NULL`, both match, both commit, and **two usable credentials exist**. The invariant Q3 states would have been violated by the very mechanism claimed to protect it.
+
+`UsedAt` does gate *decision-versus-re-issue*, because the decision writes it. It gates nothing between two writers that both leave it alone. **The guarantee comes from the column the operation actually changes, never from the presence of a token on the row** — the sharpened form of the rule `CLAUDE.md` §21 already states as "the question is not 'does a guard exist' but 'what happens when two callers pass it at the same time'".
+
+**Alternatives considered:**
+
+- **A pessimistic row lock** on `Angebote` (`UPDLOCK, HOLDLOCK`) inside the existing transaction API. Satisfies the letter of the invariant and produces the wrong behaviour: re-issues do not conflict, they **chain** — the second waits, then supersedes the first's brand-new link. Exactly one credential survives, but the customer receives two emails and the first link is dead on arrival. It also adds blocking and a deadlock surface for a case that should simply be refused.
+- **A unique filtered index**, the only mechanism where the schema itself forbids two live credentials. It cannot be built on today's columns: filtering on `UsedAt IS NULL` alone would forbid the unused-but-expired rows that accumulate legitimately, and expiry is time-relative, so `ExpiresAt > GETUTCDATE()` is non-deterministic and illegal in a filtered-index predicate. A real constraint needs the `IsCurrent`/`RevokedAt` column Part 1 rejected. **Deliberately not adopted in this slice**; the schema model stays as it is.
+- **Serializable isolation.** Escalates locking for the whole transaction, invites deadlocks, and still chains rather than refuses unless combined with an optimistic check — so it buys nothing the chosen mechanism does not, at a higher cost.
+- **Make `ExpiresAt` an optimistic-concurrency token as well.**
+
+**Final decision:** the last one.
+
+`ExpiresAt` is the column a re-issue writes, so it is the column that can gate one re-issue against another:
+
+```sql
+UPDATE TokenLinks SET ExpiresAt = @now
+WHERE Id = @id AND UsedAt IS NULL AND ExpiresAt = @originalExpiresAt
+```
+
+Both readers see the same original value; the first commits; the second matches **zero rows**; EF throws `DbUpdateConcurrencyException`; `UnitOfWork` translates it to `ConflictException` (D96) and the API answers **409**. Exactly one re-issue wins, and the loser is refused rather than chained.
+
+**The loser's new link is never persisted.** EF wraps the `UPDATE` and the `INSERT` in one batch inside one transaction, so a failed concurrency check rolls the whole batch back — the same property D96 recorded ("EF Core wraps the batch in a transaction and rolls the loser's whole batch back"). The only correction is *which column gates the path*.
+
+**It strengthens the customer path rather than merely preserving it.** With `ExpiresAt` also a token, a decision arriving through a link superseded mid-flight conflicts deterministically instead of committing against a credential that has been replaced. All three interleavings stay correct: the re-issue commits first, so the decision handler's own expiry check answers **410**; the decision commits first, so the re-issue misses on `UsedAt` and answers **409**; genuinely simultaneous, and whoever commits second loses.
+
+**Cost:** migration **#13** with legitimately empty `Up`/`Down`. A non-`rowversion` token is client-side `WHERE`-clause behaviour and changes no schema, but it is recorded in the model snapshot — the identical situation to migration #11, and the same precedent covers it.
+
+### Part 4 — A trap this analysis surfaced
+
+Q2 approves re-issuing a link that has already lapsed naturally. **`TokenLink.Expire()` must therefore always write, even when the link is already expired.** An implementation that "helpfully" skips the write when `IsExpired` is already true would cause EF to issue **no `UPDATE` at all**, the concurrency predicate would not exist, and the serialisation would silently vanish for exactly the case Q2 added. The write is what carries the guard. This is pinned by a test, not by this paragraph.
+
+### Consequences
+
+- `TokenLink` gains `Expire()`; `UsedAt` keeps its single meaning and is never written by a re-issue.
+- `TokenLinks.ExpiresAt` becomes an optimistic-concurrency token (migration #13, empty `Up`/`Down`).
+- `POST /api/v1/angebote/{id}/resend`, Admin-only, returning `AngebotDto` and **no token** — the credential goes only to the customer's email, exactly as `send` does.
+- `PermissionMatrix.md` §4 gains "Resend Angebot link — Admin **F**"; `Architecture.md` §5.2 gains the endpoint; `ERD.md` records that multiple rows per entity are expected with at most one usable; `StateMachine.md` records that re-issue causes **no** transition, because silence there would read as an omission.
+- The invariant is guaranteed by application-issued predicates rather than by a schema constraint. A future writer bypassing the aggregate could still violate it; closing that needs the filtered index above, which is a deliberate non-goal here.
+- **`NotificationRetryExecutor` needs no change, and that is not luck.** It already orders token links `CreatedAt DESC, Id DESC` and takes the first, with a comment stating that one link per entity is true "in practice" but unenforced, and it already refuses an expired or used link. This slice makes that foresight load-bearing, so a test pins it.

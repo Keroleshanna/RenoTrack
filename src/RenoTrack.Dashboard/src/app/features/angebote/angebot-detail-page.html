@@ -303,6 +303,7 @@
         capabilities().canSubmitForReview ||
         capabilities().canReview ||
         capabilities().canSend ||
+        capabilities().canResend ||
         capabilities().canConvertToProject ||
         capabilities().canDuplicate
       ) {
@@ -352,6 +353,21 @@
               (click)="confirm('send')"
             >
               {{ t().angebotDetail.send }}
+            </button>
+          }
+          <!--
+            FR-6.1a / D99. Deliberately not a primary button: while the quote is `Sent` the expected
+            next event is the customer's decision, not another email. This is the recovery path for a
+            link that never arrived, so it is offered without being suggested.
+          -->
+          @if (capabilities().canResend) {
+            <button
+              type="button"
+              class="rt-button"
+              [disabled]="busy()"
+              (click)="confirm('resend')"
+            >
+              {{ t().angebotDetail.resend }}
             </button>
           }
           @if (capabilities().canConvertToProject) {

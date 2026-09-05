@@ -31,6 +31,26 @@ public enum AuditAction
     AngebotSent,
 
     /// <summary>
+    /// The Admin re-issued the customer's token link (FR-6.1a, <b>D99</b>), superseding the
+    /// previous one.
+    ///
+    /// <para>
+    /// <b>Logged against <c>Angebot</c>, not <c>Lead</c> — the opposite of
+    /// <see cref="AngebotSent"/>, and deliberately so.</b> §10's rule is that the audit target is
+    /// the aggregate whose state the business cares about. Sending drives
+    /// <c>Lead.MarkAngebotSent()</c>, a pipeline milestone; a re-issue drives <b>no</b> transition
+    /// on either aggregate — the Lead's position in the pipeline is exactly what it was a moment
+    /// earlier. What changed is which credential this Angebot's link is, so the Angebot is what a
+    /// reader would be looking at when they ask why the customer received a second email.
+    /// </para>
+    /// <para>
+    /// This is also the only record that a re-issue happened at all: <c>SentAt</c> is deliberately
+    /// not updated (D99), so the audit trail carries the history instead of the aggregate.
+    /// </para>
+    /// </summary>
+    AngebotLinkReissued,
+
+    /// <summary>
     /// The customer approved via their token link (Phase 6 Slice 4). Logged against <c>Lead</c>,
     /// like <see cref="AngebotSent"/> and <see cref="AngebotCreated"/>, because the transition the
     /// business cares about is the Lead reaching <c>Won</c> (StateMachine.md §5).

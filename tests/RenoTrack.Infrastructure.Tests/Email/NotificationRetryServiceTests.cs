@@ -292,6 +292,68 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
     }
 
     /// <summary>
+    /// <b>Retry after a re-issue must mail the newest link, never the superseded one</b> (FR-6.1a,
+    /// <b>D99</b>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This behaviour was already correct before Slice 6 — <c>NotificationRetryExecutor</c> orders
+    /// token links <c>CreatedAt DESC, Id DESC</c> and takes the first, with a comment noting that
+    /// one link per entity held "in practice" but was unenforced. Slice 6 makes more than one row
+    /// the <i>normal</i> shape, so that foresight becomes load-bearing and is pinned here rather
+    /// than left resting on a comment.
+    /// </para>
+    /// <para>
+    /// Mailing the superseded link would hand a customer a credential that is already dead — the
+    /// precise failure a re-issue exists to prevent.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Angebot_ready_retry_after_a_reissue_uses_the_newest_token_link()
+    {
+        await using var server = new InProcessSmtpServer();
+        var angebot = await SeedAngebotAsync();
+
+        // The original link, then a re-issue: superseded in place, exactly as the handler does it.
+        await SeedTokenLinkAsync(TokenLinkEntityType.Angebot, angebot.Id);
+
+        string supersededToken;
+        await using (var reissueContext = fixture.CreateContext())
+        {
+            var original = await reissueContext.TokenLinks
+                .SingleAsync(t => t.EntityType == TokenLinkEntityType.Angebot && t.EntityId == angebot.Id);
+            supersededToken = original.Token;
+            original.Expire();
+
+            reissueContext.TokenLinks.Add(TokenLink.Create(
+                TokenLinkEntityType.Angebot, angebot.Id, $"tok-{Guid.NewGuid():N}", DateTime.UtcNow.AddDays(30)));
+
+            await reissueContext.SaveChangesAsync();
+        }
+
+        string replacementToken;
+        await using (var readContext = fixture.CreateContext())
+        {
+            replacementToken = (await readContext.TokenLinks
+                .Where(t => t.EntityType == TokenLinkEntityType.Angebot && t.EntityId == angebot.Id)
+                .OrderByDescending(t => t.CreatedAt)
+                .ThenByDescending(t => t.Id)
+                .FirstAsync()).Token;
+        }
+
+        Assert.NotEqual(supersededToken, replacementToken);
+
+        var delivery = await SeedDeliveryAsync(NotificationType.AngebotReady, nameof(Angebot), angebot.Id);
+
+        await using var context = fixture.CreateContext();
+        await CreateService(context, EnabledOptions(server.Port)).RetryAsync(delivery.Id, CancellationToken.None);
+
+        var body = Assert.Single(server.Messages);
+        Assert.Contains(replacementToken, body);
+        Assert.DoesNotContain(supersededToken, body);
+    }
+
+    /// <summary>
     /// D2 is unchanged by retry: a missing Inspector address is a <b>preparation failure recorded on
     /// the row</b>, not a refusal. It must not become a 409 — the delivery genuinely was attempted.
     /// </summary>

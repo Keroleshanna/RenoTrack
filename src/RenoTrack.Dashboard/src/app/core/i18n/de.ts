@@ -360,6 +360,8 @@ export const DE = {
     submitted: 'Angebot zur Prüfung eingereicht.',
     approved: 'Angebot freigegeben.',
     sent: 'Angebot wurde an den Kunden gesendet.',
+    resend: 'Link erneut senden',
+    resent: 'Ein neuer Link wurde an den Kunden gesendet. Der bisherige Link ist jetzt ungültig.',
     changesRequested: 'Änderungen wurden angefordert.',
     converted: 'Projekt wurde angelegt.',
 
@@ -382,6 +384,9 @@ export const DE = {
       sendTitle: 'Angebot an Kunden senden?',
       sendBody:
         'Der Kunde erhält eine E-Mail mit einem persönlichen Link zur Zusage oder Absage. Dieser Schritt kann nicht rückgängig gemacht werden.',
+      resendTitle: 'Link erneut senden?',
+      resendBody:
+        'Der Kunde erhält eine neue E-Mail mit einem neuen Link. Der bisherige Link wird dabei ungültig — falls der Kunde ihn noch geöffnet hat, funktioniert er nicht mehr.',
       convertTitle: 'Projekt anlegen?',
       convertBody:
         'Aus dem angenommenen Angebot wird ein Projekt mit dem vereinbarten Auftragswert erstellt.',

@@ -23,6 +23,8 @@ import { Role } from '../../core/auth/auth';
  * - **Approve / request changes** (§4, both `F`): any Admin, on any `InReview` quote. `F` means no
  *   ownership rule exists, so none is applied here either.
  * - **Send** (FR-6.1, `F`): Admin, once `ApprovedInternally`.
+ * - **Resend the link** (FR-6.1a, `F`, D99): Admin, while `Sent` — the only window in which a link
+ *   exists and no decision has been recorded.
  * - **Convert to Project** (FR-7.1, BR-2, §5 `F`): Admin, once the customer has approved.
  * - **Save as Catalog item** (FR-4.10, §6 Inspector `F`): any Inspector, on a line that did not come
  *   from the Catalog. Not state-scoped — §6 grants it flatly, and the endpoint enforces no status.
@@ -32,6 +34,16 @@ export interface AngebotCapabilities {
   readonly canSubmitForReview: boolean;
   readonly canReview: boolean;
   readonly canSend: boolean;
+
+  /**
+   * Re-issuing the customer's token link (FR-6.1a, §4 Admin `F`, **D99**).
+   *
+   * **Only while `Sent`**, which is exactly the window in which a link exists and no decision has
+   * been recorded: before that there is nothing to replace, and afterwards BR-4 makes the link
+   * terminal. The server refuses anything else with a 409 — this flag exists so an Admin is not
+   * offered work that would be refused, not as the enforcement.
+   */
+  readonly canResend: boolean;
   readonly canConvertToProject: boolean;
   readonly canSaveCustomItemToCatalog: boolean;
 
@@ -74,6 +86,7 @@ export function capabilitiesFor(
     canSubmitForReview: isInspector && EDITABLE_STATUSES.includes(status),
     canReview: isAdmin && status === 'InReview',
     canSend: isAdmin && status === 'ApprovedInternally',
+    canResend: isAdmin && status === 'Sent',
     canConvertToProject: isAdmin && status === 'CustomerApproved',
     canSaveCustomItemToCatalog: isInspector,
     canDuplicate: isInspector,

@@ -354,6 +354,8 @@ export const EN: Strings = {
     submitted: 'Quote submitted for review.',
     approved: 'Quote approved.',
     sent: 'The quote was sent to the customer.',
+    resend: 'Send the link again',
+    resent: 'A new link has been sent to the customer. The previous link is now invalid.',
     changesRequested: 'Changes were requested.',
     converted: 'Project created.',
 
@@ -376,6 +378,9 @@ export const EN: Strings = {
       sendTitle: 'Send this quote to the customer?',
       sendBody:
         'The customer receives an email with a personal link to accept or decline. This cannot be undone.',
+      resendTitle: 'Send the link again?',
+      resendBody:
+        'The customer receives a new email with a new link. The previous link stops working immediately — if they still have it open, it will no longer work.',
       convertTitle: 'Create the project?',
       convertBody:
         'The accepted quote becomes a project with the agreed order value.',
