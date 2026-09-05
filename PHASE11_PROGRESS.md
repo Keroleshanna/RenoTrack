@@ -55,8 +55,8 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **1** | TokenLink concurrency protection + deterministic 409 for the losing concurrent decision + repeated race testing | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`; build verified locally (0 errors, 0 warnings), tests blocked by the environment, see §4.5 |
 | **2** | Customer page skeleton — Razor route, server-side API client, the four states, security headers | ✅ **complete and merged** — PR [#18](https://github.com/Keroleshanna/RenoTrack/pull/18), merge commit `78a8406`, CI green on both jobs |
 | **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
-| **4** | Accept / Decline | in progress — design approved 2026-09-05 (§7), two-step confirmation required |
-| 5 | Rejection reason (Q2) — migration #12 | not started |
+| **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
+| **5** | Rejection reason (Q2) — migration #12 | in progress — design approved 2026-09-05 (§8), **D98** |
 | 6 | Token re-issue (Q3) | not started |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
@@ -621,3 +621,38 @@ Run against a **`dotnet publish` output**, never `dotnet run`, per §24's rule. 
 **One observation, not a defect, and not changed here.** In the two-customer case the losing reader is shown Slice 3's approved banner, which is phrased *"**Sie** haben dieses Angebot angenommen."* — accurate for the link holder, mildly odd for a second person sharing one link. The wording is Slice 3's, already approved, and one link is one customer by design; raising it rather than silently rewording approved copy.
 
 **A harness artefact worth naming:** QA ran the Website over HTTP because Chromium in this container no longer trusts the local development certificate (`certutil` is gone, so the NSS store could not be refreshed). Nothing under test depends on the Website's own scheme — the security headers, rendering, routing, antiforgery and the flow are identical — and the Website→API call stayed HTTPS throughout, as `PublicApi:BaseUrl` requires. The one visible consequence is a `Failed to determine the https port for redirect` warning in the log, which is the HTTPS-redirection middleware correctly reporting that no HTTPS port was configured for this run.
+
+---
+
+## 8. Slice 5 — The Rejection Reason
+
+### 8.1 Approved design
+
+Reviewed and approved on 2026-09-05, after a full design review covering current state, business rules, layer impact, schema, contract, both front ends, security, concurrency, tests and documentation. The decision record is **`ARCHITECTURE_DECISIONS.md` D98**, which resolves the ADR Phase 6 deliberately deferred.
+
+**The trigger fired rather than being invented.** `NEXT_STEPS.md` recorded the FR-6.3 gap with an explicit revisit trigger — "any requirement that reads a reason back" — and Slice 4's decision UI is that requirement. The gap entry is now removed rather than amended.
+
+| Question | Decision |
+|---|---|
+| **Q1** — echo the reason in the public/customer DTO | **No.** The customer submits it; only staff read it back. The anonymous token is already a credential, and echoing customer-authored free text through it widens the one contract any holder of a forwarded email can reach, for no benefit. |
+| **Q2** — include the reason in the Admin notification email | **No.** The email stays a notification. Customer free text must not be copied into mailbox storage, outside the Dashboard's access model. `AngebotDecisionNotification` is unchanged, so D70's manual retry keeps working untouched. |
+| **Q3** — maximum length | **1000 characters**, as originally approved. |
+
+**Boundaries, all explicit:** rejection-only (`RecordCustomerApproval()` takes no reason); immutable once recorded (no edit endpoint, no clear endpoint, no Domain method); an approval carrying a reason is a **400**, per K-4/D67's existing rule rather than a new judgement; never in `AuditLog` (D50); never an `AngebotReviewComment` (its `AdminUserId` is a required FK to `AspNetUsers`).
+
+**Concurrency needs nothing new.** D96's `TokenLinks.UsedAt` token already serialises this path and the reason is written in the same EF batch, so a loser's batch rolls back and takes the reason with it. `Angebote` gets no token of its own.
+
+### 8.2 Implementation order
+
+Four commits, checkpointed — build 0/0 and the relevant suites green before each next step:
+
+1. **Documentation** — D98, `ERD.md`, `Architecture.md` §5.2, `NEXT_STEPS.md`, this section.
+2. **Domain + migration #12** — the property, the guard, `RecordCustomerRejection(string?)`, the EF configuration, the migration, Domain and Infrastructure tests.
+3. **Application + API** — command, validator, handler, request record, `AngebotDetailDto`, the 400 rule, and the **replaced** contract test.
+4. **Customer Website + Dashboard** — the optional textarea on the ablehnen confirmation, the client parameter, the Dashboard rendering, tests, browser QA.
+
+### 8.3 The obsolete contract test is replaced, not deleted
+
+`PublicAngebotDecisionEndpointTests.A_rejection_reason_is_not_part_of_the_contract` pinned the Phase 6 gap so it could not drift into accept-and-discard. That gap is now closed, so the test is genuinely obsolete — but the guarantee it carried is not. It is replaced by tests proving the **new** contract: the reason is accepted, persisted, returned to staff, refused alongside an approval, refused over-length, and **absent from the public DTO**.
+
+This is the same discipline Slice 4 applied to `TokenExposure`: when a rule changes, the executable guarantee changes with it. Deleting the test would leave every one of those six properties unenforced.
