@@ -66,11 +66,26 @@ public sealed class TokenLinkReissueConcurrencyTests(RenoTrackDbContextFixture f
     }
 
     /// <summary>
-    /// One re-issue, done exactly as the handler does it: supersede the current link and add the
-    /// replacement, both in one <c>SaveChangesAsync</c> so EF batches them into one transaction.
-    /// Returns the exception if the commit lost a race.
+    /// <b>Phase one of a re-issue: read the current link, supersede it, and stage the
+    /// replacement — but do not commit.</b>
     /// </summary>
-    private async Task<Exception?> ReissueAsync(RenoTrackDbContext context, int entityId, TaskCompletionSource? gate = null)
+    /// <remarks>
+    /// Split from the commit deliberately. A single method that read <i>and</i> committed behind one
+    /// gate would not make these tests concurrent, because the gate is released while every caller
+    /// is still inside its database read — so by the time a caller reached the gate it would already
+    /// be open, and whether the readers overlapped would be left to the scheduler. The interleaving
+    /// that hurts is real: if one caller commits before another's read returns, the second reads the
+    /// <i>replacement</i> as current, supersedes that, and inserts a third row — a legitimately
+    /// serialised outcome that the assertions would nonetheless report as a failure.
+    ///
+    /// <para>
+    /// Staging every caller first and gating only <see cref="CommitAsync"/> makes "all contenders
+    /// hold the same original <c>ExpiresAt</c>" a property of the test's structure rather than of
+    /// timing. That is what the concurrency token is being tested against, so it has to be
+    /// guaranteed rather than hoped for.
+    /// </para>
+    /// </remarks>
+    private static async Task StageReissueAsync(RenoTrackDbContext context, int entityId)
     {
         var current = await context.TokenLinks
             .Where(t => t.EntityType == TokenLinkEntityType.Angebot && t.EntityId == entityId)
@@ -80,11 +95,15 @@ public sealed class TokenLinkReissueConcurrencyTests(RenoTrackDbContextFixture f
 
         current.Expire();
         context.TokenLinks.Add(LinkFor(entityId));
+    }
 
-        if (gate is not null)
-        {
-            await gate.Task;
-        }
+    /// <summary>
+    /// Phase two: the commit, and the only thing the gate releases. Returns the exception when this
+    /// contender lost the race.
+    /// </summary>
+    private static async Task<Exception?> CommitAsync(RenoTrackDbContext context, Task gate)
+    {
+        await gate;
 
         try
         {
@@ -95,6 +114,32 @@ public sealed class TokenLinkReissueConcurrencyTests(RenoTrackDbContextFixture f
         {
             return exception;
         }
+    }
+
+    /// <summary>
+    /// Stages every contender to completion, <b>then</b> releases them all to commit at once.
+    /// </summary>
+    private static async Task<Exception?[]> RaceReissuesAsync(
+        IReadOnlyList<RenoTrackDbContext> contexts, int entityId)
+    {
+        // Awaited to completion before a single commit is even created — this is the guarantee.
+        foreach (var context in contexts)
+        {
+            await StageReissueAsync(context, entityId);
+        }
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = contexts.Select(context => CommitAsync(context, gate.Task)).ToList();
+        gate.SetResult();
+
+        return await Task.WhenAll(attempts);
+    }
+
+    /// <summary>One re-issue, uncontended — staged and committed on its own context.</summary>
+    private static async Task<Exception?> ReissueAsync(RenoTrackDbContext context, int entityId)
+    {
+        await StageReissueAsync(context, entityId);
+        return await CommitAsync(context, Task.CompletedTask);
     }
 
     // ---- The sequential case -----------------------------------------------------------------
@@ -154,11 +199,9 @@ public sealed class TokenLinkReissueConcurrencyTests(RenoTrackDbContextFixture f
 
         try
         {
-            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var attempts = contexts.Select(context => ReissueAsync(context, entityId, gate)).ToList();
-            gate.SetResult();
-
-            var outcomes = await Task.WhenAll(attempts);
+            // Every contender reads and stages before any of them commits, so all N hold the same
+            // original ExpiresAt — which is precisely the value the concurrency token compares.
+            var outcomes = await RaceReissuesAsync(contexts, entityId);
 
             Assert.Single(outcomes, outcome => outcome is null);
             Assert.Equal(callers - 1, outcomes.Count(outcome => outcome is DbUpdateConcurrencyException));
@@ -194,11 +237,7 @@ public sealed class TokenLinkReissueConcurrencyTests(RenoTrackDbContextFixture f
             await using var first = fixture.CreateContext();
             await using var second = fixture.CreateContext();
 
-            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var attempts = new[] { ReissueAsync(first, entityId, gate), ReissueAsync(second, entityId, gate) };
-            gate.SetResult();
-
-            var outcomes = await Task.WhenAll(attempts);
+            var outcomes = await RaceReissuesAsync([first, second], entityId);
 
             Assert.Single(outcomes, outcome => outcome is null);
             Assert.Single(await UsableLinksAsync(entityId));
@@ -223,11 +262,7 @@ public sealed class TokenLinkReissueConcurrencyTests(RenoTrackDbContextFixture f
         await using var first = fixture.CreateContext();
         await using var second = fixture.CreateContext();
 
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var attempts = new[] { ReissueAsync(first, entityId, gate), ReissueAsync(second, entityId, gate) };
-        gate.SetResult();
-
-        var outcomes = await Task.WhenAll(attempts);
+        var outcomes = await RaceReissuesAsync([first, second], entityId);
 
         Assert.Single(outcomes, outcome => outcome is null);
         Assert.Single(outcomes, outcome => outcome is DbUpdateConcurrencyException);
