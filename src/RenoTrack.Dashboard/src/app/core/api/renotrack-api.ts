@@ -246,6 +246,17 @@ export class RenoTrackApi {
     return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/send`, {});
   }
 
+  /**
+   * Re-issues the customer's token link (FR-6.1a, **D99**).
+   *
+   * The response carries the Angebot header and **no token** — the credential reaches the customer
+   * only by email, so there is nothing here for a screen to display and nothing to keep out of the
+   * browser's memory.
+   */
+  resendAngebot(id: number): Observable<AngebotHeaderDto> {
+    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/resend`, {});
+  }
+
   angebotReviewComments(id: number): Observable<readonly AngebotReviewCommentDto[]> {
     return this.http.get<AngebotReviewCommentDto[]>(`/api/v1/angebote/${id}/review-comments`);
   }

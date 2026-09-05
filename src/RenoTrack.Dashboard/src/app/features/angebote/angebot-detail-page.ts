@@ -30,7 +30,7 @@ import { AngebotCapabilities, capabilitiesFor } from './angebot-capabilities';
 import { CatalogPicker } from './catalog-picker';
 
 /** The confirmations that guard an action with a consequence outside this screen. */
-type Confirmable = 'submit' | 'approve' | 'send' | 'convert' | null;
+type Confirmable = 'submit' | 'approve' | 'send' | 'resend' | 'convert' | null;
 
 /**
  * The Angebot document — Wireframes **D1** (builder) and **D3** (review), as one screen.
@@ -421,6 +421,8 @@ export class AngebotDetailPage {
         return t.approveTitle;
       case 'send':
         return t.sendTitle;
+      case 'resend':
+        return t.resendTitle;
       case 'convert':
         return t.convertTitle;
       default:
@@ -437,6 +439,8 @@ export class AngebotDetailPage {
         return t.approveBody;
       case 'send':
         return t.sendBody;
+      case 'resend':
+        return t.resendBody;
       case 'convert':
         return t.convertBody;
       default:
@@ -450,15 +454,27 @@ export class AngebotDetailPage {
 
     switch (action) {
       case 'submit':
-        this.perform(this.api.submitAngebotForReview(this.id), t.submitted, () =>
+        this.perform(this.api.submitAngebotForReview(this.id), t.submitted, undefined, () =>
           this.confirming.set(null),
         );
         return;
       case 'approve':
-        this.perform(this.api.approveAngebot(this.id), t.approved, () => this.confirming.set(null));
+        this.perform(this.api.approveAngebot(this.id), t.approved, undefined, () =>
+          this.confirming.set(null),
+        );
         return;
       case 'send':
-        this.perform(this.api.sendAngebot(this.id), t.sent, () => this.confirming.set(null));
+        this.perform(this.api.sendAngebot(this.id), t.sent, undefined, () =>
+          this.confirming.set(null),
+        );
+        return;
+      case 'resend':
+        // Re-issuing supersedes the link the customer already has (D99), so the reload afterwards
+        // matters as much as the call: the quote itself is unchanged, but re-reading is what keeps
+        // this screen from asserting a state it merely assumed (D81).
+        this.perform(this.api.resendAngebot(this.id), t.resent, undefined, () =>
+          this.confirming.set(null),
+        );
         return;
       case 'convert':
         // The one action whose result is a *different* aggregate, so it navigates rather than
@@ -573,10 +589,25 @@ export class AngebotDetailPage {
     });
   }
 
+  /**
+   * Runs one write, then reports it.
+   *
+   * The two callbacks close two different kinds of dialog, and the difference is the point:
+   *
+   * - `onSuccess` closes a **form** dialog, and only on success — a refusal there is usually the
+   *   user's own input being rejected, and their typed values are still in the form for them to
+   *   correct. Closing it would throw the work away along with the message explaining it.
+   * - `onSettled` closes a **confirmation**, on both outcomes, because a refusal is terminal for
+   *   that click (CLAUDE.md §23): the dialog would otherwise sit on top of the message explaining
+   *   why, inviting an identical second refusal. There is nothing in it to preserve.
+   *
+   * The reload stays success-only either way — a refused write leaves nothing new to read.
+   */
   private perform(
     request: Observable<unknown>,
     successMessage: string,
     onSuccess?: () => void,
+    onSettled?: () => void,
   ): void {
     this.busy.set(true);
 
@@ -584,11 +615,13 @@ export class AngebotDetailPage {
       next: () => {
         this.busy.set(false);
         onSuccess?.();
+        onSettled?.();
         this.notifier.success(successMessage);
         this.reload();
       },
       error: (error: unknown) => {
         this.busy.set(false);
+        onSettled?.();
         this.notifier.error(this.messageFor(error));
       },
     });
