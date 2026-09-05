@@ -57,7 +57,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **3** | Render the quote (Wireframe A3) **and its decision state** | ✅ **complete and merged** — PR [#19](https://github.com/Keroleshanna/RenoTrack/pull/19), merge commit `450ebbd`; CI green on both jobs (1,838/1,838), browser QA passed (§6.13) |
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
 | **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
-| **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | in progress — design approved 2026-09-05 (§9), **D99** |
+| **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and approved, awaiting merge** — design and all three commits approved 2026-09-05 (§9), **D99**; PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23) open as a draft, CI green on both jobs, browser QA passed (§9.6, §9.7) |
 | 7 | Legal pages and company-identity structure (Q7) | not started |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
@@ -760,3 +760,22 @@ It also **strengthens** the customer path: a decision arriving through a link su
 **The first fix was wrong, and the second QA case is what caught it.** Making the callback run on both outcomes fixed the confirmations and silently broke the *form* dialogs, which pass the same parameter to close themselves — an ordinary 400 on a section title would have closed the form and discarded what the user had typed, along with the message telling them to fix it. `perform()` therefore takes **two** callbacks, and the split is the rule rather than an accident of the signature: `onSuccess` closes a form dialog, on success only, because a refusal there is the user's own input still waiting to be corrected; `onSettled` closes a confirmation, on both outcomes, because a refusal is terminal for that click and there is nothing in the dialog to preserve. The reload stays success-only either way. Both halves are pinned by a browser case — a refused resend closing its confirmation, and a refused section keeping `Dachgeschoss` in its field.
 
 **Found by driving the built Dashboard against a stub that returns 409, not by review** — the same shape as every other Phase 10/11 QA finding: the defect is invisible while only the happy path is exercised, and a green suite is a precondition for QA rather than a substitute for it. `canResend` itself is covered exhaustively over every status and role in `angebot-capabilities.spec.ts`, which is what keeps it agreeing with the handler's own `Sent`-only check.
+
+### 9.7 Closure
+
+**Approved and closed 2026-09-05**, across four review checkpoints: the design (with the concurrency flaw the Product Owner found in it), Commit 1's documentation, Commit 2 under a hold that demanded code-level evidence rather than a summary, and Commit 3 with a focused re-review of the shared `perform()` change because it altered Submit/Approve/Send outside the new feature.
+
+| Commit | Contents |
+|---|---|
+| `4df0750` | Documentation + D99 |
+| `fb73e11` | Domain + Application + API + migration #13 + tests |
+| `b8fe044` | Test-only fix to the race harness |
+| `eb15e96` | Dashboard + the `perform()` split |
+
+**CI green on `eb15e96`, both jobs.** Infrastructure 412/412 and Api 464/464 against real Windows/LocalDB; Domain, Application and Website green on Linux; 81/81 in the Dashboard's own suite locally, since CI does not build the Dashboard. Build 0 errors / 0 warnings, `has-pending-model-changes` clean.
+
+**The published bundle the browser QA ran against was verified rather than assumed.** Its timestamp was *older* than the source files', which a `git stash`/`stash pop` during a formatting comparison had rewritten with identical content. Rather than reason about that, the committed source was built to a separate directory and every emitted JS chunk hashed identically to the bundle under test. **A build output's mtime is not evidence about its provenance** — an ordinary git operation can invert it — so where a QA result depends on which code was running, compare the artefacts.
+
+**PR #23 is not merged as of this entry.** Slice 6's work is complete and accepted; the merge is a separate authorisation.
+
+**What Slice 6 leaves for later, unchanged:** OQ-4's revise-and-resend, a filtered unique index (Mechanism 3, explicitly declined for this slice), and everything in Slice 7+.
