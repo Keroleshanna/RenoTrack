@@ -287,6 +287,8 @@ export const DE = {
     vatLine: 'zzgl. {0} % MwSt',
     positions: 'Positionen',
     positionsHint: 'Abschnitte und Leistungen dieses Angebots.',
+    customerRejectedTitle: 'Der Kunde hat dieses Angebot abgelehnt',
+    customerRejectionReason: 'Begründung des Kunden',
     position: 'Pos.',
     subtotal: 'Zwischensumme',
     emptyTitle: 'Noch keine Positionen',

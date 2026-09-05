@@ -65,10 +65,22 @@ public enum CustomerDecisionOutcome
     AlreadyDecided,
 
     /// <summary>
-    /// The API could not answer — a 5xx, a network failure, a timeout, or a 400 meaning the two
-    /// sides disagree about the contract. Distinct from <see cref="NotFound"/> for the reason
-    /// <see cref="CustomerAngebotOutcome.Unavailable"/> records: telling a customer their link is
-    /// broken when the fault is ours sends them away for good.
+    /// The API refused the submission itself — in practice an over-length rejection reason (D98).
+    /// <para>
+    /// <b>Distinct from <see cref="Unavailable"/>, and that distinction arrived with Slice 5.</b>
+    /// Before the reason existed, a 400 could only mean the two sides disagreed about the contract,
+    /// which is this Website's fault and correctly read as an outage. Now the customer's own input
+    /// can cause one, and reporting that as "we cannot reach your quote" would be both wrong and
+    /// destructive — the page re-offers the form with what they typed still in it.
+    /// </para>
+    /// </summary>
+    Invalid,
+
+    /// <summary>
+    /// The API could not answer — a 5xx, a network failure, or a timeout. Distinct from
+    /// <see cref="NotFound"/> for the reason <see cref="CustomerAngebotOutcome.Unavailable"/>
+    /// records: telling a customer their link is broken when the fault is ours sends them away for
+    /// good.
     /// </summary>
     Unavailable,
 }

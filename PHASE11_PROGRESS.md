@@ -656,3 +656,46 @@ Four commits, checkpointed — build 0/0 and the relevant suites green before ea
 `PublicAngebotDecisionEndpointTests.A_rejection_reason_is_not_part_of_the_contract` pinned the Phase 6 gap so it could not drift into accept-and-discard. That gap is now closed, so the test is genuinely obsolete — but the guarantee it carried is not. It is replaced by tests proving the **new** contract: the reason is accepted, persisted, returned to staff, refused alongside an approval, refused over-length, and **absent from the public DTO**.
 
 This is the same discipline Slice 4 applied to `TokenExposure`: when a rule changes, the executable guarantee changes with it. Deleting the test would leave every one of those six properties unenforced.
+
+### 8.4 Implementation record
+
+**Four commits, as planned.** Documentation (`cf61294`), Domain + migration #12 (`ca95876`), Application + API (`7122af6`), and this one.
+
+**Website.** `IPublicAngebotClient.RecordDecisionAsync` grew one `string? reason` parameter — still one method, still growth-on-demand. The confirmation page binds an optional `Reason`, and passes `null` on the approval path rather than trusting the form's shape, so the API's approval-with-reason refusal is unreachable through the UI rather than merely handled. `maxlength` rather than a live counter, because a counter needs JavaScript and no customer page runs any; the number is a mirrored constant with a test, exactly as `PAGE_SIZE_MAX` and `MAX_SCHEDULE_WINDOW_DAYS` are (§23).
+
+**A 400 stopped meaning what it used to, and that needed a new outcome.** Before this slice, the only way to get one was for the two sides to disagree about the contract — this Website's fault, correctly reported as an outage and logged as an error. An over-length reason makes it customer-reachable, so `CustomerDecisionOutcome.Invalid` was added and the page **re-offers the form with the text still in it** rather than replacing it with an error the customer cannot act on without retyping. The theory row asserting `BadRequest → Unavailable` was updated rather than deleted, with the reason recorded beside it.
+
+**That refusal path is also the only place a customer's own words return to the screen** — unsaved input handed back within the same exchange, never the persisted value, which Q1 keeps staff-facing. It is therefore the surface where inert rendering has to be proven, and a test drives a `<script>`-bearing reason through it.
+
+**Dashboard.** The reason renders on the Angebot detail screen only when the status is `CustomerRejected` **and** a reason exists, attributed as *„Begründung des Kunden"*. No placeholder when absent: a rejection without a reason is normal, and captioning its absence implies something is missing. Interpolation only — no `innerHTML`, no `bypassSecurityTrust*` anywhere in the Dashboard.
+
+### 8.5 Verification
+
+`dotnet build` — **0 errors, 0 warnings**. `has-pending-model-changes` — no drift; **migration count unchanged at 12** (this commit adds no schema).
+
+| Suite | Result |
+|---|---|
+| `RenoTrack.Domain.Tests` | 384 / 384 |
+| `RenoTrack.Application.Tests` | 453 / 453 |
+| `RenoTrack.Website.Tests` | **231 / 231** (from 218) |
+| `RenoTrack.Dashboard` (Karma) | **80 / 80** (from 74) |
+
+`Infrastructure.Tests` and `Api.Tests` need LocalDB and run in CI's Windows job. **The Dashboard suite does not run in CI at all** — `ci.yml` has no Node job — so its 80 passing tests are a local result, stated as such rather than implied.
+
+### 8.6 Browser QA
+
+Against a **`dotnet publish` output**, Chromium via Playwright, with the stub enforcing D98's own shape rules so the 400 is real rather than simulated.
+
+| Check | Result |
+|---|---|
+| Ablehnen confirmation | One `<textarea>`, `maxlength="1000"`, label *„Möchten Sie uns kurz sagen, warum? (optional)"*, **0 scripts** |
+| Annehmen confirmation | **0 textareas** — the field is absent, not disabled |
+| Reject with a reason | Recorded; **the API received 59 characters**; customer lands on the document with the rejected banner |
+| **Reason echoed to the customer** | **No** — Q1 holds end to end |
+| Reject without a reason | Recorded; the API received `null`, not `""` |
+| Approval | Unaffected; the API received `null` |
+| Over-length (attribute stripped, as a non-browser caller would) | **400**, form re-offered, **text preserved**, German error shown |
+| Hostile `<script>` in that refusal | **0 scripts in the DOM**, the raw tag absent, `&lt;script&gt;` present — inert |
+| Mobile 390 × 844 and 320 × 720 | No overflow; the textarea fits the viewport on both |
+| Print | The actions stay hidden on paper |
+| Leakage | The only `input` on the page is `__RequestVerificationToken`; the token appears **only** in `href` attributes; **neither the token nor the reason appears in any Website log line** |

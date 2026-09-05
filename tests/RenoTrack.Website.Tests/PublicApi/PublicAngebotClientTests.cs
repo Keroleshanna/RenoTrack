@@ -287,7 +287,12 @@ public sealed class PublicAngebotClientTests
     [InlineData(HttpStatusCode.NotFound, CustomerDecisionOutcome.NotFound)]
     [InlineData(HttpStatusCode.Gone, CustomerDecisionOutcome.Expired)]
     [InlineData(HttpStatusCode.Conflict, CustomerDecisionOutcome.AlreadyDecided)]
-    [InlineData(HttpStatusCode.BadRequest, CustomerDecisionOutcome.Unavailable)]
+
+    // Changed in Slice 5, deliberately: a 400 used to mean only that the two sides disagreed about
+    // the contract, which is this Website's fault and correctly an outage. An over-length reason
+    // made it customer-reachable, so it is now Invalid and the form is re-offered with the text
+    // still in it. See A_400_is_invalid_input_rather_than_an_outage.
+    [InlineData(HttpStatusCode.BadRequest, CustomerDecisionOutcome.Invalid)]
     [InlineData(HttpStatusCode.InternalServerError, CustomerDecisionOutcome.Unavailable)]
     [InlineData(HttpStatusCode.TooManyRequests, CustomerDecisionOutcome.Unavailable)]
     public async Task A_decision_maps_every_documented_status(
@@ -297,7 +302,7 @@ public sealed class PublicAngebotClientTests
         var handler = StubHttpMessageHandler.Responding(status);
 
         var outcome = await ClientFor(handler)
-            .RecordDecisionAsync(Token, CustomerDecisionChoice.Approve, CancellationToken.None);
+            .RecordDecisionAsync(Token, CustomerDecisionChoice.Approve, reason: null, CancellationToken.None);
 
         Assert.Equal(expected, outcome);
     }
@@ -312,7 +317,7 @@ public sealed class PublicAngebotClientTests
         var handler = StubHttpMessageHandler.Responding(HttpStatusCode.Conflict);
 
         var outcome = await ClientFor(handler)
-            .RecordDecisionAsync(Token, CustomerDecisionChoice.Reject, CancellationToken.None);
+            .RecordDecisionAsync(Token, CustomerDecisionChoice.Reject, reason: null, CancellationToken.None);
 
         Assert.Equal(CustomerDecisionOutcome.AlreadyDecided, outcome);
         Assert.NotEqual(CustomerDecisionOutcome.Unavailable, outcome);
@@ -334,7 +339,7 @@ public sealed class PublicAngebotClientTests
             return new HttpResponseMessage(HttpStatusCode.OK);
         });
 
-        await ClientFor(handler).RecordDecisionAsync(Token, choice, CancellationToken.None);
+        await ClientFor(handler).RecordDecisionAsync(Token, choice, reason: null, CancellationToken.None);
 
         Assert.Equal($"/api/v1/public/angebote/{Token}/decision", uri?.AbsolutePath);
 
@@ -356,7 +361,7 @@ public sealed class PublicAngebotClientTests
         var handler = StubHttpMessageHandler.Responding(HttpStatusCode.OK);
 
         var outcome = await ClientFor(handler)
-            .RecordDecisionAsync(token, CustomerDecisionChoice.Approve, CancellationToken.None);
+            .RecordDecisionAsync(token, CustomerDecisionChoice.Approve, reason: null, CancellationToken.None);
 
         Assert.Equal(CustomerDecisionOutcome.NotFound, outcome);
         Assert.Empty(handler.Requests);
@@ -368,8 +373,64 @@ public sealed class PublicAngebotClientTests
         var handler = StubHttpMessageHandler.Throwing(new HttpRequestException("connection refused"));
 
         var outcome = await ClientFor(handler)
-            .RecordDecisionAsync(Token, CustomerDecisionChoice.Approve, CancellationToken.None);
+            .RecordDecisionAsync(Token, CustomerDecisionChoice.Approve, reason: null, CancellationToken.None);
 
         Assert.Equal(CustomerDecisionOutcome.Unavailable, outcome);
+    }
+
+    /// <summary>
+    /// The reason travels in the body and the token stays in the route. Asserted together, because
+    /// the failure worth catching is the one that moves the credential into a request body, where
+    /// logging routinely captures it.
+    /// </summary>
+    [Fact]
+    public async Task A_decision_posts_the_reason_in_the_body_and_keeps_the_token_in_the_route()
+    {
+        string? body = null;
+        Uri? uri = null;
+        var handler = new StubHttpMessageHandler(async (request, ct) =>
+        {
+            uri = request.RequestUri;
+            body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        await ClientFor(handler).RecordDecisionAsync(
+            Token, CustomerDecisionChoice.Reject, "Zu teuer für unser Budget.", CancellationToken.None);
+
+        Assert.Equal($"/api/v1/public/angebote/{Token}/decision", uri?.AbsolutePath);
+        Assert.Contains("Zu teuer f", body ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain(Token, body ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A 400 stopped meaning "the two sides disagree" the moment a customer could cause one with an
+    /// over-length reason. Reporting that as an outage would be a lie that also loses their text.
+    /// </summary>
+    [Fact]
+    public async Task A_400_is_invalid_input_rather_than_an_outage()
+    {
+        var handler = StubHttpMessageHandler.Responding(HttpStatusCode.BadRequest);
+
+        var outcome = await ClientFor(handler).RecordDecisionAsync(
+            Token, CustomerDecisionChoice.Reject, new string('x', 2000), CancellationToken.None);
+
+        Assert.Equal(CustomerDecisionOutcome.Invalid, outcome);
+    }
+
+    [Fact]
+    public async Task A_decision_with_no_reason_sends_null_rather_than_an_empty_string()
+    {
+        string? body = null;
+        var handler = new StubHttpMessageHandler(async (request, ct) =>
+        {
+            body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        await ClientFor(handler).RecordDecisionAsync(
+            Token, CustomerDecisionChoice.Reject, reason: null, CancellationToken.None);
+
+        Assert.Contains("null", body ?? string.Empty, StringComparison.Ordinal);
     }
 }

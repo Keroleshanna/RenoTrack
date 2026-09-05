@@ -48,6 +48,40 @@ public sealed class AngebotDecisionModel(IPublicAngebotClient client) : PageMode
 
     public CustomerAngebot? Angebot { get; private set; }
 
+    /// <summary>
+    /// FR-6.3's optional rejection reason (D98), bound from the confirmation form.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Offered on the Ablehnen confirmation only.</b> The API refuses a reason sent with an
+    /// approval, and this page does not rely on that refusal to keep the customer right: the field
+    /// simply is not on the Annehmen page, so the refusal is unreachable through the UI.
+    /// </para>
+    /// <para>
+    /// <b>Re-rendered after a refusal, and that is the one place a customer's own words appear on
+    /// screen.</b> The persisted reason is never sent back (Q1) — this is unsaved input being
+    /// handed back within the same exchange, so the customer does not lose what they typed. It
+    /// reaches the page through Razor's encoding expressions like any other free text.
+    /// </para>
+    /// </remarks>
+    [BindProperty]
+    public string? Reason { get; set; }
+
+    /// <summary>
+    /// Set when the API refused the submission itself — in practice an over-length reason. The
+    /// form is re-offered rather than replaced by an error page, because the alternative discards
+    /// what the customer wrote.
+    /// </summary>
+    public bool ReasonWasRefused { get; private set; }
+
+    /// <summary>
+    /// Mirrors the API's own limit so the browser prevents what the server would refuse. A mirrored
+    /// constant with a test rather than a literal, exactly as <c>PAGE_SIZE_MAX</c> and
+    /// <c>MAX_SCHEDULE_WINDOW_DAYS</c> are on the Dashboard (§23) — a screen that degrades on a
+    /// server contract must not restate that contract from memory.
+    /// </summary>
+    public const int MaxReasonLength = 1000;
+
     /// <summary>The decision this page is asking the customer to confirm.</summary>
     public CustomerDecisionChoice DecisionChoice => ChoiceFromRoute(Choice);
 
@@ -101,7 +135,11 @@ public sealed class AngebotDecisionModel(IPublicAngebotClient client) : PageMode
     /// </remarks>
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
-        var outcome = await client.RecordDecisionAsync(Token, DecisionChoice, cancellationToken);
+        // Only a rejection may carry one. Passing null on the approval path means the API's refusal
+        // cannot be triggered from this page at all, rather than being triggered and then handled.
+        var reason = IsApproval ? null : Reason;
+
+        var outcome = await client.RecordDecisionAsync(Token, DecisionChoice, reason, cancellationToken);
 
         return outcome switch
         {
@@ -111,10 +149,43 @@ public sealed class AngebotDecisionModel(IPublicAngebotClient client) : PageMode
             // so the customer is sent to re-read rather than told the decision did not happen.
             CustomerDecisionOutcome.AlreadyDecided => Redirect(DocumentUrl),
 
+            // Re-offer the form with the text still in it, rather than replacing the page with an
+            // error the customer cannot act on without retyping.
+            CustomerDecisionOutcome.Invalid => await RefusedAsync(cancellationToken),
+
             CustomerDecisionOutcome.NotFound => Failure(CustomerAngebotOutcome.NotFound),
             CustomerDecisionOutcome.Expired => Failure(CustomerAngebotOutcome.Expired),
             _ => Failure(CustomerAngebotOutcome.Unavailable),
         };
+    }
+
+    /// <summary>
+    /// Re-renders the confirmation after the API refused the submission, with the customer's own
+    /// text preserved. Answers 400, so a proxy or a monitor is told the same thing the reader is.
+    /// </summary>
+    /// <remarks>
+    /// The Angebot is re-read rather than assumed still pending: between opening the confirmation
+    /// and this refusal the link may have been answered elsewhere, and re-offering a form for a
+    /// decision that has already been made would be worse than the refusal itself.
+    /// </remarks>
+    private async Task<IActionResult> RefusedAsync(CancellationToken cancellationToken)
+    {
+        var result = await client.GetAngebotAsync(Token, cancellationToken);
+
+        if (result.Outcome != CustomerAngebotOutcome.Available)
+        {
+            return Failure(result.Outcome);
+        }
+
+        if (result.Angebot!.Decision != CustomerAngebotDecision.Pending)
+        {
+            return Redirect(DocumentUrl);
+        }
+
+        Angebot = result.Angebot;
+        ReasonWasRefused = true;
+        Response.StatusCode = StatusCodes.Status400BadRequest;
+        return Page();
     }
 
     /// <summary>

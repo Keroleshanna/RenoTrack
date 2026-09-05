@@ -46,8 +46,16 @@ public interface IPublicAngebotClient
     /// winner's decision.
     /// </para>
     /// </remarks>
+    /// <param name="reason">
+    /// FR-6.3's optional rejection reason (D98). Meaningful only with
+    /// <see cref="CustomerDecisionChoice.Reject"/> — the API refuses one sent with an approval, so
+    /// the confirmation page offers the field on one choice only rather than relying on that
+    /// refusal. <b>The customer never sees it again:</b> it is staff-facing, and
+    /// <c>CustomerAngebot</c> deliberately does not carry it back.
+    /// </param>
     Task<CustomerDecisionOutcome> RecordDecisionAsync(
         string token,
         CustomerDecisionChoice choice,
+        string? reason,
         CancellationToken cancellationToken);
 }
