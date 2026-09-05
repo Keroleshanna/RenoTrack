@@ -93,7 +93,10 @@ public sealed class RecordAngebotDecisionCommandHandler(
         }
         else
         {
-            angebot.RecordCustomerRejection();
+            // FR-6.3's optional reason (D98). Trimming, blank-normalisation and the length
+            // backstop all belong to the aggregate — the handler carries the value, it does not
+            // interpret it.
+            angebot.RecordCustomerRejection(command.Reason);
             lead.MarkLost();
         }
 

@@ -190,30 +190,176 @@ public sealed class PublicAngebotDecisionEndpointTests(RenoTrackApiFactory facto
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ---- FR-6.3's rejection reason (D98) -----------------------------------
+    //
+    // These six tests replace `A_rejection_reason_is_not_part_of_the_contract`, which pinned the
+    // Phase 6 gap so it could not drift into accept-and-discard. That gap is closed, so the test is
+    // obsolete — but the guarantee it carried is not, and deleting it would leave every property
+    // below unenforced. The executable contract moves with the rule rather than disappearing with
+    // it, exactly as `TokenExposure` did in Slice 4.
+
+    /// <summary>Accepted, and persisted verbatim — the reason is business data, not instrumentation.</summary>
+    [Fact]
+    public async Task A_rejection_reason_is_accepted_and_persisted()
+    {
+        var (token, angebotId, _) = await SentAngebotAsync();
+        using var anonymous = factory.CreateClient();
+        const string reason = "Zu teuer im Vergleich zum Wettbewerb — Größe passt auch nicht.";
+
+        var response = await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{token}/decision",
+            new { decision = "Reject", reason });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var angebot = await context.Angebote.SingleAsync(a => a.Id == angebotId);
+
+        Assert.Equal(reason, angebot.DecisionReason);
+        Assert.Equal(AngebotStatus.CustomerRejected, angebot.Status);
+
+        // Still never an AngebotReviewComment — that type's AdminUserId is a required FK to
+        // AspNetUsers, so a customer's words could not be written there honestly. Carried over
+        // from the test this replaces.
+        Assert.Empty(await context.AngebotReviewComments.Where(c => c.AngebotId == angebotId).ToListAsync());
+    }
+
     /// <summary>
-    /// The deliberate FR-6.3 gap, pinned so it stays a decision rather than drifting: a reason sent
-    /// by a client is not accepted into the contract. It is ignored by binding, never stored, and
-    /// never echoed back — the alternative to storing it is refusing it, not silently keeping it.
+    /// Refused, never dropped — K-4/D67's rule for a reason without an override, applied unchanged.
+    /// The decision must not be recorded either: a 400 that still consumed the link would be worse
+    /// than accepting the field.
     /// </summary>
     [Fact]
-    public async Task A_rejection_reason_is_not_part_of_the_contract()
+    public async Task An_approval_carrying_a_reason_is_refused()
     {
         var (token, angebotId, _) = await SentAngebotAsync();
         using var anonymous = factory.CreateClient();
 
         var response = await anonymous.PostAsJsonAsync(
             $"/api/v1/public/angebote/{token}/decision",
-            new { decision = "Reject", reason = "Zu teuer im Vergleich zum Wettbewerb." });
+            new { decision = "Approve", reason = "Sehr gerne!" });
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var raw = await response.Content.ReadAsStringAsync();
-        Assert.DoesNotContain("Zu teuer", raw, StringComparison.Ordinal);
-        Assert.DoesNotContain("reason", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
-        Assert.Empty(await context.AngebotReviewComments.Where(c => c.AngebotId == angebotId).ToListAsync());
+        var angebot = await context.Angebote.SingleAsync(a => a.Id == angebotId);
+
+        Assert.Equal(AngebotStatus.Sent, angebot.Status);
+        Assert.Null(angebot.DecisionReason);
+        Assert.Null((await context.TokenLinks.SingleAsync(t => t.EntityId == angebotId)).UsedAt);
+    }
+
+    [Fact]
+    public async Task A_reason_longer_than_the_limit_is_refused()
+    {
+        var (token, angebotId, _) = await SentAngebotAsync();
+        using var anonymous = factory.CreateClient();
+
+        var response = await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{token}/decision",
+            new { decision = "Reject", reason = new string('x', Angebot.MaxDecisionReasonLength + 1) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        Assert.Equal(AngebotStatus.Sent, (await context.Angebote.SingleAsync(a => a.Id == angebotId)).Status);
+    }
+
+    /// <summary>The boundary itself, so the limit is off-by-one-proof rather than merely present.</summary>
+    [Fact]
+    public async Task A_reason_at_exactly_the_limit_is_accepted()
+    {
+        var (token, angebotId, _) = await SentAngebotAsync();
+        using var anonymous = factory.CreateClient();
+        var atLimit = new string('x', Angebot.MaxDecisionReasonLength);
+
+        var response = await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{token}/decision",
+            new { decision = "Reject", reason = atLimit });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        Assert.Equal(atLimit, (await context.Angebote.SingleAsync(a => a.Id == angebotId)).DecisionReason);
+    }
+
+    /// <summary>
+    /// D98's whole point: the customer writes it, staff read it. Asserted against raw JSON so a
+    /// typed deserialisation cannot hide a missing field.
+    /// </summary>
+    [Fact]
+    public async Task The_reason_reaches_the_staff_detail_read()
+    {
+        var (token, angebotId, _) = await SentAngebotAsync();
+        const string reason = "Wir haben uns für einen anderen Anbieter entschieden.";
+
+        using (var anonymous = factory.CreateClient())
+        {
+            await anonymous.PostAsJsonAsync(
+                $"/api/v1/public/angebote/{token}/decision",
+                new { decision = "Reject", reason });
+        }
+
+        using var admin = await ClientAsync(RenoTrackApiFactory.AdminEmail, RenoTrackApiFactory.AdminPassword);
+        var raw = await admin.GetStringAsync($"/api/v1/angebote/{angebotId}");
+
+        Assert.Contains("decisionReason", raw, StringComparison.Ordinal);
+        Assert.Contains(reason, raw, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other half of Q1, and the one that would fail silently if `PublicAngebotDto` were ever
+    /// made a projection of `AngebotDetailDto`: the anonymous token is a credential, and the public
+    /// contract is not widened to echo customer-authored free text back through it. Checked on both
+    /// the decision response and the public read, because either could leak it.
+    /// </summary>
+    [Fact]
+    public async Task The_reason_is_never_exposed_through_the_public_contract()
+    {
+        var (token, _, _) = await SentAngebotAsync();
+        using var anonymous = factory.CreateClient();
+        const string reason = "Zu teuer im Vergleich zum Wettbewerb.";
+
+        var decisionResponse = await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{token}/decision",
+            new { decision = "Reject", reason });
+        var decisionBody = await decisionResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, decisionResponse.StatusCode);
+        Assert.DoesNotContain(reason, decisionBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason", decisionBody, StringComparison.OrdinalIgnoreCase);
+
+        // BR-4 keeps the link readable after a decision, so the read is the second way out.
+        var readBody = await anonymous.GetStringAsync($"/api/v1/public/angebote/{token}");
+
+        Assert.DoesNotContain(reason, readBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason", readBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A hostile reason is stored exactly as sent. The API is not the place to sanitise it —
+    /// encoding belongs to whatever renders it, and rewriting a customer's words on the way in
+    /// would misquote them. Inert rendering is proven where it renders (Slice 5, commit 4).
+    /// </summary>
+    [Fact]
+    public async Task A_hostile_reason_is_stored_verbatim_and_not_rewritten()
+    {
+        var (token, angebotId, _) = await SentAngebotAsync();
+        using var anonymous = factory.CreateClient();
+        const string hostile = "<script>alert(1)</script>";
+
+        await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{token}/decision",
+            new { decision = "Reject", reason = hostile });
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+        Assert.Equal(hostile, (await context.Angebote.SingleAsync(a => a.Id == angebotId)).DecisionReason);
     }
 
     // ---- Concurrency (D96) -------------------------------------------------

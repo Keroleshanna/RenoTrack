@@ -19,12 +19,19 @@ public enum CustomerDecision
 /// chosen outcome — there is no caller identity to derive anything from (Architecture.md §7.2).
 ///
 /// <para>
-/// <b>No rejection reason, deliberately.</b> SRS FR-6.3 permits an optional reason and Wireframe A3
-/// shows the field, but where it would be stored is an open architecture decision: it must not go
-/// into <c>AuditLog</c> (best-effort instrumentation by D50 — business data must never depend on
-/// it), and accepting a value only to discard it would break the reasonable expectation that
-/// anything the API accepts is kept. Until that ADR is made, the honest contract is not to accept
-/// one at all. This is a known, documented gap, not an oversight.
+/// <b>The optional rejection reason (FR-6.3) arrived in Phase 11 Slice 5, D98</b>, resolving the
+/// ADR Phase 6 deferred. It is stored on the <c>Angebot</c> aggregate itself, never in
+/// <c>AuditLog</c> (best-effort by D50) and never as an <c>AngebotReviewComment</c> (whose
+/// <c>AdminUserId</c> is a required FK to <c>AspNetUsers</c>, so a customer's words cannot be
+/// written there honestly).
 /// </para>
 /// </summary>
-public sealed record RecordAngebotDecisionCommand(string Token, CustomerDecision Decision);
+/// <param name="Reason">
+/// FR-6.3's optional reason, meaningful <b>only</b> with <see cref="CustomerDecision.Reject"/>. An
+/// approval carrying one is refused with a 400 rather than silently dropped — K-4/D67's existing
+/// rule, applied unchanged. Trimming and the final length guard belong to the aggregate.
+/// </param>
+public sealed record RecordAngebotDecisionCommand(
+    string Token,
+    CustomerDecision Decision,
+    string? Reason = null);

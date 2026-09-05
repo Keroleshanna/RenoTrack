@@ -62,6 +62,15 @@ public sealed record PublicVatLineDto(decimal Rate, decimal VatAmount);
 /// and every Lead field. None has a documented customer-facing use, and the default on this
 /// surface is to expose nothing without one.
 /// </para>
+/// <para>
+/// <b><c>DecisionReason</c> is absent by a decision rather than by never having existed</b> (D98).
+/// The customer submits FR-6.3's optional reason and staff read it back on
+/// <see cref="AngebotDetailDto"/>; echoing customer-authored free text back through a credential
+/// that anyone holding a forwarded email can present would widen this contract for no benefit,
+/// since the Dashboard is where the reason is acted on. This is also the clearest example of why
+/// the two DTOs are separate hierarchies: had this one been a projection of the detail DTO, the
+/// field would have appeared here the moment it was added there.
+/// </para>
 /// </summary>
 public sealed record PublicAngebotDto(
     string AngebotNumber,
