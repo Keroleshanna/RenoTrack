@@ -124,6 +124,37 @@ body {
     color: var(--ink-faint);
 }
 
+/*
+    The footer's legal links (FR-1.4). Rendered only when the pages have content, so this rule set
+    styles something that exists or nothing at all.
+*/
+.customer-legal {
+    margin-top: 0.5rem;
+    font-size: 0.9375rem;
+}
+
+.customer-legal-link {
+    color: var(--ink-muted);
+    margin-right: 0.75rem;
+}
+
+/* The legal documents themselves. Plain prose: no cards, no columns, nothing to misread. */
+.legal-section {
+    margin: 0 0 1.5rem;
+}
+
+.legal-heading {
+    margin: 0 0 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.legal-paragraph {
+    margin: 0 0 0.75rem;
+    /* A long address, an authority's name or a bare URL must not force the page to scroll sideways. */
+    overflow-wrap: break-word;
+}
+
 .customer-contact {
     display: inline-block;
     margin-left: 0.75rem;

@@ -43,6 +43,16 @@ builder.Services.AddSingleton(publicApiOptions);
 builder.Services.Configure<CompanyIdentityOptions>(
     builder.Configuration.GetSection(CompanyIdentityOptions.SectionName));
 
+// The two legally required pages' content (SRS FR-1.4, D100). Registered as a validated singleton
+// rather than through IOptions, matching PublicApiOptions: the pages and the layout need the same
+// instance, and a malformed link must fail startup rather than reach a customer as a dead or
+// dangerous anchor. Absent content is *not* malformed — it is the expected state until the company
+// writes its text, and it makes the routes answer 404 rather than serve an empty page.
+var legalContent = builder.Configuration.GetSection(LegalContentOptions.SectionName)
+    .Get<LegalContentOptions>() ?? new LegalContentOptions();
+legalContent.Validate();
+builder.Services.AddSingleton(legalContent);
+
 // Built once here so a malformed proxy entry fails startup rather than silently shrinking the
 // trust list. Empty by default: an unconfigured deployment trusts no forwarder at all.
 var trustedForwarders = builder.Configuration.GetSection(TrustedForwardersOptions.SectionName)
@@ -110,6 +120,25 @@ if (companyIdentity?.HasDisplayName is not true)
         "Configuration '{Key}' is not set, so customer-facing pages render without a company name. " +
         "This is expected until the real company identity is supplied (Phase 11 Q7).",
         $"{CompanyIdentityOptions.SectionName}:{nameof(CompanyIdentityOptions.DisplayName)}");
+}
+
+// The same shape, for the same reason: content that has not been written yet is visible to an
+// operator rather than silently missing. Until each is supplied its route answers 404 and no link
+// to it is rendered, so FR-1.4 stays open — the mechanism is complete, the requirement is not
+// (D100 Part 1). Reported per document, because one may be written before the other.
+foreach (var (key, configured) in new[]
+         {
+             ($"{LegalContentOptions.SectionName}:{nameof(LegalContentOptions.Impressum)}", legalContent.Impressum.HasContent),
+             ($"{LegalContentOptions.SectionName}:{nameof(LegalContentOptions.Datenschutz)}", legalContent.Datenschutz.HasContent),
+         })
+{
+    if (!configured)
+    {
+        app.Logger.LogWarning(
+            "Configuration '{Key}' has no content, so that page answers 404 and is not linked. " +
+            "SRS FR-1.4 requires it before launch; the text is supplied by the company (Phase 11 Q7).",
+            key);
+    }
 }
 
 app.Run();

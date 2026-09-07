@@ -1,0 +1,47 @@
+@model RenoTrack.Website.Content.LegalDocumentOptions
+@*
+    One legal document, rendered from configured structure.
+
+    Every value below goes through Razor's encoding @-expressions and there is no Html.Raw anywhere
+    on this page — CLAUDE.md §24's rule, kept rather than excepted (D100 Part 2). That is what makes
+    the content model constrained: headings, paragraphs and links, and nothing that could carry
+    markup of its own.
+
+    The loop variable is NOT called "section": `@section.Heading` parses as Razor's @section
+    directive and fails the build, which CLAUDE.md §24 already records as a trap in this project's
+    own history. Renaming the variable is the fix; escaping each use would leave the trap armed for
+    whoever adds the next property.
+
+    Only sections and paragraphs with real content are rendered, so a stray empty entry in
+    configuration cannot produce a blank heading with nothing under it.
+*@
+@foreach (var part in Model.ContentSections)
+{
+    <section class="legal-section">
+        @if (part.HasHeading)
+        {
+            <h2 class="legal-heading">@part.Heading</h2>
+        }
+
+        @foreach (var paragraph in part.ContentParagraphs)
+        {
+            <p class="legal-paragraph">
+                @if (paragraph.HasText)
+                {
+                    @paragraph.Text
+                }
+                @if (paragraph.HasLink)
+                {
+                    @*
+                        No target="_blank": the customer stays in one tab, so there is no opener to
+                        disown, and Referrer-Policy: no-referrer (applied site-wide) already means a
+                        click hands this site's URL to nobody. The scheme is allowlisted at startup
+                        rather than here — Razor encodes an attribute's value but does not refuse
+                        "javascript:", so LegalParagraphOptions.Validate is the control.
+                    *@
+                    <a class="legal-link" href="@paragraph.LinkUrl">@paragraph.LinkText</a>
+                }
+            </p>
+        }
+    </section>
+}

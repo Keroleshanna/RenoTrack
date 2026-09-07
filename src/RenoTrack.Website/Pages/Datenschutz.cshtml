@@ -1,0 +1,14 @@
+@page "/datenschutz"
+@model RenoTrack.Website.Pages.DatenschutzModel
+@{
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = Model.PageName;
+}
+@*
+    SRS FR-1.4, the second required page. Identical in shape to the Impressum by design: the two
+    differ only in which configured document they render, and both inherit the 404-when-unconfigured
+    rule from LegalPageModel so it has exactly one definition.
+*@
+<h1 class="customer-title">@Model.PageName</h1>
+
+@{ await Html.RenderPartialAsync("_LegalDocument", Model.Document); }

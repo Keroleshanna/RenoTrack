@@ -1,6 +1,7 @@
 @using Microsoft.Extensions.Options
 @using RenoTrack.Website.Content
 @inject IOptions<CompanyIdentityOptions> CompanyIdentity
+@inject LegalContentOptions Legal
 @{
     var company = CompanyIdentity.Value;
 }
@@ -62,11 +63,36 @@
                 </p>
             }
             @*
-                Impressum and Datenschutzerklärung are legally required for a German public site
-                (FR-1.4) and are Slice 7's, together with the company identity above. They are
-                deliberately absent rather than stubbed: a link to an empty legal page is worse than
-                no link, and inventing the text is exactly what Q7 forbids.
+                Impressum and Datenschutzerklärung (FR-1.4), the one exception to this layout's
+                no-navigation rule, on the Product Owner's decision (D100 Part 3).
+
+                The layout's comment above reads PermissionMatrix.md §7 as granting a token holder
+                only view and decide. The matrix says slightly more: its first row grants "Browse
+                public website" to the Lead/Customer too, so a link to a public legal page implies
+                no permission they lack — which was the objection.
+
+                Safe for three reasons that already hold, not by assertion: the links carry no
+                token, so TokenExposure's rule (the credential may appear only inside an href under
+                /angebot/) is unchanged and is what proves it; Referrer-Policy: no-referrer is
+                applied site-wide, so a click hands the quote's URL to nobody; and BR-4 makes the
+                round trip safe, because single use governs decisions only and viewing stays open.
+
+                Each link appears only when its document has content — an unwritten legal page is a
+                404, and a link to one would be exactly the dead end D100 Part 1 refuses.
             *@
+            @if (Legal.Impressum.HasContent || Legal.Datenschutz.HasContent)
+            {
+                <nav class="customer-legal" aria-label="Rechtliches">
+                    @if (Legal.Impressum.HasContent)
+                    {
+                        <a class="customer-legal-link" href="/impressum">Impressum</a>
+                    }
+                    @if (Legal.Datenschutz.HasContent)
+                    {
+                        <a class="customer-legal-link" href="/datenschutz">Datenschutzerklärung</a>
+                    }
+                </nav>
+            }
         </div>
     </footer>
 </body>
