@@ -2380,3 +2380,50 @@ Q2 approves re-issuing a link that has already lapsed naturally. **`TokenLink.Ex
 - `PermissionMatrix.md` §4 gains "Resend Angebot link — Admin **F**"; `Architecture.md` §5.2 gains the endpoint; `ERD.md` records that multiple rows per entity are expected with at most one usable; `StateMachine.md` records that re-issue causes **no** transition, because silence there would read as an omission.
 - The invariant is guaranteed by application-issued predicates rather than by a schema constraint. A future writer bypassing the aggregate could still violate it; closing that needs the filtered index above, which is a deliberate non-goal here.
 - **`NotificationRetryExecutor` needs no change, and that is not luck.** It already orders token links `CreatedAt DESC, Id DESC` and takes the first, with a comment stating that one link per entity is true "in practice" but unenforced, and it already refuses an expired or used link. This slice makes that foresight load-bearing, so a test pins it.
+
+---
+
+## D100 — Legal Pages and Company Identity: a Mechanism That Refuses to Invent Its Own Content
+
+**Problem:** SRS **FR-1.4** requires the Website to include an Impressum and a Datenschutzerklärung, and Phase 11 **Q7** requires that no company name, address, contact detail, legal text or logo be invented. Those two pull in opposite directions: the requirement wants pages, the constraint forbids their content. Slice 7 resolves it by building the mechanism and treating the content as a deployment input — the same split `Email:FromAddress`, `Email:AdminRecipients` and `TokenLink:PublicBaseUrl` already use (SRS OQ-3b), and the split `CompanyIdentityOptions` was written for in Slice 2 but never completed.
+
+**Verified before designing, not assumed.** Running the published Website confirms `/` and `/Privacy` still serve the untouched ASP.NET template, `/Error` renders the legacy `_Layout` (its title format `… - RenoTrack.Website` is that layout's, not the customer layout's), and `/impressum`, `/datenschutz` and three other spellings all return 404.
+
+### Part 1 — Absence means 404, never an empty page
+
+**Alternatives considered:** (a) Ship the routes always, empty until content arrives. (b) Ship them with placeholder text. (c) **Expose a route only when its content is configured; 404 otherwise, and render no link to it.** (d) Fail startup when content is missing.
+
+**Final decision:** (c).
+
+**Why chosen:**
+
+- **(b) is exactly what Q7 forbids**, and `/Privacy` already demonstrates the failure: an English placeholder that *presents itself* as a privacy policy has been live on the customer-facing origin since the project was scaffolded. It is worse than a 404, because a 404 cannot be mistaken for a policy.
+- **(a) fails the same way more quietly.** `_CustomerLayout` already records the reasoning — a link to an empty legal page is worse than no link — and an empty `<main>` is the failure mode that screenshots as correct. This is the shape of the Phase 10 appointment-column defect (`CLAUDE.md` §23): a feature that is dead but renders plausibly.
+- **(d) would block development and QA on copy that has not been written**, and contradicts the wiring-versus-content distinction `CompanyIdentityOptions` already states: wiring absent must fail startup, content absent must not.
+- **(c) makes the untruth unrepresentable.** There is no state in which the site offers a legal page that says nothing. Absence is reported once at startup as a warning naming the key, matching the existing `CompanyIdentity:DisplayName` warning.
+
+**Consequence, stated rather than hidden:** **FR-1.4 is not closed by Slice 7.** The slice delivers the mechanism; the requirement is met when real content is supplied. The closure record must distinguish "Slice 7 implementation complete" from "FR-1.4 formally pending real content input" and must not mark the requirement green on the strength of the mechanism alone.
+
+### Part 2 — Structured, encoded content; `Html.Raw` stays absent
+
+Legal text needs headings, paragraphs and links, which is the usual argument for rendering stored markup raw. **Rejected.** `CLAUDE.md` §24 states `Html.Raw` appears nowhere on a customer page, and the rule survives intact: the content is modelled as a constrained structure (headings, paragraphs, links) whose every dynamic value is rendered through Razor's encoding `@`-expressions.
+
+The tempting counter-argument — that a deployment-supplied file is trusted, unlike Inspector-typed free text — is true about *provenance* and irrelevant to *risk*: an operator pasting text from a lawyer's Word document is still a paste, and the first raw-rendering exception is what makes the second one arguable. The cost is real and accepted: the content format cannot express arbitrary markup. That is a constraint on copy, not a defect.
+
+### Part 3 — The customer's quote page links the legal pages
+
+`_CustomerLayout` deliberately carries no navigation: *"every link on it is a chance for the customer to lose the page they were sent to"*, and its own comment reads `PermissionMatrix.md` §7 as granting a token holder only view and decide. **The matrix says slightly more than that**, and the difference is what licenses this exception: its first row grants "Browse public website" to the Lead/Customer as well as to an anonymous visitor. A link to a public legal page therefore implies no permission the holder lacks, which was the layout comment's actual objection. The legal pages are the one exception to the no-navigation rule, on the Product Owner's decision, and three existing properties make it safe rather than merely acceptable:
+
+- **The links carry no token**, so `TokenExposure`'s narrowed rule — the credential may appear only inside an `href` under `/angebot/` — holds unchanged and is what proves it.
+- **`Referrer-Policy: no-referrer` is applied site-wide**, so clicking one hands the token URL to nobody. This is why that header is a boundary and not hygiene.
+- **BR-4 makes the round trip safe.** A token link is single-use for *decisions* only; viewing stays open, so navigating away and back re-fetches a page that still works, decided or not.
+
+A legal route has no `token` route parameter, so `CustomerSecurityHeaders` gives it the baseline headers and correctly withholds `Cache-Control: no-store` and `X-Robots-Tag` — a public legal page *should* be cacheable and indexable. That falls out of keying the strict rules on a route parameter rather than a path list; a test pins it rather than trusting it.
+
+### Part 4 — The scaffold, and the error page a customer can actually reach
+
+The ASP.NET template pages are removed: `/Index`, `/Privacy`, the legacy `_Layout` and the Bootstrap/jQuery assets no longer needed. This is **not** building Phase 13's marketing site (Q6 defers A1/A2, and that stands) — it is deleting something that should never have shipped on a customer-facing origin.
+
+`/Error` is included because it is customer-reachable: an unhandled exception on `/angebot/{token}` re-executes into it, and today it renders the legacy layout with jQuery and Bootstrap `<script>` tags, English copy, links into the template site, and a Request ID. Every one of those contradicts a rule this project already holds — no script element on a customer page, German only (Q8), and nothing internal reaching the customer (§24's rule that the API's own `detail` never does). It becomes a customer-safe German page on the customer layout with no scripts and no internal identifiers, keeping the existing security baseline.
+
+**Not in scope, deliberately:** the two names for the company. `Email:FromDisplayName` is required and signs every customer email; `CompanyIdentity:DisplayName` is optional and heads the quote page. Nothing makes them agree, and a deployment can sign mail as one company and head the page as another. They are not unified here — they serve different processes, and D71's precedent is that two audiences are two settings — but the deployment note must state that they name the same company, and Slice 8's end-to-end run is where that is checked.

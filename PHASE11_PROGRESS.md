@@ -58,7 +58,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
 | **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
 | **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and merged** — PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23), merge commit `314f486`; CI green on both jobs including Windows/LocalDB, browser QA passed (§9.6, §9.7), **D99** |
-| 7 | Legal pages and company-identity structure (Q7) | not started |
+| **7** | Legal pages and company-identity structure (Q7) | in progress — design approved 2026-09-05 (§10), **D100** |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
 ---
@@ -779,3 +779,63 @@ It also **strengthens** the customer path: a decision arriving through a link su
 **Merged as `314f486`** on 2026-09-05, a true merge commit whose parents are `5514b17` (Slice 5's merge) and `98e8b97` (this slice's head).
 
 **What Slice 6 leaves for later, unchanged:** OQ-4's revise-and-resend, a filtered unique index (Mechanism 3, explicitly declined for this slice), and everything in Slice 7+.
+
+---
+
+## 10. Slice 7 — Legal Pages and Company Identity
+
+### 10.1 The goal, and the constraint that shapes it
+
+Close **FR-1.4** (Impressum, Datenschutzerklärung) and **Q7** (company identity) by building the mechanism through which real content arrives — never by writing the content. The two pull against each other: the requirement wants pages, the constraint forbids their text. **D100** is the resolution.
+
+### 10.2 Current state, verified by running the site rather than by reading it
+
+The published Website (Production, `PublicApi:BaseUrl` supplied) serves:
+
+| Route | Today |
+|---|---|
+| `/`, `/Index` | 200 — the ASP.NET template's *"Welcome / Learn about building Web apps with ASP.NET Core"* |
+| `/Privacy` | 200 — *"Use this page to detail your site's privacy policy."* |
+| `/Error` | 200 — template error page with a Request ID and a "Development Mode" explanation |
+| `/impressum`, `/datenschutz` (+3 other spellings) | 404, all five |
+| `/angebot/{token}` | the customer page, with the strict token headers correctly applied |
+
+`/Error` renders the **legacy** `_Layout`: its title format is `… - RenoTrack.Website`, which is that layout's, not `_CustomerLayout`'s `… · {DisplayName}`. So the scripts, the English copy and the template navigation are all on a page a customer can reach through an exception on their quote.
+
+`CompanyIdentity:*` is unset, so the quote page is headed and signed by nobody, and `wwwroot/` holds no logo.
+
+### 10.3 The approved decisions
+
+| # | Question | Decision |
+|---|---|---|
+| **OQ-1** | Does the customer layout link the legal pages? | **Yes** — `/impressum` and `/datenschutz` in the customer footer. They must never carry the token. `PermissionMatrix.md` §7 grants "Browse public website" to the token holder, so this implies no permission they lack (**D100** Part 3). |
+| **OQ-2** | Remove the ASP.NET scaffold? | **Yes** — `/Index`, `/Privacy`, the legacy `_Layout` and the Bootstrap/jQuery/site assets no longer needed. **Plus a required addition:** `/Error` becomes customer-safe — customer layout, German, no `<script>`, no Request ID or internal detail, existing security baseline preserved. **Phase 13's marketing site is still not built.** |
+| **OQ-3** | How is legal text rendered? | **Encoded structured content** — headings, paragraphs, links, every dynamic value through Razor's encoding `@`-expressions. **No `Html.Raw` on a customer page**, `CLAUDE.md` §24 unchanged. |
+| **OQ-4** | Does Slice 7 close FR-1.4? | **No.** The mechanism ships now; the requirement is met when real content is supplied. The closure record must state both halves separately and must not mark FR-1.4 green on the mechanism alone. |
+| **OQ-5** | Route casing | **Lowercase `/impressum` and `/datenschutz`**, matching `/angebot`, pinned by tests. |
+
+**Invent nothing:** no company name, address, phone, email, legal text or logo. Content is an input, not a deliverable.
+
+### 10.4 What this slice does not touch
+
+**No Domain, Application, API, Infrastructure or Dashboard change. No database change and no migration.** The slice does not reach past `RenoTrack.Website`. No new third-party asset, font, analytics or outbound request — the Website loads nothing off-origin today and must not start.
+
+Also out: A1/A2 (Q6 defers them to Phase 13), FR-1.1 content, the invoice token page, cookie/consent banners (nothing documents one), English translation (Q8), PDF (Phase 14), and **all of Slice 8**.
+
+**No legal advice is given about what an Impressum or a privacy policy must contain.** No requirement document specifies those fields, and this slice does not invent them.
+
+### 10.5 The documentation contradiction, and why it was thinner than first reported
+
+The design review reported a three-way disagreement over which phase owns the legal pages — `Architecture.md` §14 row 12 (Polish), `PROJECT_ROADMAP.md` Phase 13, and this file's Slice 7. **That overstated it.** `Architecture.md` §14 opens with an explicit disclaimer settled in the Phase 8 completion sweep: its numbers do not correspond to real phases, and the reader is told to *"cite `PROJECT_ROADMAP.md`, never this table, for which phase owns what."* It is a preserved historical sketch, not a competing authority, and **it is deliberately left unedited** — changing it to match would edit a record kept precisely because it is the original.
+
+The real reconciliation is one line: `PROJECT_ROADMAP.md` Phase 13 now records that the legal-page mechanism and company identity arrive early in Phase 11 Slice 7, mirroring the note this file already carries about taking the token-link half of that phase — and that the *content* belongs to no phase at all, because the company supplies it (SRS §5).
+
+### 10.6 Checkpoints
+
+**Four, each stopping for review:** documentation + D100 → the legal-content mechanism, pages and tests → company identity and logo mechanism, plus the deployment note → scaffold removal, the customer-safe `/Error`, browser QA and closure.
+
+Browser QA runs against a **`dotnet publish` output, never `dotnet run`** (`CLAUDE.md` §24 — this project has already lost a QA round to that trap). `RenoTrack.Website.Tests` stays database-free and therefore stays in CI's Linux job; no database dependency may be added to it.
+
+### 10.7 The risk this slice is most likely to ship
+
+**A legal page that renders an empty `<main>` because content was mis-keyed, and screenshots as correct.** That is the same shape as the Phase 10 appointment-column defect. The mitigation is structural rather than diligent: absence is a 404 and no link is rendered, pinned by a test, so a legal page that says nothing cannot exist.
