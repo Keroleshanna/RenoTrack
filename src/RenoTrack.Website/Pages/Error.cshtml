@@ -1,26 +1,25 @@
-﻿@page
-@model ErrorModel
+@page
+@model RenoTrack.Website.Pages.ErrorModel
 @{
-    ViewData["Title"] = "Error";
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = "Es ist ein Fehler aufgetreten";
 }
+@*
+    German, on the customer layout, with no script and no internal detail — see ErrorModel for why
+    each of those is load-bearing rather than cosmetic.
 
-<h1 class="text-danger">Error.</h1>
-<h2 class="text-danger">An error occurred while processing your request.</h2>
+    The wording says what happened and what to do, and claims nothing it cannot know: the customer's
+    link is not described as broken (it probably is not), and no decision is described as recorded or
+    not recorded, because this page has no way to tell. An outage is never reported as an invalid
+    link — the same rule the Angebot page's Unavailable state follows.
+*@
+<h1 class="customer-title">Es ist ein Fehler aufgetreten</h1>
 
-@if (Model.ShowRequestId)
-{
-    <p>
-        <strong>Request ID:</strong> <code>@Model.RequestId</code>
-    </p>
-}
-
-<h3>Development Mode</h3>
-<p>
-    Swapping to the <strong>Development</strong> environment displays detailed information about the error that occurred.
+<p class="customer-lead">
+    Ihre Anfrage konnte gerade nicht bearbeitet werden. Bitte versuchen Sie es in einigen Minuten
+    noch einmal – Ihr Link bleibt gültig.
 </p>
-<p>
-    <strong>The Development environment shouldn't be enabled for deployed applications.</strong>
-    It can result in displaying sensitive information from exceptions to end users.
-    For local debugging, enable the <strong>Development</strong> environment by setting the <strong>ASPNETCORE_ENVIRONMENT</strong> environment variable to <strong>Development</strong>
-    and restarting the app.
+
+<p class="customer-hint">
+    Falls es weiterhin nicht funktioniert, melden Sie sich bitte bei uns.
 </p>

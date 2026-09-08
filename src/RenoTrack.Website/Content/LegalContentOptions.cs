@@ -14,10 +14,11 @@ namespace RenoTrack.Website.Content;
 /// <para>
 /// <b>Absence means the route does not exist</b> — <c>/impressum</c> and <c>/datenschutz</c> answer
 /// 404 and the customer layout renders no link to them. It deliberately does not mean an empty
-/// page: <c>Pages/Privacy.cshtml</c> is the standing demonstration of why, having served an English
-/// "Use this page to detail your site's privacy policy" placeholder on the customer-facing origin
-/// since the project was scaffolded. A page that says nothing while looking like a legal page is
-/// worse than a 404, and it is the variant that screenshots as correct.
+/// page. The demonstration of why was in this repository until Slice 7 deleted it: the scaffold's
+/// <c>Pages/Privacy.cshtml</c> had served an English "Use this page to detail your site's privacy
+/// policy" placeholder on the customer-facing origin since the project was created, and nobody
+/// noticed, because a page that says nothing while looking like a legal page is worse than a 404
+/// and is the variant that screenshots as correct.
 /// </para>
 /// <para>
 /// <b>A constrained structure rather than stored markup.</b> Legal text needs headings, paragraphs

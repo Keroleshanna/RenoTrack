@@ -2,11 +2,13 @@
 @inject CompanyIdentityOptions company
 @inject LegalContentOptions Legal
 @*
-    The customer-facing layout, deliberately separate from _Layout.cshtml.
+    The customer-facing layout, and since Slice 7's scaffold removal the only one this application
+    has.
 
-    _Layout is the marketing site's chrome (Phase 13 owns it) and carries site navigation. This one
-    carries none: a token-link page is a document handed to one person, not an entry point into a
-    site, and every link on it is a chance for the customer to lose the page they were sent to.
+    It carries no site navigation: a token-link page is a document handed to one person, not an
+    entry point into a site, and every link on it is a chance for the customer to lose the page they
+    were sent to. When Phase 13 builds the marketing site (A1/A2), that gets its own chrome — this
+    one is not the place to grow it.
     PermissionMatrix.md §7 grants a token holder exactly two things — view, and decide — so anything
     else on screen would imply access they do not have.
 

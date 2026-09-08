@@ -58,7 +58,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
 | **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
 | **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and merged** — PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23), merge commit `314f486`; CI green on both jobs including Windows/LocalDB, browser QA passed (§9.6, §9.7), **D99** |
-| **7** | Legal pages and company-identity structure (Q7) | in progress — design approved 2026-09-05 (§10), **D100** |
+| **7** | Legal pages and company-identity structure (Q7) | ✅ **implementation complete** — **D100**, §10; four checkpoints approved 2026-09-05, browser QA passed (§10.10). **FR-1.4 remains formally OPEN**: the mechanism ships, the company's legal text and identity do not exist yet and must not be invented |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
 ---
@@ -861,3 +861,37 @@ The two `NEXT_STEPS.md` Slice 7 revisit triggers are **discharged rather than de
 ### 10.9 The risk this slice is most likely to ship
 
 **A legal page that renders an empty `<main>` because content was mis-keyed, and screenshots as correct.** That is the same shape as the Phase 10 appointment-column defect. The mitigation is structural rather than diligent: absence is a 404 and no link is rendered, pinned by a test, so a legal page that says nothing cannot exist.
+
+### 10.10 Closure
+
+**Slice 7's implementation is complete. FR-1.4 is not met.** Those are two separate statements and the second must not be softened by the first: `/impressum` and `/datenschutz` exist, render supplied content, and are linked from the customer footer — and this repository contains no Impressum, no Datenschutzerklärung, no company name, address, contact detail or logo, because the company authors them (SRS §5, Q7). Until they are supplied the two routes answer 404, no link to them is rendered, and three startup warnings name the missing keys. **Do not mark FR-1.4 met on the strength of the mechanism.**
+
+| Commit | Contents |
+|---|---|
+| `194f136` | Documentation + **D100** |
+| `d6de2aa` | Legal-content mechanism, the two pages, tests |
+| `ba4d3fa` | Company identity, the logo mechanism, `DEPLOYMENT_CONFIGURATION.md` |
+| `998ddc7` | Real-host `/brand` coverage; stale comment corrected |
+| *(this)* | Scaffold removal, customer-safe `/Error`, browser QA, this record |
+
+#### What the scaffold removal actually removed
+
+`/` served *"Welcome — Learn about building Web apps with ASP.NET Core"* and `/Privacy` served *"Use this page to detail your site's privacy policy"* — in English, on the customer-facing origin, since the project was created. The second is precisely the placeholder FR-1.4 exists to replace, which is why **D100** Part 1 refuses an empty legal page: this repository had been shipping one for eleven phases and nobody noticed. Also gone: the legacy `_Layout`, its Bootstrap and jQuery bundles, `site.css`, `site.js`, the validation-scripts partial, and the template favicon. **No replacement favicon is invented** — that is company identity like any other.
+
+**This is not Phase 13's marketing site being built or refused.** A1/A2 remain deferred (Q6); what was deleted is the template's own output.
+
+#### `/Error` was the reason the removal could not be cosmetic
+
+It is customer-reachable: `UseExceptionHandler` re-executes into it, so an unhandled exception on `/angebot/{token}` lands there. On the legacy layout it served English copy, jQuery and Bootstrap `<script>` tags, links into a site that no longer exists, and a request identifier — on a page whose URL is a credential. It is now German, on the customer layout, with no script and **no diagnostic identifier at all**: the correlation belongs in the server's log, and the customer has no support desk to quote it to. The wording claims nothing it cannot know — it does not call the link broken, and it does not say whether a decision was recorded.
+
+It is tested through a **real thrown exception**, not by requesting `/Error` directly, because the re-execution is the path that matters.
+
+#### Browser QA — published output, per `CLAUDE.md` §24
+
+Driven against a `dotnet publish` output with a stub API over HTTPS, in two configurations: everything supplied, and nothing supplied (this repository's real state). Both passed. Worth recording: the logo loads (`naturalWidth > 0`, not merely present), **zero off-origin requests** across a quote → Impressum → back round trip, zero `<script>` elements on every page, no horizontal overflow at 390px or 320px, the logo survives the print stylesheet as the letterhead, and the token appears only in the two same-origin decision `href`s.
+
+In the unconfigured run the header and footer render **empty rather than placeholdered**, the legal routes 404, and three warnings name exactly the unset keys.
+
+#### What Slice 7 leaves
+
+**Content, and only content.** `DEPLOYMENT_CONFIGURATION.md` lists every key, and its pre-launch checklist is the gate. One item there is checked by nobody but a human: `CompanyIdentity:DisplayName` and `Email:FromDisplayName` must name the same company, and a deployment can set them differently with nothing to notice.
