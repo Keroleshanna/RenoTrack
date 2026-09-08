@@ -2,11 +2,18 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-namespace RenoTrack.Infrastructure.Tests.Email;
+namespace RenoTrack.Tests.Shared;
 
 /// <summary>
-/// A minimal SMTP server that runs inside the test process, so <see cref="SmtpEmailSenderTests"/>
-/// exercises the real MailKit client over a real socket.
+/// A minimal SMTP server that runs inside the test process, so tests exercise the real MailKit
+/// client over a real socket.
+///
+/// <para><b>Shared by linked source, not by a project reference.</b> It was written for
+/// <c>RenoTrack.Infrastructure.Tests</c>' <c>SmtpEmailSenderTests</c> and is now also used by
+/// <c>RenoTrack.Api.Tests</c>' customer-workflow end-to-end test. A test project referencing
+/// another test project would drag that project's collection fixtures and its own LocalDB
+/// lifecycle into an assembly that has its own; a second copy would drift. Both csproj files
+/// <c>Compile Include</c> this one file instead.
 ///
 /// <para><b>Why this and not a container or a hosted sink.</b> Docker is not installed on this
 /// machine and neither CI job provides an SMTP server, so smtp4dev/MailHog would mean either a
@@ -70,6 +77,26 @@ public sealed class InProcessSmtpServer : IAsyncDisposable
     public IReadOnlyList<string> Commands
     {
         get { lock (_sync) { return [.. _commands]; } }
+    }
+
+    /// <summary>
+    /// Forgets every message, command and session counted so far.
+    /// </summary>
+    /// <remarks>
+    /// For a test that drives several real workflow steps and needs its assertions to be about the
+    /// mails one particular step produced. Without it, "exactly one message" would mean "one since
+    /// the server started", which stops being the interesting claim as soon as setting up the
+    /// scenario sends mail of its own.
+    /// </remarks>
+    public void Reset()
+    {
+        lock (_sync)
+        {
+            _messages.Clear();
+            _commands.Clear();
+        }
+
+        Interlocked.Exchange(ref _sessionCount, 0);
     }
 
     private async Task AcceptAsync(CancellationToken cancellationToken)
