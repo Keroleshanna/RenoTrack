@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RenoTrack.Api.RateLimiting;
 using RenoTrack.Infrastructure.Email;
+using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.TokenLinks;
@@ -59,6 +60,14 @@ public sealed class CustomerWorkflowE2EFactory(int smtpPort)
     /// <summary>Every log message the host wrote, so the test can prove no token reached one.</summary>
     public RecordingLoggerProvider Logs { get; } = new();
 
+    /// <summary>
+    /// Where <c>LocalDiskFileStorage</c> would write. Nothing in this workflow uploads anything, but
+    /// the option is validated at composition, so a value is required for the host to start at all.
+    /// Unique per instance and removed on teardown, like <see cref="RenoTrackApiFactory"/>'s.
+    /// </summary>
+    private string StorageRoot { get; } =
+        Path.Combine(Path.GetTempPath(), "RenoTrackCustomerWorkflowE2E", Guid.NewGuid().ToString("N"));
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -69,6 +78,11 @@ public sealed class CustomerWorkflowE2EFactory(int smtpPort)
         builder.UseSetting(
             $"{JwtOptions.SectionName}:{nameof(JwtOptions.SigningKey)}",
             "api-tests-signing-key-long-enough-for-hmac-sha256");
+
+        // Required by AddInfrastructure's eager validation, which runs for every host regardless of
+        // whether anything uploads a file. Omitting it failed all four tests at startup on the first
+        // CI run — the guard doing exactly its job, on a harness that had not supplied the key.
+        builder.UseSetting($"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}", StorageRoot);
 
         builder.UseSetting(DatabaseInitializationOptions.ModeKey, nameof(DatabaseInitializationMode.Migrate));
         builder.UseSetting(DevelopmentBootstrapOptions.EnabledKey, "false");
@@ -161,6 +175,11 @@ public sealed class CustomerWorkflowE2EFactory(int smtpPort)
         await using (var context = CreateDbContext())
         {
             await context.Database.EnsureDeletedAsync();
+        }
+
+        if (Directory.Exists(StorageRoot))
+        {
+            Directory.Delete(StorageRoot, recursive: true);
         }
 
         await base.DisposeAsync();
