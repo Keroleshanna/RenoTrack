@@ -1,10 +1,6 @@
-@using Microsoft.Extensions.Options
 @using RenoTrack.Website.Content
-@inject IOptions<CompanyIdentityOptions> CompanyIdentity
+@inject CompanyIdentityOptions company
 @inject LegalContentOptions Legal
-@{
-    var company = CompanyIdentity.Value;
-}
 @*
     The customer-facing layout, deliberately separate from _Layout.cshtml.
 
@@ -32,10 +28,20 @@
     <header class="customer-header">
         <div class="customer-shell">
             @*
-                Rendered only when configured. No placeholder name is invented (Q7) — a fabricated
-                company name on a page a real customer reads would be worse than a plain one.
+                Rendered only when configured. No placeholder name is invented and no stand-in logo
+                is committed (Q7) — a fabricated identity on a page a real customer reads would be
+                worse than a plain one.
+
+                The logo is Wireframe A3's [Company Logo]. When one is configured it *replaces* the
+                name rather than sitting beside it, and the name becomes its alternative text: a
+                header carrying both would say the company twice to a screen reader. The path is
+                validated at startup as site-relative, so this src can never reach a third party.
             *@
-            @if (company.HasDisplayName)
+            @if (company.HasLogo)
+            {
+                <img class="customer-logo" src="@company.LogoPath" alt="@company.DisplayName" />
+            }
+            else if (company.HasDisplayName)
             {
                 <p class="customer-brand">@company.DisplayName</p>
             }

@@ -125,6 +125,17 @@ body {
 }
 
 /*
+    Wireframe A3's [Company Logo]. Bounded in height so a large file the company supplies cannot
+    push the quote off the first screen, and width:auto so its aspect ratio is never distorted.
+*/
+.customer-logo {
+    display: block;
+    max-height: 2.75rem;
+    max-width: 100%;
+    width: auto;
+}
+
+/*
     The footer's legal links (FR-1.4). Rendered only when the pages have content, so this rule set
     styles something that exists or nothing at all.
 */
@@ -511,6 +522,11 @@ body {
     .customer-header,
     .customer-footer {
         border: 0;
+    }
+
+    /* The logo is the letterhead on a printed quote, so it must survive the print stylesheet. */
+    .customer-logo {
+        max-height: 2.25rem;
     }
 
     .customer-card {

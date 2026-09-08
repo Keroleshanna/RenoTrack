@@ -836,6 +836,28 @@ The real reconciliation is one line: `PROJECT_ROADMAP.md` Phase 13 now records t
 
 Browser QA runs against a **`dotnet publish` output, never `dotnet run`** (`CLAUDE.md` §24 — this project has already lost a QA round to that trap). `RenoTrack.Website.Tests` stays database-free and therefore stays in CI's Linux job; no database dependency may be added to it.
 
-### 10.7 The risk this slice is most likely to ship
+### 10.7 Company identity, and the one thing that fails startup
+
+The identity plumbing existed from Slice 2 and needed completing rather than designing: `DisplayName`, `ContactEmail` and `ContactPhone` were already bound and already gated on presence. Slice 7 added **`LogoPath`** (Wireframe A3's `[Company Logo]`), eager validation, and the tests for both the set and the unset rendering — the unset half being what this repository actually does.
+
+**`CompanyIdentityOptions` moved onto the eager-validated singleton pattern** that `PublicApiOptions` and `LegalContentOptions` already use, replacing `Configure<T>` + a second `.Get<T>()` for the warning. Three options types now bind and validate identically, and the layout injects the instance rather than `IOptions<T>`.
+
+**The logo is same-origin only, and that is enforced rather than documented.** An absolute URL is refused even over HTTPS: a customer page loads nothing off-origin, because a third-party request tells that party which customer opened which quote and when. The guard is written out rather than left to `StartsWith('/')`, because `//cdn.example/logo.png` and `/\cdn.example/logo.png` both begin with a slash and both leave the origin — a protocol-relative URL, and the backslash form browsers normalise to it. Both are pinned by tests.
+
+**A logo set without a `DisplayName` also fails startup**, because the name is the image's alternative text: a logo with no accessible name is an unlabelled image where the brand should be. That is the half-specified-link rule of Checkpoint 2 applied to a second pair, not a new policy.
+
+A configured path resolving to no file only **warns** — a container may mount the directory after the image is built — but it is named at startup rather than discovered in a screenshot, which is the same "plausible-looking breakage" this slice keeps designing against.
+
+**The first version of this mechanism did not work, and only serving a real file revealed it.** The logo was to be placed in `wwwroot`. `MapStaticAssets` serves **only the endpoints in its build-time manifest**, so a file copied there after publishing is on disk and answers **404** — proven by doing exactly that and getting one, against a page that otherwise rendered perfectly. Worse, the startup existence check asked `WebRootFileProvider`, which reads the disk, so it reported success for a file that could never be served: **an assertion that could not fail for the reason it was written for**, which `CLAUDE.md` §24 already records as worse than no assertion. Both halves are fixed — deployment-supplied assets are served from a `brand` directory beside the application, mounted at `/brand` with `ServeUnknownFileTypes` off, and the existence check now probes that directory. `LogoPath` must be under `/brand/`, so a site-relative path that nothing would serve fails startup instead of rendering a broken image on every quote.
+
+This is the third time in Phase 11 that `MapStaticAssets`' build-time manifest has produced a defect that looks like something else (Slice 3's unstyled page, and §24's rule that browser QA runs against a `dotnet publish` output). **When a deployment supplies a file, ask what serves it before asking where it goes.**
+
+### 10.8 What is a deployment input, and where it is now written down
+
+`DEPLOYMENT_CONFIGURATION.md` is new: every key both applications need, and which of three answers absence gets — wiring fails startup, content warns, malformed content fails. It also carries the one thing no code checks: **`CompanyIdentity:DisplayName` and `Email:FromDisplayName` must name the same company**, and a deployment can set them differently with nothing to notice.
+
+The two `NEXT_STEPS.md` Slice 7 revisit triggers are **discharged rather than deleted**: they were code gaps and are now deployment inputs, so the entry that replaces them says exactly that and repeats that FR-1.4 must not be marked met on the strength of the mechanism.
+
+### 10.9 The risk this slice is most likely to ship
 
 **A legal page that renders an empty `<main>` because content was mis-keyed, and screenshots as correct.** That is the same shape as the Phase 10 appointment-column defect. The mitigation is structural rather than diligent: absence is a 404 and no link is rendered, pinned by a test, so a legal page that says nothing cannot exist.
