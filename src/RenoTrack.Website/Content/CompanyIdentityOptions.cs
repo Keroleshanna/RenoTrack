@@ -36,16 +36,24 @@ public sealed class CompanyIdentityOptions
     public string? ContactPhone { get; init; }
 
     /// <summary>
-    /// The company's logo, as a site-relative path to a file this Website serves — Wireframe A3's
+    /// The company's logo, as a path under <see cref="LogoPathPrefix"/> — Wireframe A3's
     /// <c>[Company Logo]</c>.
     /// </summary>
     /// <remarks>
     /// <para>
+    /// <b>The deployment places the file in a <c>brand</c> directory beside the application</b>
+    /// (<see cref="BrandAssetsDirectoryName"/>), which <c>Program.cs</c> mounts at
+    /// <see cref="LogoPathPrefix"/>, and names it here as <c>/brand/&lt;file&gt;</c>. <b>Not
+    /// <c>wwwroot</c></b>: <c>MapStaticAssets</c> serves only the endpoints in its build-time
+    /// manifest, so a file copied into <c>wwwroot</c> after publishing is on disk and still answers
+    /// 404 — see <see cref="LogoPathPrefix"/> for how that was found.
+    /// </para>
+    /// <para>
     /// <b>Same-origin only, enforced rather than documented.</b> An absolute URL is refused even
     /// when it is HTTPS: this site loads nothing off-origin and must not start (<c>CLAUDE.md</c>
     /// §24), because a third-party request from a customer's browser tells that party which
-    /// customer opened which quote and when. The deployment places the file under
-    /// <c>wwwroot</c> and names it here.
+    /// customer opened which quote and when. A site-relative path outside the prefix is refused
+    /// too, since nothing would serve it.
     /// </para>
     /// <para>
     /// <b>No image is committed to this repository</b>, and none is invented — a logo is company
