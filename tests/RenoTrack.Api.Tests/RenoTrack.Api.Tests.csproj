@@ -21,6 +21,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Shared by linked source rather than a project reference: see the file's own remarks. Both
+         this project and the other test project that needs a real SMTP endpoint compile this one
+         implementation, so neither can drift from the other. -->
+    <Compile Include="..\Shared\InProcessSmtpServer.cs" Link="Shared\InProcessSmtpServer.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\RenoTrack.Api\RenoTrack.Api.csproj" />
     <ProjectReference Include="..\..\src\RenoTrack.Infrastructure\RenoTrack.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\RenoTrack.Application\RenoTrack.Application.csproj" />

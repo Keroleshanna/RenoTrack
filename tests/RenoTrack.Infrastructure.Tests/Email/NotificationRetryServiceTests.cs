@@ -10,6 +10,7 @@ using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Entities;
 using RenoTrack.Infrastructure.Tests.Persistence;
 using RenoTrack.Infrastructure.TokenLinks;
+using RenoTrack.Tests.Shared;
 
 namespace RenoTrack.Infrastructure.Tests.Email;
 
