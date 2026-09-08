@@ -58,7 +58,7 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
 | **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
 | **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and merged** — PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23), merge commit `314f486`; CI green on both jobs including Windows/LocalDB, browser QA passed (§9.6, §9.7), **D99** |
-| 7 | Legal pages and company-identity structure (Q7) | not started |
+| **7** | Legal pages and company-identity structure (Q7) | ✅ **implementation complete** — **D100**, §10; four checkpoints approved 2026-09-05, browser QA passed (§10.10). **FR-1.4 remains formally OPEN**: the mechanism ships, the company's legal text and identity do not exist yet and must not be invented |
 | 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
 
 ---
@@ -779,3 +779,119 @@ It also **strengthens** the customer path: a decision arriving through a link su
 **Merged as `314f486`** on 2026-09-05, a true merge commit whose parents are `5514b17` (Slice 5's merge) and `98e8b97` (this slice's head).
 
 **What Slice 6 leaves for later, unchanged:** OQ-4's revise-and-resend, a filtered unique index (Mechanism 3, explicitly declined for this slice), and everything in Slice 7+.
+
+---
+
+## 10. Slice 7 — Legal Pages and Company Identity
+
+### 10.1 The goal, and the constraint that shapes it
+
+Close **FR-1.4** (Impressum, Datenschutzerklärung) and **Q7** (company identity) by building the mechanism through which real content arrives — never by writing the content. The two pull against each other: the requirement wants pages, the constraint forbids their text. **D100** is the resolution.
+
+### 10.2 Current state, verified by running the site rather than by reading it
+
+The published Website (Production, `PublicApi:BaseUrl` supplied) serves:
+
+| Route | Today |
+|---|---|
+| `/`, `/Index` | 200 — the ASP.NET template's *"Welcome / Learn about building Web apps with ASP.NET Core"* |
+| `/Privacy` | 200 — *"Use this page to detail your site's privacy policy."* |
+| `/Error` | 200 — template error page with a Request ID and a "Development Mode" explanation |
+| `/impressum`, `/datenschutz` (+3 other spellings) | 404, all five |
+| `/angebot/{token}` | the customer page, with the strict token headers correctly applied |
+
+`/Error` renders the **legacy** `_Layout`: its title format is `… - RenoTrack.Website`, which is that layout's, not `_CustomerLayout`'s `… · {DisplayName}`. So the scripts, the English copy and the template navigation are all on a page a customer can reach through an exception on their quote.
+
+`CompanyIdentity:*` is unset, so the quote page is headed and signed by nobody, and `wwwroot/` holds no logo.
+
+### 10.3 The approved decisions
+
+| # | Question | Decision |
+|---|---|---|
+| **OQ-1** | Does the customer layout link the legal pages? | **Yes** — `/impressum` and `/datenschutz` in the customer footer. They must never carry the token. `PermissionMatrix.md` §7 grants "Browse public website" to the token holder, so this implies no permission they lack (**D100** Part 3). |
+| **OQ-2** | Remove the ASP.NET scaffold? | **Yes** — `/Index`, `/Privacy`, the legacy `_Layout` and the Bootstrap/jQuery/site assets no longer needed. **Plus a required addition:** `/Error` becomes customer-safe — customer layout, German, no `<script>`, no Request ID or internal detail, existing security baseline preserved. **Phase 13's marketing site is still not built.** |
+| **OQ-3** | How is legal text rendered? | **Encoded structured content** — headings, paragraphs, links, every dynamic value through Razor's encoding `@`-expressions. **No `Html.Raw` on a customer page**, `CLAUDE.md` §24 unchanged. |
+| **OQ-4** | Does Slice 7 close FR-1.4? | **No.** The mechanism ships now; the requirement is met when real content is supplied. The closure record must state both halves separately and must not mark FR-1.4 green on the mechanism alone. |
+| **OQ-5** | Route casing | **Lowercase `/impressum` and `/datenschutz`**, matching `/angebot`, pinned by tests. |
+
+**Invent nothing:** no company name, address, phone, email, legal text or logo. Content is an input, not a deliverable.
+
+### 10.4 What this slice does not touch
+
+**No Domain, Application, API, Infrastructure or Dashboard change. No database change and no migration.** The slice does not reach past `RenoTrack.Website`. No new third-party asset, font, analytics or outbound request — the Website loads nothing off-origin today and must not start.
+
+Also out: A1/A2 (Q6 defers them to Phase 13), FR-1.1 content, the invoice token page, cookie/consent banners (nothing documents one), English translation (Q8), PDF (Phase 14), and **all of Slice 8**.
+
+**No legal advice is given about what an Impressum or a privacy policy must contain.** No requirement document specifies those fields, and this slice does not invent them.
+
+### 10.5 The documentation contradiction, and why it was thinner than first reported
+
+The design review reported a three-way disagreement over which phase owns the legal pages — `Architecture.md` §14 row 12 (Polish), `PROJECT_ROADMAP.md` Phase 13, and this file's Slice 7. **That overstated it.** `Architecture.md` §14 opens with an explicit disclaimer settled in the Phase 8 completion sweep: its numbers do not correspond to real phases, and the reader is told to *"cite `PROJECT_ROADMAP.md`, never this table, for which phase owns what."* It is a preserved historical sketch, not a competing authority, and **it is deliberately left unedited** — changing it to match would edit a record kept precisely because it is the original.
+
+The real reconciliation is one line: `PROJECT_ROADMAP.md` Phase 13 now records that the legal-page mechanism and company identity arrive early in Phase 11 Slice 7, mirroring the note this file already carries about taking the token-link half of that phase — and that the *content* belongs to no phase at all, because the company supplies it (SRS §5).
+
+### 10.6 Checkpoints
+
+**Four, each stopping for review:** documentation + D100 → the legal-content mechanism, pages and tests → company identity and logo mechanism, plus the deployment note → scaffold removal, the customer-safe `/Error`, browser QA and closure.
+
+Browser QA runs against a **`dotnet publish` output, never `dotnet run`** (`CLAUDE.md` §24 — this project has already lost a QA round to that trap). `RenoTrack.Website.Tests` stays database-free and therefore stays in CI's Linux job; no database dependency may be added to it.
+
+### 10.7 Company identity, and the one thing that fails startup
+
+The identity plumbing existed from Slice 2 and needed completing rather than designing: `DisplayName`, `ContactEmail` and `ContactPhone` were already bound and already gated on presence. Slice 7 added **`LogoPath`** (Wireframe A3's `[Company Logo]`), eager validation, and the tests for both the set and the unset rendering — the unset half being what this repository actually does.
+
+**`CompanyIdentityOptions` moved onto the eager-validated singleton pattern** that `PublicApiOptions` and `LegalContentOptions` already use, replacing `Configure<T>` + a second `.Get<T>()` for the warning. Three options types now bind and validate identically, and the layout injects the instance rather than `IOptions<T>`.
+
+**The logo is same-origin only, and that is enforced rather than documented.** An absolute URL is refused even over HTTPS: a customer page loads nothing off-origin, because a third-party request tells that party which customer opened which quote and when. The guard is written out rather than left to `StartsWith('/')`, because `//cdn.example/logo.png` and `/\cdn.example/logo.png` both begin with a slash and both leave the origin — a protocol-relative URL, and the backslash form browsers normalise to it. Both are pinned by tests.
+
+**A logo set without a `DisplayName` also fails startup**, because the name is the image's alternative text: a logo with no accessible name is an unlabelled image where the brand should be. That is the half-specified-link rule of Checkpoint 2 applied to a second pair, not a new policy.
+
+A configured path resolving to no file only **warns** — a container may mount the directory after the image is built — but it is named at startup rather than discovered in a screenshot, which is the same "plausible-looking breakage" this slice keeps designing against.
+
+**The first version of this mechanism did not work, and only serving a real file revealed it.** The logo was to be placed in `wwwroot`. `MapStaticAssets` serves **only the endpoints in its build-time manifest**, so a file copied there after publishing is on disk and answers **404** — proven by doing exactly that and getting one, against a page that otherwise rendered perfectly. Worse, the startup existence check asked `WebRootFileProvider`, which reads the disk, so it reported success for a file that could never be served: **an assertion that could not fail for the reason it was written for**, which `CLAUDE.md` §24 already records as worse than no assertion. Both halves are fixed — deployment-supplied assets are served from a `brand` directory beside the application, mounted at `/brand` with `ServeUnknownFileTypes` off, and the existence check now probes that directory. `LogoPath` must be under `/brand/`, so a site-relative path that nothing would serve fails startup instead of rendering a broken image on every quote.
+
+This is the third time in Phase 11 that `MapStaticAssets`' build-time manifest has produced a defect that looks like something else (Slice 3's unstyled page, and §24's rule that browser QA runs against a `dotnet publish` output). **When a deployment supplies a file, ask what serves it before asking where it goes.**
+
+### 10.8 What is a deployment input, and where it is now written down
+
+`DEPLOYMENT_CONFIGURATION.md` is new: every key both applications need, and which of three answers absence gets — wiring fails startup, content warns, malformed content fails. It also carries the one thing no code checks: **`CompanyIdentity:DisplayName` and `Email:FromDisplayName` must name the same company**, and a deployment can set them differently with nothing to notice.
+
+The two `NEXT_STEPS.md` Slice 7 revisit triggers are **discharged rather than deleted**: they were code gaps and are now deployment inputs, so the entry that replaces them says exactly that and repeats that FR-1.4 must not be marked met on the strength of the mechanism.
+
+### 10.9 The risk this slice is most likely to ship
+
+**A legal page that renders an empty `<main>` because content was mis-keyed, and screenshots as correct.** That is the same shape as the Phase 10 appointment-column defect. The mitigation is structural rather than diligent: absence is a 404 and no link is rendered, pinned by a test, so a legal page that says nothing cannot exist.
+
+### 10.10 Closure
+
+**Slice 7's implementation is complete. FR-1.4 is not met.** Those are two separate statements and the second must not be softened by the first: `/impressum` and `/datenschutz` exist, render supplied content, and are linked from the customer footer — and this repository contains no Impressum, no Datenschutzerklärung, no company name, address, contact detail or logo, because the company authors them (SRS §5, Q7). Until they are supplied the two routes answer 404, no link to them is rendered, and three startup warnings name the missing keys. **Do not mark FR-1.4 met on the strength of the mechanism.**
+
+| Commit | Contents |
+|---|---|
+| `194f136` | Documentation + **D100** |
+| `d6de2aa` | Legal-content mechanism, the two pages, tests |
+| `ba4d3fa` | Company identity, the logo mechanism, `DEPLOYMENT_CONFIGURATION.md` |
+| `998ddc7` | Real-host `/brand` coverage; stale comment corrected |
+| *(this)* | Scaffold removal, customer-safe `/Error`, browser QA, this record |
+
+#### What the scaffold removal actually removed
+
+`/` served *"Welcome — Learn about building Web apps with ASP.NET Core"* and `/Privacy` served *"Use this page to detail your site's privacy policy"* — in English, on the customer-facing origin, since the project was created. The second is precisely the placeholder FR-1.4 exists to replace, which is why **D100** Part 1 refuses an empty legal page: this repository had been shipping one for eleven phases and nobody noticed. Also gone: the legacy `_Layout`, its Bootstrap and jQuery bundles, `site.css`, `site.js`, the validation-scripts partial, and the template favicon. **No replacement favicon is invented** — that is company identity like any other.
+
+**This is not Phase 13's marketing site being built or refused.** A1/A2 remain deferred (Q6); what was deleted is the template's own output.
+
+#### `/Error` was the reason the removal could not be cosmetic
+
+It is customer-reachable: `UseExceptionHandler` re-executes into it, so an unhandled exception on `/angebot/{token}` lands there. On the legacy layout it served English copy, jQuery and Bootstrap `<script>` tags, links into a site that no longer exists, and a request identifier — on a page whose URL is a credential. It is now German, on the customer layout, with no script and **no diagnostic identifier at all**: the correlation belongs in the server's log, and the customer has no support desk to quote it to. The wording claims nothing it cannot know — it does not call the link broken, and it does not say whether a decision was recorded.
+
+It is tested through a **real thrown exception**, not by requesting `/Error` directly, because the re-execution is the path that matters.
+
+#### Browser QA — published output, per `CLAUDE.md` §24
+
+Driven against a `dotnet publish` output with a stub API over HTTPS, in two configurations: everything supplied, and nothing supplied (this repository's real state). Both passed. Worth recording: the logo loads (`naturalWidth > 0`, not merely present), **zero off-origin requests** across a quote → Impressum → back round trip, zero `<script>` elements on every page, no horizontal overflow at 390px or 320px, the logo survives the print stylesheet as the letterhead, and the token appears only in the two same-origin decision `href`s.
+
+In the unconfigured run the header and footer render **empty rather than placeholdered**, the legal routes 404, and three warnings name exactly the unset keys.
+
+#### What Slice 7 leaves
+
+**Content, and only content.** `DEPLOYMENT_CONFIGURATION.md` lists every key, and its pre-launch checklist is the gate. One item there is checked by nobody but a human: `CompanyIdentity:DisplayName` and `Email:FromDisplayName` must name the same company, and a deployment can set them differently with nothing to notice.

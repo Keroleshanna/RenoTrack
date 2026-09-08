@@ -1,0 +1,16 @@
+@page "/impressum"
+@model RenoTrack.Website.Pages.ImpressumModel
+@{
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = Model.PageName;
+}
+@*
+    SRS FR-1.4. Lowercase route, matching /angebot (OQ-5) and pinned by a test so the canonical URL
+    is a decision rather than an accident.
+
+    Reached only when Legal:Impressum carries real content; otherwise the page model answers 404 and
+    the customer layout renders no link here at all (D100 Part 1).
+*@
+<h1 class="customer-title">@Model.PageName</h1>
+
+@{ await Html.RenderPartialAsync("_LegalDocument", Model.Document); }

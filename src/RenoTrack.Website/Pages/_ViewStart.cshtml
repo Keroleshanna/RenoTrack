@@ -1,3 +1,11 @@
-﻿@{
-    Layout = "_Layout";
+@{
+    Layout = "_CustomerLayout";
 }
+@*
+    The customer layout is the default, and after Slice 7's scaffold removal it is the only one.
+
+    This matters as a fail-safe rather than as tidiness: every page this application serves is read
+    by an anonymous link holder, so a page that forgets to declare a layout must inherit the safe
+    one — no scripts, no navigation, German. Each page still names it explicitly, so changing this
+    line alone cannot silently move a customer page onto something else.
+*@
