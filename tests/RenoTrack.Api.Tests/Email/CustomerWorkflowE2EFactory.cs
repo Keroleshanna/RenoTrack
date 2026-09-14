@@ -201,11 +201,21 @@ public sealed class CustomerWorkflowE2EFactory(int smtpPort)
 /// <c>CLAUDE.md</c> §22 requires asserting log content, not only response bodies, wherever a route
 /// carries a secret — the redaction defect it records went unnoticed precisely because no test
 /// inspected the log.
+/// <para>
+/// <b>Scopes are recorded as well as messages.</b> ASP.NET's per-request scope carried
+/// <c>RequestPath</c>, so the raw token rode on every entry logged during a public-route request
+/// while every message stayed clean, and the Windows EventLog provider wrote it into the
+/// Application event log. A recorder that ignored scopes could not see that
+/// (<c>HostingRequestScopeSuppression</c>).
+/// </para>
 /// </remarks>
-public sealed class RecordingLoggerProvider : ILoggerProvider
+public sealed class RecordingLoggerProvider : ILoggerProvider, ISupportExternalScope
 {
     private readonly List<string> _messages = [];
     private readonly Lock _sync = new();
+    private IExternalScopeProvider _scopes = new LoggerExternalScopeProvider();
+
+    public void SetScopeProvider(IExternalScopeProvider scopeProvider) => _scopes = scopeProvider;
 
     public IReadOnlyList<string> Messages
     {
@@ -228,7 +238,7 @@ public sealed class RecordingLoggerProvider : ILoggerProvider
 
     private sealed class RecordingLogger(RecordingLoggerProvider owner, string category) : ILogger
     {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => owner._scopes.Push(state);
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
@@ -240,8 +250,16 @@ public sealed class RecordingLoggerProvider : ILoggerProvider
             Func<TState, Exception?, string> formatter)
         {
             // The exception is included because a stack trace or message is just as capable of
-            // carrying a credential as the formatted line is.
-            owner.Record($"{category} {logLevel}: {formatter(state, exception)} {exception}");
+            // carrying a credential as the formatted line is; the scopes because a sink that writes
+            // them records them beside every entry.
+            var scopes = new List<string>();
+            owner._scopes.ForEachScope(
+                (scope, list) => list.Add(scope is IEnumerable<KeyValuePair<string, object?>> pairs
+                    ? string.Join(", ", pairs.Select(pair => $"{pair.Key}={pair.Value}"))
+                    : scope?.ToString() ?? string.Empty),
+                scopes);
+
+            owner.Record($"{category} {logLevel}: {formatter(state, exception)} {exception} scopes: {string.Join(" => ", scopes)}");
         }
     }
 }

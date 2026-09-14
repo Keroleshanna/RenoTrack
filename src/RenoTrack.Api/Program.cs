@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
 using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Api.OpenApi;
 using RenoTrack.Api.RateLimiting;
@@ -14,6 +15,15 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+
+// Load-bearing, not tidiness: stops ASP.NET creating the per-request logging scope whose RequestPath
+// is the customer's token on /api/v1/public/angebote/{token}. RouteDiagnostics redacts this API's own
+// messages, but the framework creates that scope before routing runs, so every warning or error
+// logged during a token request — a mapped 404/410/409, an email-delivery warning — would otherwise
+// carry the credential to any sink that writes scopes: on Windows, the Application event log by
+// default. Post-configuration, so no appsettings.json or environment value can undo it. See
+// HostingRequestScopeSuppression.
+builder.Services.AddSingleton<IPostConfigureOptions<LoggerFilterOptions>, HostingRequestScopeSuppression>();
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -68,6 +78,12 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+
+// Restores ASP.NET's per-request Activity, and with it TraceId/SpanId on every log entry and the W3C
+// ProblemDetails traceId, which the scope suppression above would otherwise take away. It listens to
+// the activity source only and changes no logging rule, so the token-bearing RequestPath scope stays
+// gone. See RequestActivityTracing.
+RequestActivityTracing.Enable(app);
 
 // Email readiness (Phase 9 Slice 1, S1-3). A no-op outside Production; in Production it refuses to
 // start unless Email:Enabled is explicitly true, so a host cannot serve normally while silently

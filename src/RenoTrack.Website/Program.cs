@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.WebEncoders;
 using RenoTrack.Website.Content;
 using RenoTrack.Website.PublicApi;
@@ -9,6 +10,13 @@ using RenoTrack.Website.Security;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorPages();
+
+// Load-bearing, not tidiness: stops ASP.NET creating the per-request logging scope whose RequestPath
+// is the customer's token on /angebot/{token}. Without it every warning or error logged during a
+// token request carries the credential to any sink that writes scopes — on Windows, the Application
+// event log by default. Post-configuration, so no appsettings.json or environment value can undo it.
+// See HostingRequestScopeSuppression.
+builder.Services.AddSingleton<IPostConfigureOptions<LoggerFilterOptions>, HostingRequestScopeSuppression>();
 
 // German text must reach the customer as German text.
 //
@@ -86,6 +94,12 @@ builder.Services.AddHttpClient<IPublicAngebotClient, PublicAngebotClient>(client
     .RemoveAllLoggers();
 
 var app = builder.Build();
+
+// Restores ASP.NET's per-request Activity, and with it TraceId/SpanId on every log entry, which the
+// scope suppression above would otherwise take away. It listens to the activity source only and
+// changes no logging rule, so the token-bearing RequestPath scope stays gone. See
+// RequestActivityTracing.
+RequestActivityTracing.Enable(app);
 
 if (!app.Environment.IsDevelopment())
 {
