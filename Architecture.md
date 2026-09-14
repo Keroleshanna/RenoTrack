@@ -276,6 +276,12 @@ Two different concerns are both loosely called "authorization" but belong in dif
 
 - HTTPS enforced everywhere (website, dashboard, API, token links).
 - Token-link tokens: cryptographically random, not derived from predictable data (e.g. not `entityId + timestamp`).
+- **A token-link URL is a credential, so it must reach no log sink, including through a framework's own logging (D101).** Both the API and the Website:
+  - keep ASP.NET from creating its per-request `RequestPath` logging scope (`HostingRequestScopeSuppression`), which otherwise wrote the token into the Windows Application event log;
+  - restore request tracing with an `ActivityListener` (`RequestActivityTracing`), so `TraceId`/`SpanId` and the W3C ProblemDetails `traceId` stay available. `TraceId` is the correlation key, and `RequestId` is not logged.
+  - keep `Microsoft.AspNetCore` at `Warning`, because at `Information` MVC logs the post-decision redirect URL.
+
+  The Website also removes `IHttpClientFactory`'s logging handlers. **Trace ids are caller-controlled** (inbound `traceparent` is honoured) and are correlation metadata only, never identity or an authorization input.
 - Rate limiting / basic abuse protection on public endpoints (`/api/v1/public/...` and the contact form) to prevent scraping or brute-forcing token guesses. **Partially implemented as of Phase 6, and the split is deliberate:**
   - **Done — `/api/v1/public/*`.** One shared fixed-window policy, **30 requests per minute per client IP**, applied by an opt-in named policy on the public controller so no internal route can inherit it. GET and POST share one allowance; future public token routes (Phase 8 invoice links) inherit it. Rejections are 429 + RFC 7807 with `Retry-After` (`ARCHITECTURE_DECISIONS.md` D65).
   - **Still outstanding — `POST /api/v1/leads` (the contact form).** Anonymous, state-creating and unthrottled. Deferred by explicit decision since Phase 4 Slice 5 and tracked in `NEXT_STEPS.md`; Phase 6's approved scope was the token-link surface only. **This bullet is therefore not fully closed.**

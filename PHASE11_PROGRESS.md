@@ -58,8 +58,8 @@ Approved by the Product Owner on 2026-09-04, in answer to the assessment's open 
 | **4** | Accept / Decline | ✅ **complete and merged** — PR [#21](https://github.com/Keroleshanna/RenoTrack/pull/21), merge commit `022cf7c`; CI green on both jobs, browser QA passed (§7.10) |
 | **5** | Rejection reason (Q2) — migration #12 | ✅ **complete and merged** — PR [#22](https://github.com/Keroleshanna/RenoTrack/pull/22), merge commit `5514b17`; CI green on both jobs including Windows/LocalDB |
 | **6** | Token re-issue (Q3) — migration #13 (empty `Up`/`Down`) | ✅ **complete and merged** — PR [#23](https://github.com/Keroleshanna/RenoTrack/pull/23), merge commit `314f486`; CI green on both jobs including Windows/LocalDB, browser QA passed (§9.6, §9.7), **D99** |
-| **7** | Legal pages and company-identity structure (Q7) | ✅ **implementation complete** — **D100**, §10; four checkpoints approved 2026-09-05, browser QA passed (§10.10). **FR-1.4 remains formally OPEN**: the mechanism ships, the company's legal text and identity do not exist yet and must not be invented |
-| 8 | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | not started |
+| **7** | Legal pages and company-identity structure (Q7) | ✅ **implementation complete and merged** — PR [#25](https://github.com/Keroleshanna/RenoTrack/pull/25), merge commit `fbbb0ed`; **D100**, §10; four checkpoints approved 2026-09-05, browser QA passed (§10.10). **FR-1.4 remains formally OPEN**: the mechanism ships, the company's legal text and identity do not exist yet and must not be invented |
+| **8** | Completion gate — end-to-end run against the development SMTP sink, browser QA, documentation reconciliation | 🔶 **in progress** — automated customer-workflow E2E merged (PR [#26](https://github.com/Keroleshanna/RenoTrack/pull/26), `2b567c8` + `3f02f3b`, merge `d6cc324`); Manual Checkpoint 3 run; Checkpoint 4 found and fixed a token disclosure in both applications (**D101**) and added coverage — §11. Not closed: FR-1.4 and company identity remain open, and the reconciliation is unpublished |
 
 ---
 
@@ -872,13 +872,15 @@ The two `NEXT_STEPS.md` Slice 7 revisit triggers are **discharged rather than de
 | `d6de2aa` | Legal-content mechanism, the two pages, tests |
 | `ba4d3fa` | Company identity, the logo mechanism, `DEPLOYMENT_CONFIGURATION.md` |
 | `998ddc7` | Real-host `/brand` coverage; stale comment corrected |
-| *(this)* | Scaffold removal, customer-safe `/Error`, browser QA, this record |
+| `2a14419` | Scaffold removal, customer-safe `/Error`, browser QA, this record |
 
 #### What the scaffold removal actually removed
 
 `/` served *"Welcome — Learn about building Web apps with ASP.NET Core"* and `/Privacy` served *"Use this page to detail your site's privacy policy"* — in English, on the customer-facing origin, since the project was created. The second is precisely the placeholder FR-1.4 exists to replace, which is why **D100** Part 1 refuses an empty legal page: this repository had been shipping one for eleven phases and nobody noticed. Also gone: the legacy `_Layout`, its Bootstrap and jQuery bundles, `site.css`, `site.js`, the validation-scripts partial, and the template favicon. **No replacement favicon is invented** — that is company identity like any other.
 
 **This is not Phase 13's marketing site being built or refused.** A1/A2 remain deferred (Q6); what was deleted is the template's own output.
+
+> **Correction added in Checkpoint 4 (§11.3): the Bootstrap and jQuery bundles were never tracked, so their deletion did not reach existing checkouts.** The root `.gitignore` rule `dist/` also matches `wwwroot/lib/*/dist/`, so Phase 0 committed only the four vendor `LICENSE` files. `2a14419` deleted those, and every checkout older than it kept the ignored `dist/` folders, which were still in its build manifest and still served. Fresh clones and CI were unaffected, which is why this surfaced only on a developer machine.
 
 #### `/Error` was the reason the removal could not be cosmetic
 
@@ -895,3 +897,122 @@ In the unconfigured run the header and footer render **empty rather than placeho
 #### What Slice 7 leaves
 
 **Content, and only content.** `DEPLOYMENT_CONFIGURATION.md` lists every key, and its pre-launch checklist is the gate. One item there is checked by nobody but a human: `CompanyIdentity:DisplayName` and `Email:FromDisplayName` must name the same company, and a deployment can set them differently with nothing to notice.
+
+---
+
+## 11. Slice 8 — Completion Gate (in progress)
+
+### 11.1 Automated end-to-end run — merged
+
+`CustomerWorkflowE2ETests` (PR #26, `2b567c8`, with `3f02f3b` supplying `FileStorage:RootPath` to its host) drives the customer workflow through the real API against LocalDB and an in-process SMTP server:
+- Send → the German email → the link extracted from the captured message → the public read → approve or reject.
+- A refused second decision.
+- A post-decision read.
+- An assertion that the token reached no log message.
+
+§11.3 strengthened that assertion to include scopes.
+
+### 11.2 Manual Checkpoint 3 — results
+
+Run by the Product Owner against `main` at `d6cc324`, working tree clean before and after, with temporary local E2E configuration (not production truth).
+
+| # | Area | Result |
+|---|---|---|
+| A1 | Dashboard login | Pass |
+| A2 | Lead → Inspection → Angebot, 7% and 16% VAT, fractional quantity, totals recalculated | Pass |
+| A3 | Changes requested with comment → Inspector email → edit → resubmit | Pass |
+| A4 | Admin approval; no customer email sent by approval alone | Pass |
+| A5 | `POST /api/v1/angebote/{id}/send` → 200, no token in body, no `Location` header, customer email generated | Pass |
+| A6–A7 | German customer email with `https://localhost:7142/angebot/<token>`, opened unmodified | Pass |
+| A8 | Quote, positions, totals, VAT, identity and decision buttons render | Pass |
+| A9–A10 | Confirmation step persists nothing on open, reload or back; final confirmation persists; Angebot accepted, Lead Won, Admin email | Pass |
+| A11 | Two-tab decision race: exactly one succeeds | Pass. Automated coverage already existed: the API race test (run 3×) and `TokenLinkReissueConcurrencyTests` |
+| A12 | Reject without reason → Angebot rejected, Lead lost | Pass |
+| A13 | Umlauts and `<script>` in a reason stay inert and are not shown to the customer; more than 1000 characters refused and not persisted | Pass |
+| A14 | Re-issue: new email and token, `Sent` kept, old token invalid, new token works | Pass. §11.3 added HTTP-level coverage |
+| A15 | Invalid → 404, expired → 410, API down → 503, recovery | Pass |
+| A16 | Customer-safe German `/Error`, no stack trace or Request ID | Pass |
+| A17 | Impressum/Datenschutz served and linked with test legal configuration; 404 and no links without it | Pass. Absence behaviour is by design (D100 Part 1) |
+| A18 | Credential only in same-origin `/angebot/` `href`s; legal links carry no token; all security headers present | Pass. Log verification not done manually, because the Website emits no request lines by design |
+| A19 | No console errors; only same-origin requests; no application JavaScript | Pass |
+| A20 | 390px and 320px, no problematic overflow | Pass |
+| A21 | A4 print fits, totals/VAT visible, token not printed with browser headers off; **logo absent, name text shown** | Finding. Classified in §11.3 as **configuration only** |
+| A22 | `PublicApi:BaseUrl` HTTPS; `Migrate` refused in Production; identity absence warns; logo path validation holds; **`CompanyIdentity:DisplayName` ≠ `Email:FromDisplayName` in the E2E configuration** | Finding. Classified in §11.3 as **deployment responsibility, already documented** |
+
+Alongside it, `dotnet test tests/RenoTrack.Website.Tests -c Release` on the main checkout reported **328/331**, with 3 failures in `ScaffoldRemovalTests.The_scaffold_assets_are_gone`.
+
+### 11.3 Checkpoint 4 — classification and what it changed
+
+**No product defect was among the Checkpoint 3 findings as reported. One was found while adding the coverage they called for.**
+
+**The 3 Website test failures — local environment, test correct.** The main checkout still held 56 ignored jQuery/Bootstrap files under `wwwroot/lib/` (the `.gitignore` finding in §10.10), so its build manifest served them. A clean worktree at the same commit passed **331/331**. After the local folder was deleted, the main checkout passed **331/331** too, and its rebuilt manifest had no `lib/` route. **The 331/331 figure is the Website baseline this section's additions are measured against.** Narrowing the `dist/` ignore rule is deferred by decision.
+
+**A21, the missing logo — configuration only; no print defect.**
+- **Reproduced against a published build** with a real SVG in `brand/`: `<img class="customer-logo">` is present, `/brand/logo.svg` returns 200 `image/svg+xml`, and the image loads at 240×60 and renders at 176×44 on screen. Headless Chrome's print-to-PDF output contains the logo's own fill colour. The print stylesheet's only rule for the logo is a `max-height`.
+- **With the file made unavailable**, `/brand/logo.svg` returns 404 and the `<img>` falls back to its alternative text, the company name, on screen and in print. That is exactly what Checkpoint 3 saw.
+- **The operator warning previously said "broken image".** It now describes the name-in-place fallback, and `DEPLOYMENT_CONFIGURATION.md` says to check `GET /brand/<file>` rather than the page.
+- **Local-shell trap noted:** Git Bash rewrites an environment value such as `/brand/logo.svg` into `C:/Program Files/Git/brand/logo.svg`, and startup validation correctly refused it.
+
+**A22, the two display names — deployment responsibility.** `CompanyIdentity:DisplayName` (Website) and `Email:FromDisplayName` (API) live in separate processes with separate configuration. Their agreement is already documented as a human check (`DEPLOYMENT_CONFIGURATION.md` §2.2 and §5, `appsettings.json`, §10.10). The mismatch came from the temporary E2E configuration. No validation was added.
+
+**Coverage added for the findings:**
+- `ResendAngebotEndpointTests` +2. After a re-issue, the old token gets **410** on read and on decision, with no token in either body, nothing recorded, and the link unused. The new token reads and decides (200, Angebot `CustomerApproved`, Lead `Won`).
+- A Website token-logging suite, which found the next defect.
+
+**The defect — the customer token in the Windows Application event log, in both applications (D101).** ASP.NET's per-request logging scope carries `RequestPath`. The Windows EventLog provider, registered by default, writes scopes, so every warning or error during a token request recorded the token. The development machine's log held 169 such entries from test runs and Checkpoint 3.
+- **Fixed by `HostingRequestScopeSuppression`**, which turns hosting diagnostics off per provider, after configuration.
+- **Tracing restored by `RequestActivityTracing`**, one `ActivityListener` with `PropagationData` sampling. The first fix alone removed the request Activity, and with it `TraceId`/`SpanId` and the W3C ProblemDetails `traceId`. That side effect was measured, reported, **not approved**, and corrected.
+- **`RequestId` is intentionally no longer logged;** `TraceId` is the correlation key.
+- **Inbound `traceparent` is caller-controlled** and is correlation metadata only.
+- **A third URL-logging component was found by mutation:** at `Information`, MVC's `RedirectResultExecutor` logs the post-decision redirect, so `Microsoft.AspNetCore: Warning` stays load-bearing and is now pinned.
+
+**Correction to earlier records in this file.** §5.1, §6.13, §7.5, §7.10 and §8.6 record the token appearing in "no log line". Those checks covered formatted messages and were true as far as they went. They did not cover scopes, which leaked on any Windows host until D101.
+
+**Tests added in this checkpoint:**
+
+| Suite | Added |
+|---|---|
+| `TokenLoggingTests` (Website) | **45**: 12 scenarios × message/state/exception, 12 × scopes, 12 × request Activity, 3 failure-path guards, 3 correlation-with-no-`RequestPath` tests, 1 configuration re-enable test, 2 negative controls |
+| `PublicTokenLogScopeTests` (API) | **8** |
+| `ResendAngebotEndpointTests` (API) | **2** |
+| `CustomerWorkflowE2ETests` (API) | Recorder now captures scopes; no test removed |
+
+**Mutation matrix.** Each source file was byte-restored with a hash check, followed by a clean rebuild before verification.
+
+| Mutation | Website log tests (45) | API scope + E2E (12) |
+|---|---|---|
+| Scope suppression removed | 29 fail | 8 fail |
+| Replaced by a provider-less filter | 29 fail | 8 fail |
+| `RemoveAllLoggers()` removed | 28 fail | — |
+| `Microsoft.AspNetCore` → Information | 3 fail | — |
+| `RequestActivityTracing` removed | 15 fail (tracing only) | 4 fail (tracing only) |
+| Sampling → `AllData` | 0 fail (informational) | — |
+
+**Windows EventLog verification** over a clean full-suite run plus a published Website in Production:
+- 847 `.NET Runtime` events were written.
+- 565 request-path entries all carry `TraceId` and `SpanId`.
+- **0** entries contain `RequestPath:`, a token-route path, or a probe token.
+
+The log still holds the pre-fix entries; clearing it is the Product Owner's decision.
+
+**Verified figures, clean `--no-incremental` Release rebuild, 0 warnings, 0 errors, 2026-09-14:**
+
+| Project | Tests | Change |
+|---|---|---|
+| Domain | 389 | — |
+| Application | 470 | — |
+| Infrastructure (LocalDB) | 412 | — |
+| Api (LocalDB) | 478 | +10 in this checkpoint (pre-checkpoint total not separately measured) |
+| Website | 376 | 331 measured before → 376 |
+| **Total** | **2,125 / 2,125** | +55 counted test cases added in this checkpoint |
+
+Migrations: **13**, counted from `Persistence/Migrations`. The Dashboard was not changed, and its tests were not re-run in this checkpoint.
+
+### 11.4 What remains open
+
+- **FR-1.4 — the Impressum and Datenschutzerklärung text.** Company-authored, deployment-supplied; the mechanism is complete (D100).
+- **Company identity** (`DisplayName`, contact details, logo file) — company-owned, deployment-supplied, never invented (Q7).
+- **Matching `CompanyIdentity:DisplayName` and `Email:FromDisplayName`** — a human deployment check.
+- **The pre-fix event-log entries on the development machine** — an operator decision.
+- **The deferred `dist/` ignore-rule narrowing.**
+- **Publishing this checkpoint's changes, and closing Slice 8.**

@@ -1,6 +1,8 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-> **2026-09-04 — Phase 11 (Customer-Facing Workflow) is in progress on `claude/customer-workflow-phase-rvh4rj`, off `main` at `a5124ca` (the Phase 10 merge, PR #17).** `PHASE11_PROGRESS.md` is the per-slice record and carries the eight design decisions (Q1–Q8) approved before any code was written. **Slices 1 and 2 of eight are implemented.** Slice 1 closes a real correctness defect (**D96**: two simultaneous customer decisions on the same token link both committed); Slice 2 builds the customer-facing Website skeleton, server-rendered, and gives the public rate limiter the trust boundary D65 declined to invent (**D97**). **The figures in §3 below are Phase 10's and are now stale**: one more migration (ten → eleven), ten backend tests from Slice 1, and a fifth test project — `RenoTrack.Website.Tests`, eighty test cases, running in CI's **Linux** job because it needs no database. They will be re-verified at the completion gate. Everything else in this file remains accurate.
+> **2026-09-14 — Phase 11 (Customer-Facing Workflow): Slices 1–7 are merged to `main` (PRs #18–#25), and Slice 8, the completion gate, is in progress.** The automated customer-workflow E2E is merged (PR #26, `main` at `d6cc324`). Manual Checkpoint 3 was run against it. Checkpoint 4's work is on `claude/phase-11-checkpoint-4-review-cc99b9`, **uncommitted and pending review**. It classified Checkpoint 3's findings: **A21 (logo) is configuration only; A22 (display names) is a deployment responsibility; the 3 Website test failures came from ignored leftover files in one checkout** (baseline 331/331 once removed). It also found and fixed **a real token disclosure in both applications** (**D101**): ASP.NET's per-request `RequestPath` logging scope wrote customer tokens into the Windows Application event log. Tracing was restored with an `ActivityListener`; `RequestId` is intentionally no longer logged. **FR-1.4 and company identity remain open, company- and deployment-owned.** See `PHASE11_PROGRESS.md` §11. **§3 now carries figures re-verified in Checkpoint 4**; other sections of this file still describe Phase 10 and earlier unless noted.
+>
+> *Earlier status, kept for history:* **2026-09-04 — Phase 11 in progress on `claude/customer-workflow-phase-rvh4rj`, off `main` at `a5124ca` (the Phase 10 merge, PR #17).** `PHASE11_PROGRESS.md` is the per-slice record and carries the eight design decisions (Q1–Q8) approved before any code was written. **Slices 1 and 2 of eight are implemented.** Slice 1 closes a real correctness defect (**D96**: two simultaneous customer decisions on the same token link both committed); Slice 2 builds the customer-facing Website skeleton, server-rendered, and gives the public rate limiter the trust boundary D65 declined to invent (**D97**). **The figures in §3 below are Phase 10's and are now stale**: one more migration (ten → eleven), ten backend tests from Slice 1, and a fifth test project — `RenoTrack.Website.Tests`, eighty test cases, running in CI's **Linux** job because it needs no database. They will be re-verified at the completion gate. Everything else in this file remains accurate.
 
 **Last updated:** 2026-09-04, reconciling the documentation with the finished Phase 10 Dashboard — **Phases 0–9 are complete and merged to `main`; Phase 10 is complete on its branch and being published now.** `origin/main` is at `6cd8856` (PR #16, the Phase 9 merge). Earlier merges: Phase 8 as PR #14 (`0c12948`), Phase 7 as PR #13 (`697292b`), Phase 6 as PR #12 (`5a26c42`), Phase 5 as PR #11 (`18243ec`), Phase 4 as PR #8 (`e1a4d9e`), Phase 3 as PR #6 (`85df430`, handoff docs in PR #7 `babfff9`), Phase 2 as PR #5 (`dc85de1`), and the Development bootstrap as PR #10 (`7ce9774`).
 **Purpose:** A precise, current snapshot — not a summary of history (see `PHASE2_PROGRESS.md` and `ARCHITECTURE_DECISIONS.md` for that). If a fact here conflicts with something you infer from reading old chat history, **this file and the actual code are authoritative.**
@@ -52,13 +54,34 @@
 - `feature/phase-8-invoices-payments-project-completion` (off `origin/main` at `697292b`, tip `4218fcc`) **was pushed and merged via PR #14**; `origin/main` is at `0c12948`. Local `main` has been fast-forwarded to `0c12948`. The branch has deliberately **not** been deleted.
 - Every earlier feature branch is merged and no longer active: Phase 7 (`feature/phase-7-angebot-to-project`), Phase 6 (`feature/phase-6-token-links-public-angebot`), Phase 5 (`feature/phase-5-angebot-builder-review`), the Development bootstrap (`feature/phase-5-development-bootstrap`), Phase 4 (`feature/phase-4-api-auth-leads-inspections`), Phase 3 (`feature/phase-3-infrastructure-efcore`, final commit `f5d3108`) and Phase 2 (`feature/phase-2-application-layer`).
 - **`feature/phase-10-dashboard` — merged** via **PR #17** (`a5124ca`).
-- **`claude/customer-workflow-phase-rvh4rj` is the current branch** (Phase 11, the customer-facing workflow), off `main` at `a5124ca`. Slices 1 and 2 of eight are implemented; see `PHASE11_PROGRESS.md` §3 for the slice list, §4.5–4.6 for Slice 1's verification, and §5.6 for Slice 2's.
-- **Next step:** confirm CI green, then Slice 3 — rendering the priced quote (Wireframe A3). **No slice starts before the previous one is reviewed.**
+- **`claude/customer-workflow-phase-rvh4rj` — Slices 1–7 and the automated E2E merged** via PRs #18–#26; `main` is at `d6cc324`.
+- **`claude/phase-11-checkpoint-4-review-cc99b9` is the current working branch**, off `main` at `d6cc324`. It carries Checkpoint 4's changes **uncommitted, pending Product Owner review**:
+  - D101's two classes in both applications;
+  - the corrected logo warning;
+  - the token-logging and scope test suites;
+  - the re-issue HTTP tests;
+  - this documentation reconciliation.
+- **Next step:** review, then commit and publish only with explicit permission. Then close Slice 8, with FR-1.4 recorded as open. **No slice starts before the previous one is reviewed.**
 - **Standing environment caveat:** Slice 1's local `dotnet test` and `dotnet ef` runs were blocked by Windows Code Integrity refusing to load `RenoTrack.Application.dll` (`0x800711C7`), accepted by explicit decision. The `has-pending-model-changes` check on migration #11 is therefore still outstanding. Per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
 
-**Re-verified on 2026-09-04 at `090aef0`, on `feature/phase-10-dashboard`:**
+**Re-verified on 2026-09-14 in Phase 11 Checkpoint 4**, on `claude/phase-11-checkpoint-4-review-cc99b9`: `main` at `d6cc324` plus the uncommitted Checkpoint 4 changes, from a clean `--no-incremental` Release rebuild.
+- `dotnet build RenoTrack.slnx -c Release` → **0 Warnings, 0 Errors.**
+- `dotnet test RenoTrack.slnx -c Release` → **2,125 passing, 0 failing, 0 skipped.** Of these, Checkpoint 4 added **45** Website test cases (the Website suite measured **331** on `d6cc324` before any change) and **10** API test cases. The API's own pre-Checkpoint-4 total was not separately measured.
+
+| Project | Tests |
+|---|---|
+| `RenoTrack.Domain.Tests` | **389** |
+| `RenoTrack.Application.Tests` | **470** |
+| `RenoTrack.Infrastructure.Tests` (LocalDB) | **412** |
+| `RenoTrack.Api.Tests` (LocalDB) | **478** |
+| `RenoTrack.Website.Tests` (no database; CI Linux job) | **376** |
+
+- **Migrations: 13**, counted from `src/RenoTrack.Infrastructure/Persistence/Migrations`. Phase 11 added `AddTokenLinkConcurrencyToken`, `AddAngebotDecisionReason` and `AddTokenLinkExpiresAtConcurrencyToken`.
+- **Not re-verified in this checkpoint:** the Dashboard (`ng test`/`ng lint`/`ng build`), which Checkpoint 4 did not touch, and `dotnet ef migrations has-pending-model-changes`. Their last verified figures are the Phase 10 ones below.
+
+**Historical — re-verified on 2026-09-04 at `090aef0`, on `feature/phase-10-dashboard`:**
 - `dotnet build RenoTrack.slnx` → **0 Warnings, 0 Errors.**
 - `dotnet test RenoTrack.slnx` → **1,645 tests passing, 0 failing, 0 skipped.** (Phase 9 merge baseline **1,534**; the Dashboard and its five enablers +68, QA round 1 +36, round 2 +4, round 3 +3.)
 - **Frontend** (`src/RenoTrack.Dashboard`): `ng test` → **74 passing**; `ng lint` → clean at `--max-warnings=0`; `ng build` → **389.68 kB** initial, 0 warnings, no budget change.
