@@ -151,7 +151,9 @@ if (!companyIdentity.HasDisplayName)
 // operator rather than silently missing. Until each is supplied its route answers 404 and no link
 // to it is rendered, so FR-1.4 stays open — the mechanism is complete, the requirement is not
 // (D100 Part 1). Reported per document, because one may be written before the other.
-// A configured logo that resolves to no file renders a broken image on every customer's quote.
+// A configured logo that resolves to no file is not served, so every customer's quote shows the
+// image's alternative text — the company name — where the logo should be. That looks exactly like a
+// deployment with no logo configured, which is why this warning is the only signal an operator gets.
 // Checked against the directory that actually serves it, not against wwwroot: the first version of
 // this check asked WebRootFileProvider, which reads the disk and therefore reported success for a
 // file MapStaticAssets would never serve — an assertion that could not fail for the reason it was
@@ -166,8 +168,9 @@ if (companyIdentity.HasLogo)
     if (!File.Exists(logoFile))
     {
         app.Logger.LogWarning(
-            "Configuration '{Key}' is '{Path}', but no such file exists under '{BrandRoot}', so the " +
-            "customer page will render a broken image.",
+            "Configuration '{Key}' is '{Path}', but no such file exists under '{BrandRoot}', so the logo " +
+            "is not served and customer pages show the company name (the image's alternative text) in " +
+            "its place.",
             $"{CompanyIdentityOptions.SectionName}:{nameof(CompanyIdentityOptions.LogoPath)}",
             companyIdentity.LogoPath,
             brandRoot);
