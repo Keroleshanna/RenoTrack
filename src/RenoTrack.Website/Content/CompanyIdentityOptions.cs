@@ -126,9 +126,10 @@ public sealed class CompanyIdentityOptions
         }
 
         // Site-relative is necessary but not sufficient: only this prefix is actually served at run
-        // time. Without this check a '/img/logo.svg' would validate, start cleanly, and render a
-        // broken image on every customer's quote — which is exactly the plausible-looking breakage
-        // this slice keeps designing against.
+        // time. Without this check a '/img/logo.svg' would validate, start cleanly, and never be
+        // served — every customer's quote would show the image's alternative text, the company name,
+        // in its place, which looks like no logo was configured at all. That is exactly the
+        // plausible-looking breakage this slice keeps designing against.
         if (!path.StartsWith(LogoPathPrefix, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(

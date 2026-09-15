@@ -228,6 +228,77 @@ public sealed class ResendAngebotEndpointTests(RenoTrackApiFactory factory)
         Assert.Contains(entries, entry => entry.Action == AuditAction.AngebotLinkReissued);
     }
 
+    // ---- What the customer's links answer after a re-issue ------------------
+
+    /// <summary>
+    /// The superseded link answers 410 on both public endpoints, and the refused decision records
+    /// nothing. Pinned at the HTTP boundary because that is where a customer holding the old email
+    /// meets it; <c>TokenLinkReissueConcurrencyTests</c> already proves the invariant beneath it.
+    /// </summary>
+    [Fact]
+    public async Task After_a_reissue_the_old_link_is_gone_for_reading_and_for_deciding()
+    {
+        var (angebotId, leadId) = await SentAngebotAsync();
+        var oldToken = await CurrentTokenAsync(angebotId);
+        using var admin = await AdminClientAsync();
+
+        var reissued = await admin.PostAsync($"/api/v1/angebote/{angebotId}/resend", content: null);
+        Assert.Equal(HttpStatusCode.OK, reissued.StatusCode);
+        Assert.NotEqual(oldToken, await CurrentTokenAsync(angebotId));
+
+        using var anonymous = factory.CreateClient();
+
+        var read = await anonymous.GetAsync($"/api/v1/public/angebote/{oldToken}");
+        Assert.Equal(HttpStatusCode.Gone, read.StatusCode);
+        Assert.DoesNotContain(oldToken, await read.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var decision = await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{oldToken}/decision", new { decision = "Approve" });
+        Assert.Equal(HttpStatusCode.Gone, decision.StatusCode);
+        Assert.DoesNotContain(oldToken, await decision.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+        var angebot = await context.Angebote.SingleAsync(a => a.Id == angebotId);
+        Assert.Equal(AngebotStatus.Sent, angebot.Status);
+        Assert.Null(angebot.DecisionAt);
+        Assert.NotEqual(LeadStatus.Won, (await context.Leads.SingleAsync(l => l.Id == leadId)).Status);
+        Assert.Null((await context.TokenLinks.SingleAsync(t => t.Token == oldToken)).UsedAt);
+    }
+
+    /// <summary>The replacement is a working credential: it reads the quote and carries the decision.</summary>
+    [Fact]
+    public async Task After_a_reissue_the_new_link_reads_and_decides()
+    {
+        var (angebotId, leadId) = await SentAngebotAsync();
+        var oldToken = await CurrentTokenAsync(angebotId);
+        using var admin = await AdminClientAsync();
+
+        var reissued = await admin.PostAsync($"/api/v1/angebote/{angebotId}/resend", content: null);
+        Assert.Equal(HttpStatusCode.OK, reissued.StatusCode);
+
+        var newToken = await CurrentTokenAsync(angebotId);
+        Assert.NotEqual(oldToken, newToken);
+
+        using var anonymous = factory.CreateClient();
+
+        var read = await anonymous.GetAsync($"/api/v1/public/angebote/{newToken}");
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+
+        var decision = await anonymous.PostAsJsonAsync(
+            $"/api/v1/public/angebote/{newToken}/decision", new { decision = "Approve" });
+        Assert.Equal(HttpStatusCode.OK, decision.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+
+        Assert.Equal(AngebotStatus.CustomerApproved, (await context.Angebote.SingleAsync(a => a.Id == angebotId)).Status);
+        Assert.Equal(LeadStatus.Won, (await context.Leads.SingleAsync(l => l.Id == leadId)).Status);
+        Assert.NotNull((await context.TokenLinks.SingleAsync(t => t.Token == newToken)).UsedAt);
+        Assert.Null((await context.TokenLinks.SingleAsync(t => t.Token == oldToken)).UsedAt);
+    }
+
     private async Task<string> CurrentTokenAsync(int angebotId)
     {
         using var scope = factory.Services.CreateScope();

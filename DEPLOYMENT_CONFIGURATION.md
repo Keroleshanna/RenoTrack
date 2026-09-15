@@ -36,7 +36,7 @@
 | `CompanyIdentity:DisplayName` | No | Absent ⇒ one startup warning; header and page titles carry no name |
 | `CompanyIdentity:ContactEmail` | No | Absent ⇒ the footer contact line is omitted |
 | `CompanyIdentity:ContactPhone` | No | Absent ⇒ as above |
-| `CompanyIdentity:LogoPath` | No | **Must be under `/brand/`**, e.g. `/brand/logo.svg`, with the file placed in a `brand` directory **beside the application — not in `wwwroot`** (see the note below). **An absolute or protocol-relative URL fails startup even over HTTPS** — a customer page loads nothing off-origin, because a third-party request would disclose which customer opened which quote and when. **A site-relative path outside `/brand/` fails too**, since nothing would serve it. **Set without `DisplayName` also fails startup**: the name is the image's alternative text. A path resolving to no file only warns. |
+| `CompanyIdentity:LogoPath` | No | **Must be under `/brand/`**, e.g. `/brand/logo.svg`, with the file placed in a `brand` directory **beside the application — not in `wwwroot`** (see the note below). **An absolute or protocol-relative URL fails startup even over HTTPS** — a customer page loads nothing off-origin, because a third-party request would disclose which customer opened which quote and when. **A site-relative path outside `/brand/` fails too**, since nothing would serve it. **Set without `DisplayName` also fails startup**: the name is the image's alternative text. A path resolving to no file only warns — and the page then shows the **company name as the image's alternative text** where the logo belongs, on screen and in print, which looks exactly like a deployment with no logo configured. The startup warning is the only signal. |
 
 > **`CompanyIdentity:DisplayName` and `Email:FromDisplayName` must name the same company.**
 > They are separate keys serving separate processes — one heads the customer's quote page, the other signs every customer email — and **nothing in code makes them agree**. A deployment can sign mail as one company and head the page as another. Checked by eye at deployment and again in Slice 8's end-to-end run; deliberately not unified in code, because D71's precedent is that two audiences are two settings.
@@ -91,12 +91,30 @@
 
 ---
 
+## 4a. Logging — what configuration may and may not change (D101)
+
+Both applications serve URLs whose path **is** a customer credential (`/angebot/{token}`, `/api/v1/public/angebote/{token}`). Logging configuration is therefore part of the security boundary, and only some of it is enforced in code.
+
+| Concern | Enforced by | What an operator may change |
+|---|---|---|
+| ASP.NET's per-request `RequestPath` scope | **Code.** `HostingRequestScopeSuppression` turns `Microsoft.AspNetCore.Hosting.Diagnostics` off for every provider, after configuration is read | Nothing. No configuration value re-enables it, and none should be attempted: it is the scope that wrote tokens into the Windows Application event log |
+| Request trace ids (`TraceId`/`SpanId`) | **Code.** `RequestActivityTracing` | Nothing needed. Scope-writing sinks (EventLog, JSON console with scopes, OpenTelemetry) are safe for this scope now and carry ids, not paths |
+| Everything else under `Microsoft.AspNetCore` | **Configuration only** | Keep at **`Warning` or quieter**. At `Information`, MVC logs `redirecting to /angebot/<token>` after every customer decision |
+| Website → API HTTP client | **Code.** `RemoveAllLoggers()` on the typed client, and `System.Net.Http.HttpClient: Warning` as defence in depth | Nothing |
+
+- **`RequestId` does not appear in logs.** It lived only in the suppressed scope. Correlate on **`TraceId`**. For API errors, the ProblemDetails `traceId` is `00-<TraceId>-<SpanId>-00`.
+- **Trace ids are caller-controlled.** An inbound `traceparent` header is honoured, so a client can choose the `TraceId` its requests are logged under. Treat trace ids as untrusted correlation metadata: never as an identity, never in an authorization, rate-limit, audit or deduplication decision.
+
+---
+
 ## 5. Before launch
 
 - [ ] Every wiring key above supplied; both applications start.
 - [ ] `CompanyIdentity:DisplayName` and `Email:FromDisplayName` name the **same** company.
 - [ ] `Legal:Impressum` and `Legal:Datenschutz` carry real text — **FR-1.4 is open until they do.**
-- [ ] `CompanyIdentity:LogoPath` resolves to a file actually present in the `brand` directory beside the application (a wrong path only warns, and the page then renders a broken image).
+- [ ] `CompanyIdentity:LogoPath` resolves to a file actually present in the `brand` directory beside the application. A wrong path only warns, and the page then shows the company name in the logo's place. That is indistinguishable from "no logo" by eye, so check `GET /brand/<file>` answers 200 rather than looking at the page. The `brand` directory is resolved against the content root, which is the project directory under `dotnet run` and the publish directory when published.
+- [ ] `Logging:LogLevel:Microsoft.AspNetCore` is `Warning` or quieter in **both** applications (see §4a).
+- [ ] Event logs on hosts that ran a pre-D101 build have been reviewed. They may hold customer tokens, and clearing them is an operator decision.
 - [ ] `TrustedForwarders` names the real proxy, and is not `0.0.0.0/0`.
 - [ ] No startup warning left unexplained — each one names a key that is genuinely intended to be unset.
 - [ ] Migrations applied by the deployment step; `Database:Mode` left at `Verify`.

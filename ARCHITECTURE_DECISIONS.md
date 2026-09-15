@@ -2427,3 +2427,62 @@ The ASP.NET template pages are removed: `/Index`, `/Privacy`, the legacy `_Layou
 `/Error` is included because it is customer-reachable: an unhandled exception on `/angebot/{token}` re-executes into it, and today it renders the legacy layout with jQuery and Bootstrap `<script>` tags, English copy, links into the template site, and a Request ID. Every one of those contradicts a rule this project already holds — no script element on a customer page, German only (Q8), and nothing internal reaching the customer (§24's rule that the API's own `detail` never does). It becomes a customer-safe German page on the customer layout with no scripts and no internal identifiers, keeping the existing security baseline.
 
 **Not in scope, deliberately:** the two names for the company. `Email:FromDisplayName` is required and signs every customer email; `CompanyIdentity:DisplayName` is optional and heads the quote page. Nothing makes them agree, and a deployment can sign mail as one company and head the page as another. They are not unified here — they serve different processes, and D71's precedent is that two audiences are two settings — but the deployment note must state that they name the same company, and Slice 8's end-to-end run is where that is checked.
+
+---
+
+## D101 — ASP.NET's Request Scope Carried the Customer Token Into the Windows Event Log: Suppress the Scope Per Provider, Restore the Activity Separately
+
+**Problem:** Phase 11 Checkpoint 4 found a real credential disclosure in **both** applications, and it was found by reading a log, not by a test. For every request, ASP.NET Core's hosting layer opens a logging scope (`HostingLogScope`) that holds exactly two values, `RequestId` and `RequestPath`. On `/angebot/{token}` (Website) and `/api/v1/public/angebote/{token}` (API) that path **is** the customer's credential. Every entry logged while such a request runs carries it, from any category and at any level, in the scope rather than the message. The existing protections could not see this:
+
+- `Microsoft.AspNetCore: Warning` hides the hosting *request lines*, not the scope, which rides on warnings and errors from other categories.
+- `RouteDiagnostics` (D59 and `CLAUDE.md` §22) redacts the API's own messages and ProblemDetails `instance`, but the framework creates the scope **before routing runs**, so redaction never reaches it.
+- Every log assertion in the test suites captured formatted messages only.
+
+**Root cause of the disclosure, not just the exposure.** On Windows, `WebApplication.CreateBuilder` registers the **EventLog** provider by default. It writes scopes into the event text, and the host gives it its own provider-specific filter rule, Warning and above. With the shipped configuration and nothing misconfigured, every warning or error during a token request was written to the machine's **Application event log** as `RequestPath: /angebot/<token>`. Examples are the API client's 503/timeout paths on the Website, the API's mapped 404/410/409, and `LoggingNoOpEmailSender`'s delivery warning. On the development machine the log held **169** such entries from two weeks of test runs and the Checkpoint 3 manual E2E, including entries from `ProblemDetailsExceptionHandler`, whose *message* was already redacted.
+
+**Alternatives considered:**
+
+- (a) Document "no sink may include scopes" and change nothing. **Rejected**: the default Windows host already violates it.
+- (b) Remove the EventLog provider. **Rejected**: it closes one sink and leaves every other scope-writing sink exposed (JSON console, OpenTelemetry, Application Insights).
+- (c) A provider-less `AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.None)`. **Rejected, and proven insufficient** by mutation: a provider-specific rule always beats a provider-less one whatever its category, so EventLog's own rule keeps its hosting logger enabled and the scope alive.
+- (d) Decorate every provider's scope provider to redact `RequestPath`. **Rejected** as far more machinery than the problem needs, and it would need to know which routes carry a token at a point where routing has not run.
+- (e) **Chosen:** suppress the hosting logger for every provider, and restore the request Activity with a listener.
+
+**Final decision:** (e), in two parts, duplicated in both applications because the Website references no backend project (`CLAUDE.md` §1).
+
+1. **`HostingRequestScopeSuppression`** (`Security/`), an `IPostConfigureOptions<LoggerFilterOptions>`. It adds `Microsoft.AspNetCore.Hosting.Diagnostics` → `None` as a provider-less rule **and** one provider-specific rule per registered `ILoggerProvider`. ASP.NET creates the scope only inside `if (_logger.IsEnabled(LogLevel.Critical))` on that category, verified against `HostingApplicationDiagnostics.cs` on `release/10.0`, so once the logger is off for every provider the scope is never created. Because it is **post-configuration**, its rules come after every rule read from `appsettings.json` or the environment. Among rules of equal specificity the later one wins, so **no configuration value can re-enable it**, including one written for the same provider and category.
+2. **`RequestActivityTracing`** (`Security/`). Turning the hosting logger off also removed one of ASP.NET's three reasons to create the per-request `Activity`, and nothing supplied the other two, so `TraceId`, `SpanId` and the W3C ProblemDetails `traceId` disappeared too. That was measured, not predicted. One `ActivityListener` restores it: it listens to the `Microsoft.AspNetCore` source only, uses `ActivitySamplingResult.PropagationData`, has no exporter, and is disposed on `ApplicationStopped`. It is registered right after `Build()`.
+
+**Why the listener cannot bring the token back:**
+
+- **Separate branches.** ASP.NET decides Activity creation (`loggingEnabled || diagnosticListener || _activitySource.HasListeners()`) separately from scope creation (`if (loggingEnabled)`). The listener affects only the first and changes no logging rule.
+- **Only ids reach logs.** The logger's activity tracking copies `TraceId`, `SpanId` and `ParentId`, which are random hex.
+- **Tags stay out of logs.** The Activity's creation tags would include `url.path` only if ASP.NET's OpenTelemetry activity data were opted in; `SuppressActivityOpenTelemetryData` defaults to true. Even then tags reach no log (activity tracking excludes them) and nothing exports them.
+- **The sampler reads nothing.** It ignores its input, so it never touches request data.
+- **Pinned by a test.** A test asserts the Activity's tags, baggage and names carry no token.
+
+**Consequences, stated rather than hidden:**
+
+- **`RequestId` is gone from log entries, deliberately.** It existed only inside the same framework object as `RequestPath`, and no framework option yields one without the other. **`TraceId` is the per-request correlation key.** The API's ProblemDetails `traceId` is W3C `00-<traceId>-<spanId>-00`, so its trace-id segment is the `TraceId` on that request's log entries, and a test asserts the match. No `RequestId` middleware was added, by Product Owner decision.
+- **Hosting's own request start/finish lines are gone.** The shipped `Warning` already suppressed them.
+- **Incoming `traceparent` is honoured, and it is caller-controlled.** An anonymous caller can choose the `TraceId` that appears in the API's logs and ProblemDetails. This was ASP.NET's behaviour before this decision and is unchanged by it. **`TraceId`, `SpanId`, `ParentId` and `traceId` are untrusted correlation metadata: never an identity, never an authorization input, and never a value a security decision, rate limit, audit attribution or deduplication depends on.** They are useful for joining log lines and useless as evidence of who sent a request.
+- **Configuration is still load-bearing for everything else under `Microsoft.AspNetCore`** (the W4 mutation). Raised to `Information`, MVC's `RedirectResultExecutor` logs `Executing RedirectResult, redirecting to /angebot/<token>` after every customer decision. The suppression is structural for the hosting scope only. **`Microsoft.AspNetCore` must stay at `Warning` or quieter**, and a test fails if `appsettings.json` changes it.
+- **The listener is process-wide.** Hosts in one process could create activities for each other, but only if some registered it and others did not. That never happens in normal runs, and it is why the test harnesses read each request's Activity from `IHttpActivityFeature` rather than registering a listener of their own, which would hide the listener's removal.
+
+**Verification:**
+
+- **Tests.** Website `TokenLoggingTests` (45) and API `PublicTokenLogScopeTests` (8) inspect message, exception, structured state **and scopes**. The customer-workflow E2E recorder now records scopes too. Both harnesses add a provider-specific rule re-enabling hosting diagnostics for the capture provider, the shape of EventLog's own rule, so a weaker fix fails on Linux CI and not only on Windows. Negative controls remove the suppression and show the leak, and remove all other providers first so a control never writes to a real sink.
+- **Mutations**, each on source byte-restored with a hash check, followed by a clean rebuild:
+
+| Mutation | Result |
+|---|---|
+| Suppression removed | 29/45 Website, 8/12 API fail |
+| Provider-less filter instead | Same as removal |
+| `RemoveAllLoggers()` removed | 28/45 fail |
+| `Microsoft.AspNetCore` → Information | 3/45 fail |
+| Listener removed | Only the 15 Website / 4 API tracing tests fail; every scope test passes |
+| `AllData` sampling | Stays green |
+
+- **Windows EventLog**, over a clean full-suite run plus a published Website in Production: **847** events, **565** request-path entries all carrying `TraceId` and `SpanId`. **Zero** entries contain `RequestPath:`, a token-route path, or any probe token. Full suite **2,125/2,125** from a clean Release rebuild.
+
+**What this does not clean up:** entries already written. Event logs on machines that ran either application before this decision may hold tokens. Clearing them is an operator action, not something the application does.

@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.WebEncoders;
 using RenoTrack.Website.Content;
 using RenoTrack.Website.PublicApi;
@@ -9,6 +10,13 @@ using RenoTrack.Website.Security;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorPages();
+
+// Load-bearing, not tidiness: stops ASP.NET creating the per-request logging scope whose RequestPath
+// is the customer's token on /angebot/{token}. Without it every warning or error logged during a
+// token request carries the credential to any sink that writes scopes — on Windows, the Application
+// event log by default. Post-configuration, so no appsettings.json or environment value can undo it.
+// See HostingRequestScopeSuppression.
+builder.Services.AddSingleton<IPostConfigureOptions<LoggerFilterOptions>, HostingRequestScopeSuppression>();
 
 // German text must reach the customer as German text.
 //
@@ -87,6 +95,12 @@ builder.Services.AddHttpClient<IPublicAngebotClient, PublicAngebotClient>(client
 
 var app = builder.Build();
 
+// Restores ASP.NET's per-request Activity, and with it TraceId/SpanId on every log entry, which the
+// scope suppression above would otherwise take away. It listens to the activity source only and
+// changes no logging rule, so the token-bearing RequestPath scope stays gone. See
+// RequestActivityTracing.
+RequestActivityTracing.Enable(app);
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
@@ -151,7 +165,9 @@ if (!companyIdentity.HasDisplayName)
 // operator rather than silently missing. Until each is supplied its route answers 404 and no link
 // to it is rendered, so FR-1.4 stays open — the mechanism is complete, the requirement is not
 // (D100 Part 1). Reported per document, because one may be written before the other.
-// A configured logo that resolves to no file renders a broken image on every customer's quote.
+// A configured logo that resolves to no file is not served, so every customer's quote shows the
+// image's alternative text — the company name — where the logo should be. That looks exactly like a
+// deployment with no logo configured, which is why this warning is the only signal an operator gets.
 // Checked against the directory that actually serves it, not against wwwroot: the first version of
 // this check asked WebRootFileProvider, which reads the disk and therefore reported success for a
 // file MapStaticAssets would never serve — an assertion that could not fail for the reason it was
@@ -166,8 +182,9 @@ if (companyIdentity.HasLogo)
     if (!File.Exists(logoFile))
     {
         app.Logger.LogWarning(
-            "Configuration '{Key}' is '{Path}', but no such file exists under '{BrandRoot}', so the " +
-            "customer page will render a broken image.",
+            "Configuration '{Key}' is '{Path}', but no such file exists under '{BrandRoot}', so the logo " +
+            "is not served and customer pages show the company name (the image's alternative text) in " +
+            "its place.",
             $"{CompanyIdentityOptions.SectionName}:{nameof(CompanyIdentityOptions.LogoPath)}",
             companyIdentity.LogoPath,
             brandRoot);
