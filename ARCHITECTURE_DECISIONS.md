@@ -2486,3 +2486,105 @@ The ASP.NET template pages are removed: `/Index`, `/Privacy`, the legacy `_Layou
 - **Windows EventLog**, over a clean full-suite run plus a published Website in Production: **847** events, **565** request-path entries all carrying `TraceId` and `SpanId`. **Zero** entries contain `RequestPath:`, a token-route path, or any probe token. Full suite **2,125/2,125** from a clean Release rebuild.
 
 **What this does not clean up:** entries already written. Event logs on machines that ran either application before this decision may hold tokens. Clearing them is an operator action, not something the application does.
+
+---
+
+## D102 — The Company Content Pack: Isolated Content, Never Configuration Authority
+
+**Phase 13 Slice 1.** Design approved at the Slice 1 gate, including decisions S1-1 to S1-8.
+
+**Problem:** the marketing site presents one company's facts — identity, address, opening hours, service area, services. D100 already rules that no company identity or legal text is committed to this repository, and Phase 13 **Q9** places that content in a separate private repository. The product still has to load it, validate it, and stay usable by another company without a fork.
+
+### Part 1 — Where the content lives, and how it arrives
+
+**Decision:** the content pack is a directory **outside the application and outside this repository**, named by one optional wiring key, `ContentPack:RootPath`. It holds `site.json` (required), `legal.json` (optional) and `brand/` (optional). The JSON files are ordinary configuration JSON, bound to typed options exactly as `LegalContentOptions` already is.
+
+**Alternatives considered:**
+- **A custom file reader with its own schema** — rejected. D100 already chose configuration as the content channel. It keeps environment variables and mounted secrets working, and binding, `"//"` comment keys in `.Get<T>()` sections, and fail-at-startup on malformed JSON are all existing, tested behaviour.
+- **Committing company content under the repository** — rejected by Q9, and it would amend D100.
+
+**Consequences:**
+- Absent `RootPath`, the Website behaves exactly as before.
+- A set `RootPath` that is relative, missing, or lacks `site.json` fails startup naming the key.
+- Files are never reloaded; content changes take effect on restart.
+- With a pack configured, the `/brand` mount serves the pack's `brand/`, and nothing else in the pack is reachable.
+
+### Part 2 — Isolation: the pack contributes content and nothing else (S1-8)
+
+**Problem found at the design gate.** The pack's files sit above `appsettings.json`.
+- Loaded with `AddJsonFile`, a `Logging` section in `site.json` could re-enable the Information-level request and HttpClient logging that D101 and `CLAUDE.md` §24 treat as load-bearing token protections.
+- A `PublicApi` or `TrustedForwarders` section could redirect a customer's token traffic or widen the forwarder trust list.
+
+"The typed models ignore unknown keys" is no boundary: the application's own options would read those keys.
+
+**Decision:** each file enters through `IsolatedContentPackProvider`, governed by a per-file allowed-root table in `ContentPackSectionPolicy`:
+
+| File | Allowed top-level sections |
+|---|---|
+| `site.json` | `CompanyIdentity`, `Site` |
+| `legal.json` | `Legal` |
+
+1. **Parsed privately.** An inner `JsonConfigurationProvider` is never added to any builder, so the raw file never becomes application configuration.
+2. **Validated before exposure.** Startup fails with one message naming the file and every offending section when the file contains:
+   - any section outside its allowed roots — product sections (`ConnectionStrings`, `Jwt`, `Email`, `TokenLink`, `Logging`, `PublicApi`, `TrustedForwarders`, `ContentPack`, `AllowedHosts`, …), the other file's section, or a top-level `"//"` comment key;
+   - an allowed root that is a scalar or an empty object;
+   - no allowed section at all.
+
+   An absent optional file contributes nothing; a present-but-empty one is refused.
+3. **Filtered by construction.** Only keys under an allowed root are copied into the provider's data.
+4. **Flattened keys are judged, not JSON shape.** A property literally named `"Logging:LogLevel:Default"` is caught at the root.
+5. **Messages name files and sections, never values.** Section names are stripped of control characters and truncated.
+
+Roots compare case-insensitively, because configuration keys do.
+
+**Precedence (S1-4, amended by S1-8):** the pack's sources go directly after the last file source (`appsettings*.json`, user-secrets). The result is command line > environment variables > **pack** > user-secrets/appsettings. The position comes from the last *file* source, not the first environment source, because `WebApplication.CreateBuilder` registers `DOTNET_`/`ASPNETCORE_`-prefixed host environment sources *before* the JSON files. Given isolation, this precedence governs content sections only.
+
+**Verified beyond the suite by mutation runs on the finished implementation:**
+
+| Mutation | Tests that fail |
+|---|---|
+| Provider made equivalent to `AddJsonFile` (no validation, no filter) | 21 |
+| Validation removed from the provider, filter kept | 21 |
+| `Filter` passes every key through | 1 — the filter's own unit test |
+| Single-source guard removed | 3 |
+| Pack inserted at top precedence | 3 |
+
+**One residual gap, stated rather than hidden — accepted as documented by the Tech Lead; no test-only seam is to be added:** removing *only the provider's call* to `Filter`, with validation kept, fails no test. That is inherent, not an oversight — while validation holds, filtering removes nothing, so the call's absence can't be observed from outside. The filter is proven at function level. Detecting the missing call would need a test-only seam in the provider, which was not added without a decision.
+
+### Part 3 — One identity, extended in place (S1-1, S1-3)
+
+`CompanyIdentityOptions` gains `OwnerName`, `Address`, `OpeningHours`, `OpeningHoursNote` and `ServiceArea` — not a second marketing identity. The token pages and the marketing site read one identity, or entity consistency breaks before a page exists.
+
+Format rules now apply to **every** deployment:
+- **`ContactPhone`:** international — `+`, country code, digit groups separated by single spaces, 8–15 digits — so `tel:` links and later structured data derive from one spelling.
+- **`ContactEmail`:** exactly one plain address.
+- **Text fields:** control characters refused, with length limits.
+- **Address:** whole or absent, with an ISO 3166-1 alpha-2 country code.
+- **Opening hours:** fixed `HH:mm` spans on English day names, no day in two blocks. "By appointment" belongs in `OpeningHoursNote`, which is never published as machine-readable hours.
+- **Service-area places:** `City` or `Region`.
+
+### Part 4 — The marketing site's switch (S1-2, S1-7)
+
+`SiteOptions` carries `PublicBaseUrl` and `Services`.
+
+**The site is enabled exactly when `PublicBaseUrl` is set.** It must then be an HTTPS origin with no path, query, fragment or user information. `DisplayName`, `ContactPhone`, `ContactEmail`, `Address` and at least one service become required, and every missing key is named in one message.
+
+**Services are validated whenever supplied:**
+- slug matches `^[a-z0-9]+(-[a-z0-9]+)*$` and is unique;
+- name is unique ignoring case;
+- summary is required;
+- at least one non-blank offering.
+
+Without `PublicBaseUrl` the site is disabled, one startup warning says so, and the token and legal pages are unaffected — D100's "absence means the route does not exist", applied to a whole site.
+
+Only fields with a consumer in Slices 2–4 exist. Statements, media, FAQ, inquiry service types, map settings, robots rules, content version and gated legal facts arrive with the slices that render them.
+
+### Part 5 — Lists come from exactly one source (S1-5)
+
+.NET configuration merges arrays **by index** across sources, silently. `Site:Services`, `CompanyIdentity:OpeningHours` and `CompanyIdentity:ServiceArea:Places` must each come from exactly one provider, or startup fails naming the providers. Scalar overrides — an environment variable correcting one phone number — stay allowed.
+
+### Part 6 — What stays out of this repository (S1-6)
+
+- **Fixtures:** two fictional companies with reserved `.test` domains and `+49 000` numbers, enforced by a test.
+- **Forbidden-name variants:** the addendum's check can't hold a real company's spellings here without breaking D100. The product repository ships the *mechanism* (Slice 10); the company's list lives in its content repository.
+- **Cross-application consistency:** `Site:PublicBaseUrl` should match the API's `TokenLink:PublicBaseUrl` origin, as `CompanyIdentity:DisplayName` should match `Email:FromDisplayName`. The two applications can't check each other, so this is a documented deployment check.

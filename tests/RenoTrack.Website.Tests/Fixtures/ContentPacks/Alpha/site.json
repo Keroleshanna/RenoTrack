@@ -1,0 +1,44 @@
+{
+  "CompanyIdentity": {
+    "//": "FICTIONAL TEST FIXTURE. Every value is invented and marked as test data; reserved .test domains and +49 000 numbers only (D100). Never copy real company content into this repository.",
+    "DisplayName": "Alpha Testbetrieb (Testdaten)",
+    "OwnerName": "Testperson Alpha",
+    "ContactPhone": "+49 000 1111111",
+    "ContactEmail": "kontakt@alpha-testbetrieb.test",
+    "LogoPath": "/brand/logo.svg",
+    "Address": {
+      "StreetAddress": "Teststraße 1",
+      "PostalCode": "00000",
+      "Locality": "Testort Alpha",
+      "CountryCode": "DE"
+    },
+    "OpeningHours": [
+      { "Days": [ "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" ], "Opens": "08:00", "Closes": "17:00" }
+    ],
+    "OpeningHoursNote": "Samstag nach Vereinbarung (Testdaten)",
+    "ServiceArea": {
+      "Places": [
+        { "Name": "Testort Alpha", "Kind": "City" },
+        { "Name": "Testregion Nord", "Kind": "Region" }
+      ],
+      "Note": "Weitere Orte nach Absprache (Testdaten)."
+    }
+  },
+  "Site": {
+    "PublicBaseUrl": "https://www.alpha-testbetrieb.test",
+    "Services": [
+      {
+        "Slug": "test-leistung-eins",
+        "Name": "Testleistung Eins",
+        "Summary": "Eine erfundene Leistung für automatisierte Tests (Testdaten).",
+        "Offerings": [ "Erstes erfundenes Angebot", "Zweites erfundenes Angebot" ]
+      },
+      {
+        "Slug": "test-leistung-zwei",
+        "Name": "Testleistung Zwei",
+        "Summary": "Eine zweite erfundene Leistung für automatisierte Tests (Testdaten).",
+        "Offerings": [ "Drittes erfundenes Angebot" ]
+      }
+    ]
+  }
+}

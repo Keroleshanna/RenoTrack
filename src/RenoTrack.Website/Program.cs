@@ -9,6 +9,19 @@ using RenoTrack.Website.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The company's content pack (D102), loaded before anything binds configuration so identity, site
+// content and legal text all see it. Read from the host's own configuration — a pack cannot name its
+// own location. Each pack file enters through an isolated provider that can contribute nothing outside
+// that file's allowed sections, so the pack can never touch logging, the API origin, the forwarder
+// trust list or any other product setting. Do not replace it with AddJsonFile.
+var contentPack = builder.Configuration.GetSection(ContentPackOptions.SectionName).Get<ContentPackOptions>()
+    ?? new ContentPackOptions();
+contentPack.Validate();
+contentPack.AddTo(((IConfigurationBuilder)builder.Configuration).Sources);
+
+// Lists merge entry by entry across configuration sources, silently; a list must come from one source.
+ContentListSourceGuard.EnsureSingleSource(builder.Configuration);
+
 builder.Services.AddRazorPages();
 
 // Load-bearing, not tidiness: stops ASP.NET creating the per-request logging scope whose RequestPath
@@ -55,6 +68,13 @@ var companyIdentity = builder.Configuration.GetSection(CompanyIdentityOptions.Se
     .Get<CompanyIdentityOptions>() ?? new CompanyIdentityOptions();
 companyIdentity.Validate();
 builder.Services.AddSingleton(companyIdentity);
+
+// The marketing site's canonical origin and services (D102). Validated against the identity it
+// presents: an enabled site with half an identity fails startup naming every missing key, while a
+// deployment without Site:PublicBaseUrl keeps exactly the behaviour it had before.
+var site = builder.Configuration.GetSection(SiteOptions.SectionName).Get<SiteOptions>() ?? new SiteOptions();
+site.Validate(companyIdentity);
+builder.Services.AddSingleton(site);
 
 // The two legally required pages' content (SRS FR-1.4, D100). Registered as a validated singleton
 // rather than through IOptions, matching PublicApiOptions: the pages and the layout need the same
@@ -136,7 +156,10 @@ app.UseAuthorization();
 // customer-facing origin, and the narrower mount serves only what a deployment deliberately placed
 // there. ServeUnknownFileTypes stays false, so an unrecognised extension is not served at all
 // rather than guessed at.
-var brandRoot = Path.Combine(builder.Environment.ContentRootPath, CompanyIdentityOptions.BrandAssetsDirectoryName);
+//
+// With a content pack configured, the mount serves the pack's own brand/ instead (D102) — and only
+// that directory: site.json and legal.json sit beside it and are never reachable.
+var brandRoot = contentPack.BrandRootFor(builder.Environment.ContentRootPath);
 if (Directory.Exists(brandRoot))
 {
     app.UseStaticFiles(new StaticFileOptions
@@ -189,6 +212,24 @@ if (companyIdentity.HasLogo)
             companyIdentity.LogoPath,
             brandRoot);
     }
+}
+
+// Counts and a path only — never content values (D101 governs what this application logs).
+if (contentPack.IsConfigured)
+{
+    app.Logger.LogInformation(
+        "Content pack loaded from '{PackRoot}': marketing site {SiteState}, {ServiceCount} service(s).",
+        contentPack.ResolvedRootPath,
+        site.IsEnabled ? "enabled" : "disabled",
+        site.Services.Count);
+}
+
+if (!site.IsEnabled)
+{
+    app.Logger.LogWarning(
+        "Configuration '{Key}' is not set, so the marketing site is disabled; the customer token pages and " +
+        "the legal pages are unaffected.",
+        $"{SiteOptions.SectionName}:{nameof(SiteOptions.PublicBaseUrl)}");
 }
 
 foreach (var (key, configured) in new[]

@@ -87,19 +87,102 @@ public sealed class CompanyIdentityOptions
 
     public bool HasLogo => !string.IsNullOrWhiteSpace(LogoPath);
 
+    // ---- Added in Phase 13 Slice 1 (D102): what the marketing site presents ------------------
+    //
+    // Extended in place rather than modelled a second time. The token pages and the marketing site
+    // must read one identity, or the entity-consistency rule (one name, one phone, one address
+    // everywhere) is broken before a single page exists.
+
+    internal const int MaxDisplayNameLength = 100;
+    internal const int MaxOwnerNameLength = 100;
+    internal const int MaxContactEmailLength = 254;
+    internal const int MaxOpeningHoursNoteLength = 200;
+
+    /// <summary>The business owner's name, shown where the company introduces itself. Optional.</summary>
+    public string? OwnerName { get; init; }
+
+    /// <summary>The postal address — whole, or not at all.</summary>
+    public PostalAddressOptions Address { get; init; } = new();
+
+    /// <summary>Regular opening hours, as fixed spans only.</summary>
+    public IReadOnlyList<OpeningHoursOptions> OpeningHours { get; init; } = [];
+
+    /// <summary>What regular hours cannot express, e.g. <c>Samstag nach Vereinbarung</c>. Shown to people only.</summary>
+    public string? OpeningHoursNote { get; init; }
+
+    /// <summary>Where the company works.</summary>
+    public ServiceAreaOptions ServiceArea { get; init; } = new();
+
     /// <summary>
     /// Fails startup naming the offending key when supplied identity is malformed.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Absent is valid; broken is not</b> — the same split <c>LegalContentOptions.Validate</c>
     /// applies to legal text. Nothing configured is the expected state until the company supplies
     /// its identity, so absence only warns; a logo that would reach a third party, or one no
     /// screen-reader can announce, is a mistake and is refused.
+    /// </para>
+    /// <para>
+    /// <b>Every rule here applies to every deployment</b>, marketing site or not: there is one
+    /// definition of a well-formed phone number, not one per page type. What only a marketing site
+    /// <em>requires</em> is <see cref="MissingForMarketingSite"/>, checked by <see cref="SiteOptions"/>.
+    /// </para>
     /// </remarks>
     /// <exception cref="InvalidOperationException">
-    /// The logo path is not site-relative, is protocol-relative, or has no name to caption it.
+    /// Supplied identity is malformed — including a logo path that is not site-relative, is
+    /// protocol-relative, or has no name to caption it.
     /// </exception>
     public void Validate()
+    {
+        ContentText.Validate(DisplayName, $"{SectionName}:{nameof(DisplayName)}", MaxDisplayNameLength);
+        ContentText.Validate(OwnerName, $"{SectionName}:{nameof(OwnerName)}", MaxOwnerNameLength);
+        ContentText.Validate(OpeningHoursNote, $"{SectionName}:{nameof(OpeningHoursNote)}", MaxOpeningHoursNoteLength);
+
+        ContactFormats.ValidatePhone(ContactPhone, $"{SectionName}:{nameof(ContactPhone)}");
+        ContactFormats.ValidateEmail(ContactEmail, $"{SectionName}:{nameof(ContactEmail)}", MaxContactEmailLength);
+
+        Address.Validate($"{SectionName}:{nameof(Address)}");
+
+        for (var index = 0; index < OpeningHours.Count; index++)
+        {
+            OpeningHours[index].Validate($"{SectionName}:{nameof(OpeningHours)}:{index}");
+        }
+
+        var repeatedDay = OpeningHours
+            .SelectMany(block => block.DaysOfWeek)
+            .GroupBy(day => day)
+            .FirstOrDefault(group => group.Count() > 1);
+
+        if (repeatedDay is not null)
+        {
+            throw new InvalidOperationException(
+                $"Configuration '{SectionName}:{nameof(OpeningHours)}' lists {repeatedDay.Key} in more than one " +
+                "block. Each day appears in exactly one block of regular hours.");
+        }
+
+        ServiceArea.Validate($"{SectionName}:{nameof(ServiceArea)}");
+
+        ValidateLogo();
+    }
+
+    /// <summary>
+    /// The configuration keys a marketing site cannot be published without, of those currently absent.
+    /// </summary>
+    /// <remarks>
+    /// Opening hours, the service area and the owner's name stay optional: a company may have none of
+    /// them to state, and a page can omit each honestly. A name, a way to reach the company and where it
+    /// is cannot be omitted from a business's public site.
+    /// </remarks>
+    internal IEnumerable<string> MissingForMarketingSite()
+    {
+        if (!HasDisplayName) yield return $"{SectionName}:{nameof(DisplayName)}";
+        if (string.IsNullOrWhiteSpace(ContactPhone)) yield return $"{SectionName}:{nameof(ContactPhone)}";
+        if (string.IsNullOrWhiteSpace(ContactEmail)) yield return $"{SectionName}:{nameof(ContactEmail)}";
+        if (!Address.IsSupplied) yield return $"{SectionName}:{nameof(Address)}";
+    }
+
+    private void ValidateLogo()
     {
         if (!HasLogo)
         {

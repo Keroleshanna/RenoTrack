@@ -1,0 +1,25 @@
+{
+  "CompanyIdentity": {
+    "//": "FICTIONAL TEST FIXTURE — a second, unrelated invented company that proves the same build serves another pack without code changes (D102). Reserved .test domains and +49 000 numbers only (D100).",
+    "DisplayName": "Beta Musterwerkstatt (Testdaten)",
+    "ContactPhone": "+49 000 2222222",
+    "ContactEmail": "info@beta-musterwerkstatt.test",
+    "Address": {
+      "StreetAddress": "Musterweg 2",
+      "PostalCode": "00001",
+      "Locality": "Testort Beta",
+      "CountryCode": "DE"
+    }
+  },
+  "Site": {
+    "PublicBaseUrl": "https://beta-musterwerkstatt.test",
+    "Services": [
+      {
+        "Slug": "beta-testleistung",
+        "Name": "Beta-Testleistung",
+        "Summary": "Die einzige erfundene Leistung der zweiten Testfirma (Testdaten).",
+        "Offerings": [ "Erfundenes Beta-Angebot" ]
+      }
+    ]
+  }
+}

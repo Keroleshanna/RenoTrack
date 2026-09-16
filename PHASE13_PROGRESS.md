@@ -13,8 +13,8 @@
 
 | # | Slice | Status |
 |---|---|---|
-| **0** | Housekeeping and preparation | ✅ **done, pending Tech Lead review** (§5) |
-| 1 | Content model (content pack schema, startup validation, runtime mount) | ⏸ not started — requires explicit approval |
+| **0** | Housekeeping and preparation | ✅ **closed** — commit `0d2f22a` (§5) |
+| **1** | Content model (content pack schema, isolation, startup validation, runtime mount) | ✅ **closed** (§5a) |
 | 2 | Site shell (`_SiteLayout`, tokens, header/footer, marketing headers + CSP, host/lowercase 301s) | ⏸ |
 | 3 | Homepage | ⏸ |
 | 4 | Services overview + service detail (`/leistungen/{slug}`) | ⏸ |
@@ -169,7 +169,70 @@
 
 ---
 
+## 5a. Slice 1 — Content model (D102)
+
+**Design:** approved at the Slice 1 gate, including S1-1 to S1-8. S1-8 is the configuration-isolation correction.
+
+**Delivered:**
+- **Content pack.** `ContentPack:RootPath` names a directory outside the application holding `site.json` (required), `legal.json` (optional) and `brand/`.
+  - Each file enters through `IsolatedContentPackProvider`. It parses privately, **refuses** any top-level section outside the file's allowed roots (`site.json` → `CompanyIdentity`, `Site`; `legal.json` → `Legal`) before any key reaches application configuration, then **filters by construction**. Messages name files and sections, never values.
+  - The pack is inserted after the last file source: command line > environment > pack > user-secrets/appsettings.
+  - With a pack configured, `/brand` serves the pack's `brand/`.
+- **`CompanyIdentityOptions` extended in place.** New fields `OwnerName`, `Address`, `OpeningHours`, `OpeningHoursNote`, `ServiceArea`. Phone, email and text rules now apply to every deployment.
+- **`SiteOptions`.** `PublicBaseUrl` (the switch; HTTPS origin only) and `Services`. An enabled site requires name, phone, email, address and at least one service, all missing keys named in one message.
+- **`ContentListSourceGuard`.** A content list supplied by more than one configuration source fails startup.
+- **Fixtures.** Two fictional content packs (Alpha, Beta) prove the same build serves two companies with no bleed-through.
+
+**Files changed (production):**
+- **Modified:** `Program.cs`, `Content/CompanyIdentityOptions.cs`, `appsettings.json` (documentation keys only, no values).
+- **New:** `ContactFormats.cs`, `ContentListSourceGuard.cs`, `ContentPackConfigurationSource.cs`, `ContentPackOptions.cs`, `ContentPackSectionPolicy.cs`, `ContentText.cs`, `OpeningHoursOptions.cs`, `PostalAddressOptions.cs`, `ServiceAreaOptions.cs`, `ServiceOptions.cs`, `SiteOptions.cs`, all under `Content/`.
+
+Files beyond the final design's list, all within the approved scope:
+- `ContentListSourceGuard.cs` holds the approved single-source rule (S1-5). The design located that rule but named no file for it.
+- `ContactFormats.cs` and `ContentText.cs` are shared rule helpers for the approved phone, email and text rules.
+- Pack insertion lives on `ContentPackOptions.AddTo`.
+
+No behaviour beyond the design was added.
+
+**Tests (measured, not derived):**
+
+| Project | Before | After | Delta |
+|---|---|---|---|
+| Domain | 389 | 389 | — |
+| Application | 470 | 470 | — |
+| Infrastructure (LocalDB) | 412 | 412 | — |
+| Api (LocalDB) | 478 | 478 | — |
+| Website | 376 | 586 | **+210** |
+| **Total** | **2,125** | **2,335** | **+210** |
+
+The +210 splits as: `CompanyIdentityMarketingTests` 67, `SiteOptionsTests` 48, `ContentPackSectionPolicyTests` 34, `ContentPackIsolationTests` 27, `ContentPackStartupTests` 22, `ContentPackOptionsTests` 12. Build: 0 warnings, 0 errors. **No existing test file was edited.** The test `.csproj` gained one `ItemGroup` copying the fixtures to output.
+
+**Mutation runs:** each mutation was applied to the finished code, built, run, and the original restored and byte-compared.
+
+| Mutation | Tests failing |
+|---|---|
+| Provider equivalent to `AddJsonFile` | 21 |
+| Validation removed, filter kept | 21 |
+| `Filter` passes everything | 1 |
+| Single-source guard removed | 3 |
+| Pack inserted at top precedence | 3 |
+| **Only the provider's call to `Filter` removed** | **0** |
+
+The last row is inherent (D102 Part 2): while validation holds, filtering removes nothing. The filter is proven at function level. Closing it would take a test-only seam, which was not added without a decision.
+
+**Environment note:** one mutation build was refused by Windows' assembly-load block (`FileLoadException` in xUnit discovery), the same condition `PROJECT_STATE.md` records. Rebuilding the identical mutation in a different form ran normally. No green result above comes from a run that did not execute.
+
+**Also verified:** the complete example in `CONTENT_PACK.md` §5 boots the application, checked with a throwaway test that was deleted afterwards. A scan of every changed and new file finds no real company identifier.
+
+**Documentation:** `ARCHITECTURE_DECISIONS.md` **D102**; `CLAUDE.md` new **§25**; `CONTENT_PACK.md` (new schema reference); `DEPLOYMENT_CONFIGURATION.md` §1, §2.1, §2.2, new §2.5, §5; `Architecture.md` Public Website note; this file; `PROJECT_STATE.md`.
+
+**Migrations:** none. **Packages:** none. **Layers touched:** `RenoTrack.Website` and its tests only.
+
+---
+
 ## 6. Open actions
+
+- **Slice 1 mutation gap — accepted as documented (Tech Lead, 2026-09-16).** No test-only seam is added: validation and the independently tested filter overlap, and an unobservable call removal is not a production security gap.
 
 - **Transfer company-specific records to the private content repository once it exists:** the design review's image inventory and classification, and the company-specific legal verification findings. These are deliberately not recorded here (D100).
 - **ADRs** for the content pack, marketing layout and script policy, the inquiry → Lead mapping, the anonymous-endpoint hardening, map consent, and the discoverability strategy. Each is written in the slice that implements it.

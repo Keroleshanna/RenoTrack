@@ -20,6 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Fictional content packs (D102). Copied beside the test assembly; tests copy them again into a
+         temporary directory before use, so no test can alter the checked-in fixture. -->
+    <None Update="Fixtures\ContentPacks\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\RenoTrack.Website\RenoTrack.Website.csproj" />
   </ItemGroup>
 
