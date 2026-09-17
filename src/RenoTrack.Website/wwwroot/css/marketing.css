@@ -1,0 +1,466 @@
+/*
+  The public marketing site's shell (Phase 13 Slice 2, D103).
+
+  Separate from customer.css on purpose: the token-link pages keep their own self-contained stylesheet and
+  are never styled by this file. Named marketing.css, not site.css, because ScaffoldRemovalTests pins
+  /css/site.css as a removed scaffold asset that must answer 404.
+
+  Mobile-first. No JavaScript is involved anywhere, and nothing here is loaded from another origin: the font
+  is self-hosted (CSP font-src 'self') and the brand colours arrive as custom properties from the generated
+  /site/theme.css, which is built from validated #RRGGBB values only.
+*/
+
+/* ---- Typography: Figtree (SIL OFL 1.1, see /fonts/figtree/OFL.txt) ------------------------------ */
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/fonts/figtree/figtree-latin-400-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("/fonts/figtree/figtree-latin-600-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("/fonts/figtree/figtree-latin-700-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---- Design tokens ------------------------------------------------------------------------------- */
+
+:root {
+    /* Brand colours come from /site/theme.css; these fallbacks equal the product defaults. */
+    --color-primary: var(--brand-primary, #2B3A4A);
+    --color-accent: var(--brand-accent, #C8D3DE);
+    --color-on-primary: #ffffff;
+
+    --color-ink: #1c2128;
+    --color-ink-muted: #4f5a66;
+    --color-page: #ffffff;
+    --color-surface-warm: #f5f3ef;
+    --color-line: #dcdfe4;
+    --color-focus: #1a5fb4;
+
+    --font-sans: "Figtree", system-ui, "Segoe UI", Arial, sans-serif;
+
+    --space-1: 0.5rem;
+    --space-2: 1rem;
+    --space-3: 1.5rem;
+    --space-4: 2rem;
+    --space-6: 3rem;
+    --space-8: 4rem;
+
+    --radius: 4px;
+    --container: 72rem;
+    --callbar-height: 3.5rem;
+}
+
+/* ---- Base ---------------------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body.site {
+    margin: 0;
+    background: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    /* Room for the fixed call bar on narrow screens, so it never covers the footer. */
+    padding-bottom: calc(var(--callbar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+.site a {
+    color: var(--color-primary);
+    text-underline-offset: 0.15em;
+}
+
+.site a:hover {
+    text-decoration-thickness: 2px;
+}
+
+/* Visible focus on everything focusable, never removed. */
+.site :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 3px;
+}
+
+.site-container {
+    width: 100%;
+    max-width: var(--container);
+    margin-inline: auto;
+    padding-inline: var(--space-2);
+}
+
+.site-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ---- Skip link ----------------------------------------------------------------------------------- */
+
+.site-skip-link {
+    position: absolute;
+    left: var(--space-2);
+    top: -10rem;
+    z-index: 100;
+    padding: var(--space-1) var(--space-2);
+    background: var(--color-primary);
+    color: var(--color-on-primary) !important;
+    font-weight: 600;
+    border-radius: var(--radius);
+}
+
+.site-skip-link:focus {
+    top: var(--space-1);
+}
+
+/* ---- Header -------------------------------------------------------------------------------------- */
+
+.site-header {
+    background: var(--color-page);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.site-header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 4.5rem;
+    padding-block: var(--space-1);
+}
+
+.site-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.site-brand-logo {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: none;
+    object-fit: contain;
+}
+
+.site-brand-name {
+    font-weight: 700;
+    font-size: 1.0625rem;
+    line-height: 1.25;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+}
+
+.site-nav-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.site-nav-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--color-ink) !important;
+}
+
+.site-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius);
+    background: var(--color-primary);
+    color: var(--color-on-primary) !important;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.site-button:hover {
+    text-decoration: underline;
+}
+
+/* On narrow screens the fixed call bar carries the phone number; the header keeps the brand. */
+.site-header-call {
+    display: none;
+}
+
+/* ---- Main ---------------------------------------------------------------------------------------- */
+
+.site-main {
+    padding-block: var(--space-4) var(--space-6);
+}
+
+.site-main:focus {
+    outline: none;
+}
+
+.site-page-title {
+    margin: 0 0 var(--space-3);
+    font-size: clamp(1.75rem, 1.4rem + 1.6vw, 2.5rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.site-lead {
+    max-width: 40rem;
+    margin: 0 0 var(--space-3);
+    font-size: 1.125rem;
+    color: var(--color-ink-muted);
+}
+
+/* Legal documents rendered by the shared _LegalDocument partial. */
+.site .legal-section {
+    max-width: 48rem;
+    margin-bottom: var(--space-4);
+}
+
+.site .legal-heading {
+    margin: 0 0 var(--space-1);
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.site .legal-paragraph {
+    margin: 0 0 var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+/* ---- Footer -------------------------------------------------------------------------------------- */
+
+.site-footer {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.site-footer a,
+.site-footer .site-footer-link {
+    color: var(--color-on-primary);
+}
+
+.site-footer :focus-visible {
+    outline-color: var(--color-on-primary);
+}
+
+.site-footer-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+    padding-block: var(--space-6);
+}
+
+.site-footer-heading {
+    margin: 0 0 var(--space-1);
+    padding-bottom: 0.375rem;
+    border-bottom: 2px solid var(--color-accent);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.site-address {
+    font-style: normal;
+}
+
+.site-address-line {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.site-address-line a {
+    display: inline-block;
+    padding-block: 0.25rem;
+}
+
+.site-hours,
+.site-footer-links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.site-hours abbr {
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.site-footer-links a {
+    display: inline-block;
+    padding-block: 0.25rem;
+}
+
+.site-footer-text,
+.site-footer-note {
+    margin: 0 0 var(--space-1);
+}
+
+.site-footer-note {
+    opacity: 0.92;
+}
+
+.site-footer-bottom {
+    border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.site-copyright {
+    margin: 0;
+    padding-block: var(--space-2);
+    font-size: 0.9375rem;
+}
+
+/* ---- Mobile call bar ----------------------------------------------------------------------------- */
+
+.site-callbar {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--color-primary);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.site-callbar-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--callbar-height);
+    color: var(--color-on-primary) !important;
+    font-weight: 700;
+    font-size: 1.0625rem;
+    text-decoration: none;
+}
+
+.site-callbar-link:focus-visible {
+    outline-color: var(--color-on-primary);
+    outline-offset: -6px;
+}
+
+/* ---- Wider screens ------------------------------------------------------------------------------- */
+
+@media (min-width: 480px) {
+    .site-container {
+        padding-inline: var(--space-3);
+    }
+}
+
+@media (min-width: 768px) {
+    body.site {
+        padding-bottom: 0;
+    }
+
+    .site-callbar {
+        display: none;
+    }
+
+    .site-header-call {
+        display: inline-flex;
+    }
+
+    .site-brand-logo {
+        width: 3rem;
+        height: 3rem;
+    }
+
+    .site-brand-name {
+        font-size: 1.1875rem;
+    }
+
+    .site-main {
+        padding-block: var(--space-6) var(--space-8);
+    }
+
+    .site-footer-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    .site-container {
+        padding-inline: var(--space-4);
+    }
+
+    .site-footer-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+/* ---- Motion and print ---------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+    .site *,
+    .site *::before,
+    .site *::after {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+@media print {
+    body.site {
+        padding-bottom: 0;
+    }
+
+    .site-callbar,
+    .site-skip-link,
+    .site-header-call,
+    .site-nav {
+        display: none !important;
+    }
+
+    .site-footer {
+        background: none;
+        color: #000000;
+    }
+
+    /*
+      Every footer link, however specific its screen rule. Found by printing to PDF in Slice 2 QA:
+      ".site-footer a" alone lost to ".site-footer .site-footer-link", so the phone number, email
+      and legal links printed white on the removed background — present in the document, invisible
+      on paper.
+    */
+    .site-footer a,
+    .site-footer .site-footer-link {
+        color: #000000 !important;
+    }
+}

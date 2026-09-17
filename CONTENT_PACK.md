@@ -67,6 +67,10 @@ A file must be valid JSON with an object at the top level and no duplicate keys 
 | `Services[].Name` | text ≤ 60 | Unique ignoring case. |
 | `Services[].Summary` | text ≤ 300 | Required. One or two plain sentences. |
 | `Services[].Offerings[]` | list of text ≤ 160 | At least one; none blank. What the company actually offers, one item each. |
+| `Theme.PrimaryColor` | `#RRGGBB` | Optional (Slice 2, D103). Must reach **4.5:1 against white** — it carries white button and link text. Absent: a neutral product default. |
+| `Theme.AccentColor` | `#RRGGBB` | Optional. Must reach **3:1 against the effective primary** — used for decoration, borders and large text only. Absent: a neutral product default. |
+
+Colours are served as the generated `/site/theme.css`; a pack never supplies CSS, and a colour that fails its contrast minimum fails startup naming the key.
 
 ## 4. `legal.json` → `Legal`
 
@@ -96,6 +100,7 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
   },
   "Site": {
     "PublicBaseUrl": "https://beispielbetrieb.test",
+    "Theme": { "PrimaryColor": "#1F4B7A", "AccentColor": "#E8C27A" },
     "Services": [
       {
         "Slug": "test-leistung",

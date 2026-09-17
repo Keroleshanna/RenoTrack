@@ -6,6 +6,7 @@ using Microsoft.Extensions.WebEncoders;
 using RenoTrack.Website.Content;
 using RenoTrack.Website.PublicApi;
 using RenoTrack.Website.Security;
+using RenoTrack.Website.Site;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,7 +23,6 @@ contentPack.AddTo(((IConfigurationBuilder)builder.Configuration).Sources);
 // Lists merge entry by entry across configuration sources, silently; a list must come from one source.
 ContentListSourceGuard.EnsureSingleSource(builder.Configuration);
 
-builder.Services.AddRazorPages();
 
 // Load-bearing, not tidiness: stops ASP.NET creating the per-request logging scope whose RequestPath
 // is the customer's token on /angebot/{token}. Without it every warning or error logged during a
@@ -75,6 +75,28 @@ builder.Services.AddSingleton(companyIdentity);
 var site = builder.Configuration.GetSection(SiteOptions.SectionName).Get<SiteOptions>() ?? new SiteOptions();
 site.Validate(companyIdentity);
 builder.Services.AddSingleton(site);
+
+// The marketing site's shape is decided here, once (D103). When it is enabled, the startup convention gives
+// the marketing pages their endpoint metadata, and every request-time marketing behaviour — CSP, canonical
+// paths, the site layout — decides from that metadata alone. When it is disabled, the convention is never
+// registered, no endpoint carries the metadata, and the legal pages behave exactly as before Phase 13.
+builder.Services.AddRazorPages(options =>
+{
+    if (site.IsEnabled)
+    {
+        MarketingPageConvention.Apply(options.Conventions);
+    }
+});
+
+// A startup snapshot, so marketing pages render from the values the pipeline was composed with rather than
+// re-reading options per request.
+if (site.IsEnabled)
+{
+    builder.Services.AddSingleton(new MarketingSite(site));
+}
+
+var themeStylesheet = new ThemeStylesheet(site.Theme);
+builder.Services.AddSingleton(themeStylesheet);
 
 // The two legally required pages' content (SRS FR-1.4, D100). Registered as a validated singleton
 // rather than through IOptions, matching PublicApiOptions: the pages and the layout need the same
@@ -137,11 +159,29 @@ if (trustedForwarders.IsConfigured)
 
 app.UseHttpsRedirection();
 
+// Before routing, so the re-executed request is routed afresh. 404 only, GET/HEAD only, never from a token
+// route (D103) — and only when the marketing site exists: a token-only deployment keeps its bare 404s.
+if (site.IsEnabled)
+{
+    app.UseSiteNotFoundPage();
+}
+
 app.UseRouting();
 
 // After UseRouting, because the token-route rules read the matched endpoint's route values —
 // registered earlier they would find none and the strict headers would silently never apply.
 app.UseCustomerSecurityHeaders();
+
+// Marketing pages only, decided from the matched endpoint's metadata (D103). Token routes can never carry
+// that metadata (MarketingPageGuard below), so their headers stay exactly as UseCustomerSecurityHeaders sets them.
+app.UseMarketingSecurityHeaders();
+
+// The canonical host (derived www alias) and canonical marketing paths, with the origin captured now. Only
+// when the marketing site is enabled; nothing in it reads configuration per request.
+if (site.IsEnabled)
+{
+    app.UseCanonicalRedirects(site.CanonicalOrigin);
+}
 
 app.UseAuthorization();
 
@@ -173,6 +213,12 @@ if (Directory.Exists(brandRoot))
 app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();
+
+ThemeStylesheet.Map(app, themeStylesheet);
+
+// Marketing metadata must never reach a route whose URL is a customer credential. Checked against the endpoints
+// actually built, by route parameter, so it also covers token routes nobody has written yet (D103).
+MarketingPageGuard.EnsureNoTokenRoutes(MarketingPageGuard.EndpointsOf(app));
 
 // Reported once, at startup, so an unset identity is visible to an operator rather than silently
 // producing a nameless page. Deliberately a warning and not a failure: this is copy, not wiring.

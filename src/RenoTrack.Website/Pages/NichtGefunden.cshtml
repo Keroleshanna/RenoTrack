@@ -1,0 +1,20 @@
+@page "/nicht-gefunden"
+@model RenoTrack.Website.Pages.NichtGefundenModel
+@using RenoTrack.Website.Site
+@{
+    Layout = SiteLayout.Path;
+    ViewData["Title"] = "Seite nicht gefunden";
+    ViewData.SetNoIndex();
+}
+@*
+    The marketing site's 404 (D103). Reached by re-executing a bodyless GET/HEAD 404, or directly. Either way
+    it answers 404 and is not indexed.
+
+    It never names the address that was requested: echoing a path or query back would reflect whatever a
+    visitor or a crafted link put there, including something that looks like a customer's token.
+*@
+<h1 class="site-page-title">Seite nicht gefunden</h1>
+
+<p class="site-lead">
+    Die aufgerufene Seite gibt es nicht oder nicht mehr. Bitte prüfen Sie die Adresse.
+</p>

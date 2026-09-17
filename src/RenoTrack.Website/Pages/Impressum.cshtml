@@ -1,8 +1,13 @@
 @page "/impressum"
 @model RenoTrack.Website.Pages.ImpressumModel
+@using RenoTrack.Website.Site
 @{
-    Layout = "_CustomerLayout";
+    // Shared by both surfaces (D103): the marketing layout when this endpoint carries marketing-page
+    // metadata, which only the startup convention adds and only when the marketing site is enabled;
+    // otherwise the customer layout, exactly as before Phase 13. Never decided from configuration.
+    Layout = SiteLayout.For(HttpContext);
     ViewData["Title"] = Model.PageName;
+    var titleClass = HttpContext.IsMarketingPage() ? "site-page-title" : "customer-title";
 }
 @*
     SRS FR-1.4. Lowercase route, matching /angebot (OQ-5) and pinned by a test so the canonical URL
@@ -11,6 +16,6 @@
     Reached only when Legal:Impressum carries real content; otherwise the page model answers 404 and
     the customer layout renders no link here at all (D100 Part 1).
 *@
-<h1 class="customer-title">@Model.PageName</h1>
+<h1 class="@titleClass">@Model.PageName</h1>
 
 @{ await Html.RenderPartialAsync("_LegalDocument", Model.Document); }

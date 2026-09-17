@@ -15,7 +15,7 @@
 |---|---|---|
 | **0** | Housekeeping and preparation | ✅ **closed** — commit `0d2f22a` (§5) |
 | **1** | Content model (content pack schema, isolation, startup validation, runtime mount) | ✅ **closed** (§5a) |
-| 2 | Site shell (`_SiteLayout`, tokens, header/footer, marketing headers + CSP, host/lowercase 301s) | ⏸ |
+| **2** | Site shell (`_SiteLayout`, tokens, header/footer, marketing headers + CSP, host/lowercase 301s) | ✅ **closed** (§5b) |
 | 3 | Homepage | ⏸ |
 | 4 | Services overview + service detail (`/leistungen/{slug}`) | ⏸ |
 | 5 | Media preparation + Projects gallery | ⏸ |
@@ -230,7 +230,134 @@ The last row is inherent (D102 Part 2): while validation holds, filtering remove
 
 ---
 
+## 5b. Slice 2 — Site shell (D103)
+
+**Design:** approved at the Slice 2 final gate, S2-1 to S2-9. The Figtree download was authorised as part of S2-3.
+
+**Delivered:**
+- **Marketing metadata.** `MarketingPageMetadata` is a sealed non-attribute marker, applied only by `MarketingPageConvention` (`/Impressum`, `/Datenschutz`, `/NichtGefunden`), registered only when `Site:PublicBaseUrl` is set. It is guarded against token routes twice: a page-path check, and a startup endpoint scan by `token` route parameter.
+- **Request-time consumers read only the endpoint:** marketing headers (CSP, `Permissions-Policy`), canonical-path redirects, the layout of the shared legal pages, and the not-found page's render-or-bare-404.
+- **Composed at startup only when the site is enabled:** 404 re-execution (404, GET/HEAD, never token routes) and the canonical-host redirect (derived `www` alias, 301/308, token path byte-preserved).
+- **`_SiteLayout`** with head/header/footer/call-bar partials. The marketing layout reads a startup snapshot (`MarketingSite`), never `SiteOptions`.
+- **`Site:Theme`** (validated hex, contrast minimums) and the generated `/site/theme.css`.
+- **Figtree** 400/600/700 plus `OFL.txt`, self-hosted, and `marketing.css`.
+
+**Font files** — downloaded from `https://cdn.jsdelivr.net/npm/@fontsource/figtree@5.3.0/`; sizes match the approved figures exactly:
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `figtree-latin-400-normal.woff2` | 11,384 | `8f98dd642986f1fa39c45b89665a57372897c235b36028e0e4a136e43dc5f8ab` |
+| `figtree-latin-600-normal.woff2` | 11,544 | `367d713287918784702563518f59239989da815c80d3c7337686b9816635a08b` |
+| `figtree-latin-700-normal.woff2` | 11,376 | `7ec4f08d09f91d349917dd6592f6aaae66d8fe1bbd58fa24707961e79236616e` |
+| `OFL.txt` (package `LICENSE`) | 4,498 | `ee23e6c84000126692e112ff067b456470493349f993ceaa8b4d3766dd6fad5d` |
+
+Git treats the woff2 files as binary, and `OFL.txt` contains no CR, so the committed bytes equal the hashed bytes.
+
+**Design decisions taken at implementation review (Tech Lead, 2026-09-17):**
+1. **Mobile phone CTA — accepted as an intentional design decision.** On narrow screens, the fixed mobile call bar is the primary phone CTA; the duplicate header phone CTA is hidden below 768px. The header button is not to be restored.
+2. **Mobile navigation — accepted as deferred.** No empty mobile menu is built in Slice 2. The narrow-screen `<details>` navigation is introduced with the first real navigation entries (S2-6).
+
+**Other differences from the design list:**
+1. **Files beyond the design list:**
+   - `Site/SiteLayout.cs` — partial paths and layout choice;
+   - `Site/SiteNotFound.cs` — the re-execution handler;
+   - `Site/MarketingSite.cs` — the startup snapshot;
+   - `Site/SiteNavigation.cs`, split from `SitePage.cs`.
+
+   No behaviour beyond the design.
+2. **Slice 1 documentation defect fixed.** `DEPLOYMENT_CONFIGURATION.md` §2.2 had its "\* Required once the marketing site is enabled" footnote inserted mid-table in commit `ff1d6cb`, which cut the `LogoPath` row out of the table. The footnote now follows the table.
+
+**Found while implementing:**
+- A bodyless POST to an unknown address answers **405**, identically with the site disabled. It is existing routing behaviour, left untouched, and pinned against the disabled baseline.
+- `MapStaticAssets` fingerprints stylesheet names (`/css/marketing.<hash>.css`).
+- The `+` of a phone number renders as `&#x2B;` in `href`, as `CompanyIdentityRenderingTests` already documents.
+
+**Tests — what was actually measured, and how.** There was **no single run in which all five projects passed.** Windows Application Control refused a freshly built binary in each full run (`0x800711C7`, the condition `PROJECT_STATE.md` already records), so the result is reported per project, with its run:
+
+| Project | Before | After | Delta | Measured in |
+|---|---|---|---|---|
+| Website | 586 | **721** | **+135** | Release, non-deterministic build (see below) |
+| Application | 470 | 470 | — | Release full run |
+| Infrastructure (LocalDB) | 412 | 412 | — | Release full run |
+| Api (LocalDB) | 478 | 478 | — | Release full run |
+| Domain | 389 | 389 | — | Debug full run — Release was refused `RenoTrack.Domain.Tests.dll` on every retry |
+
+**How each figure was obtained:**
+- **Debug full run:** refused `RenoTrack.Application.dll`, so Application, Infrastructure and Api failed at load. Domain passed 389 and Website 720.
+- **Release full run:** refused `RenoTrack.Domain.Tests.dll`. Application 470, Infrastructure 412, Api 478 and Website 720 passed.
+- **After accessibility QA added one test:** the rebuilt `RenoTrack.Website.Tests.dll` was refused in both Debug and Release on every retry. Built with `-p:Deterministic=false` — same source, different bytes — it loaded and passed **721/721**.
+- **Domain, Application, Infrastructure and Api are not changed by Slice 2** (`git diff` is empty for all four projects and their tests). Their figures equal the Slice 1 baseline, and the environmental limitation is stated here rather than folded into one total.
+
+The +135 by class:
+- `CanonicalRedirectTests` 36
+- `SiteFormattingTests` 19
+- `ThemeOptionsTests` 19
+- `SiteLayoutTests` 18
+- `SiteNotFoundTests` 13
+- `MarketingPageGuardTests` 11
+- `MarketingSecurityHeadersTests` 11
+- `MarketingPageMetadataTests` 8
+
+Build: 0 warnings, 0 errors, in both Debug and Release. **No existing test file was edited.** The only change under `tests/` besides new files is `Site:Theme` added to the Alpha fixture pack.
+
+**Mutation spot checks** — each applied to the finished code, built, run, then restored and byte-compared:
+
+| Mutation | Tests failing |
+|---|---|
+| Convention registered even when the site is disabled | 15 — incl. 9 existing `LegalPageTests`/`CompanyIdentityRenderingTests` and the disabled-site endpoint enumeration |
+| Both token guards removed and `/Angebot` listed as a marketing page | 12 |
+| Host redirect lower-cases the path | 3 |
+| Protocol-relative (`//`, `/\`) guard removed | 2 — unit tests only |
+| Headers middleware re-reads `SiteOptions` per request | 1 — the DI-replacement test |
+
+The protocol-relative guard is proven at unit level only: host-level, such a path never matches a marketing endpoint, so no host test can reach it (recorded in D103).
+
+**Manual browser QA** — `dotnet publish -c Release` output, Production environment, fictional Alpha pack, in-app browser:
+
+| Check | Result |
+|---|---|
+| Rendering | `/impressum` renders in `_SiteLayout`: title `Impressum \| Alpha Testbetrieb (Testdaten)`, one `h1`, zero scripts, canonical `https://www.alpha-testbetrieb.test/impressum`, theme colours `#1F4B7A` / `#E8C27A` applied |
+| Fonts | Figtree 400/600/700 all loaded; `document.fonts.check` confirms Figtree covers ä ö ü Ä Ö Ü ß € – ² |
+| Network | Every resource same-origin: three fonts, `marketing.<hash>.css`, `theme.css?v=…`, the logo |
+| CSP enforced by the browser | An in-page `fetch` was refused with "violates … connect-src 'none'" |
+| Keyboard | Tab 1 focuses "Zum Inhalt springen" with a 3 px solid outline at the top. Enter moves to `#inhalt`; the next Tab reaches the first focusable element after `main`. |
+| 320 px | No horizontal overflow; call bar shown (56 px target); body padding 56 px; header phone hidden; footer 1 column |
+| 375 / 414 px | No overflow; call bar shown; 1 column |
+| 768 px | No overflow; call bar hidden; header phone shown; 3 columns |
+| 1024 px | No overflow; 4 columns |
+| 1366 / 1920 px | No overflow; 4 columns; content container capped at 1,152 px |
+| Site 404 | `/Unbekannt/Kx9Qm2Zt7Lp4Wv8Rb1Nc6Hd3` → site 404 page, `noindex`, no canonical, footer present, probe string not reflected |
+| Canonical path | `/Impressum/` lands on `/impressum` |
+| Token page | `/angebot/QaToken…` → `_CustomerLayout`, `customer.<hash>.css` only, `noindex, nofollow, noarchive`, 503 (API deliberately unreachable in QA) |
+| Logs | Neither the token nor the 404 probe string appears in the server log |
+
+Screenshots sometimes timed out in the pane, so most widths there were verified by DOM measurement rather than by image.
+
+**Accessibility QA required for closure** — performed in headless Microsoft Edge, driven over the Chrome DevTools Protocol against the same published build with the Alpha pack. The in-app pane cannot emulate any of these. Evidence (PDFs, screenshots, JSON results) was kept in the session scratchpad and is not committed.
+
+| Check | How it was performed | Result |
+|---|---|---|
+| **Print** | The browser's real print pipeline (`Page.printToPDF`, A4) for `/impressum` and the 404 page, **read back as PDF**; computed styles under `print` media | **Defect found and fixed.** The first PDF printed the footer's phone number, email and Impressum link **white on the removed background** — present in the text layer, invisible on paper. Cause: the print rule `.site-footer a` lost to the screen rule `.site-footer .site-footer-link`. Fixed with a selector naming the specific class, and pinned by a new test. **Re-run after the fix:** every footer link computes `rgb(0, 0, 0)` in print and is visible in the PDF. The call bar, header phone and skip link are `display: none`; body bottom padding is `0px`; address and heading are visible. |
+| **prefers-reduced-motion** | Media feature emulated as `reduce`; every element under `.site` inspected | `matchMedia` reports `reduce`. **0** elements with a non-zero `transition-duration`, **0** with an `animation-name`, **0** with smooth scrolling, **0** running animations (46 elements). Without the emulation there were also 0 transitions and 0 animations: the shell uses no motion, and the rule guards future additions. |
+| **200% text-only resize** | The browser's own font-size setting doubled (`Page.setFontSizes`, standard 16 → 32 px), layout zoom unchanged | Root font 32 px, body 34 px. **At 1280 px:** no horizontal overflow, nothing clipped by `overflow: hidden`, no element past the viewport, email link inside it, footer 4 columns. **At 375 px:** the same, with the company name wrapping onto 3 lines and the call bar growing with its `rem` height. |
+| **True 400% zoom** | The browser's **page zoom** preference set to 400% for a 1280×1024 window, which is how Chromium zooms a page | **Confirmed as real zoom, not a narrow viewport:** CSS viewport **314 px** (1280 ÷ 4, less the scrollbar), `devicePixelRatio` **4**. `/impressum` and the 404 page both reflow to one column with no horizontal overflow, no clipping, no element past the viewport; the call bar is shown and the header phone hidden. **Method correction:** a first attempt with `--force-device-scale-factor=4` left the CSS viewport at 1256 px, so it was not zoom and its result was discarded. |
+| **Focus not obscured at 400% zoom and 200% text** (WCAG 2.2 2.4.11, prompted by the call bar taking about a quarter of the zoomed viewport) | **Real Tab key presses** through `/impressum` | Every focus stop visible: skip link at top 8 px; footer phone, email and Impressum links scrolled into view with bottoms at or above 169 px against a call bar starting at 177 px; call-bar link itself last. No focused element covered by the bar. An earlier probe using programmatic `focus()` flagged the skip link as off-screen; the key-driven run — what a keyboard user actually does — shows it at the top. |
+
+**Migrations:** none. **Packages:** none; font files are static assets. **Layers touched:** `RenoTrack.Website` and its tests only. `.claude/launch.json` received a temporary QA entry and was restored byte-for-byte (no diff).
+
+**Documentation:**
+- `ARCHITECTURE_DECISIONS.md` **D103**;
+- `CLAUDE.md` §25 additions;
+- `CONTENT_PACK.md` (`Site:Theme`, example);
+- `DEPLOYMENT_CONFIGURATION.md` (`Site:Theme` row, `AllowedHosts`/certificate/`Host` pre-launch item, §2.2 table repair);
+- `appsettings.json` (`//Theme`);
+- this file; `PROJECT_STATE.md`.
+
+---
+
 ## 6. Open actions
+
+- **Narrow-screen `<details>` navigation:** to be built with the first real navigation entry (accepted deferral, Slice 2 review).
 
 - **Slice 1 mutation gap — accepted as documented (Tech Lead, 2026-09-16).** No test-only seam is added: validation and the independently tested filter overlap, and an unobservable call removal is not a production security gap.
 

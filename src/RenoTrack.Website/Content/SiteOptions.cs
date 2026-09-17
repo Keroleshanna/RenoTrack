@@ -29,6 +29,12 @@ public sealed class SiteOptions
 
     public IReadOnlyList<ServiceOptions> Services { get; init; } = [];
 
+    /// <summary>
+    /// The company's brand colours (added in Phase 13 Slice 2, D103). Validated whenever supplied; absent
+    /// values fall back to neutral product defaults.
+    /// </summary>
+    public ThemeOptions Theme { get; init; } = new();
+
     public bool IsEnabled => !ContentText.IsBlank(PublicBaseUrl);
 
     /// <summary>
@@ -47,6 +53,8 @@ public sealed class SiteOptions
 
         EnsureUnique(service => service.Slug!, nameof(ServiceOptions.Slug), StringComparer.Ordinal);
         EnsureUnique(service => service.Name!.Trim(), nameof(ServiceOptions.Name), StringComparer.OrdinalIgnoreCase);
+
+        Theme.Validate($"{SectionName}:{nameof(Theme)}");
 
         if (!IsEnabled)
         {

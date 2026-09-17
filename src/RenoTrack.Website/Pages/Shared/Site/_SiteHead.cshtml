@@ -1,0 +1,48 @@
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject MarketingSite Marketing
+@inject CompanyIdentityOptions Company
+@inject ThemeStylesheet Theme
+@*
+    Head metadata for a marketing page (D103). The canonical URL and og:url are absolute, lower case and
+    without a query, built from the canonical origin captured at startup. A page that must not be indexed gets
+    "noindex" and no canonical; an indexable page carries no robots directive at all (Phase 13 addendum §D).
+*@
+@{
+    var pageTitle = ViewData["Title"] as string;
+    var fullTitle = string.IsNullOrWhiteSpace(pageTitle) ? Company.DisplayName : $"{pageTitle} | {Company.DisplayName}";
+    var ogTitle = string.IsNullOrWhiteSpace(pageTitle) ? Company.DisplayName : pageTitle;
+    var description = ViewData.Description();
+    var indexable = ViewData.IsIndexable();
+    var canonical = Marketing.CanonicalUrlFor(Context.Request.Path);
+}
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@fullTitle</title>
+@if (description is not null)
+{
+    <meta name="description" content="@description" />
+}
+@if (indexable)
+{
+    <link rel="canonical" href="@canonical" />
+}
+else
+{
+    <meta name="robots" content="noindex" />
+}
+<meta property="og:site_name" content="@Company.DisplayName" />
+<meta property="og:title" content="@ogTitle" />
+@if (indexable)
+{
+    <meta property="og:url" content="@canonical" />
+}
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="de_DE" />
+@if (description is not null)
+{
+    <meta property="og:description" content="@description" />
+}
+<link rel="preload" href="/fonts/figtree/figtree-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="~/css/marketing.css" asp-append-version="true" />
+<link rel="stylesheet" href="@Theme.Url" />

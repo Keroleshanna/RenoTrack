@@ -1,0 +1,40 @@
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@*
+    The logo is decorative here (alt=""): the company name sits beside it as real text. That differs from
+    _CustomerLayout, where the logo replaces the name, because the web logo carries no wordmark (D103).
+
+    The primary navigation renders only when SiteNavigation has entries, which are pages that exist. There are
+    none in Slice 2, so there is no empty <nav>. The narrow-screen disclosure arrives with the first entry.
+*@
+<header class="site-header">
+    <div class="site-container site-header-inner">
+        <div class="site-brand">
+            @if (Company.HasLogo)
+            {
+                <img class="site-brand-logo" src="@Company.LogoPath" alt="" width="48" height="48" />
+            }
+            <span class="site-brand-name">@Company.DisplayName</span>
+        </div>
+
+        @if (SiteNavigation.Primary.Count > 0)
+        {
+            <nav class="site-nav" aria-label="Hauptnavigation">
+                <ul class="site-nav-list">
+                    @foreach (var item in SiteNavigation.Primary)
+                    {
+                        <li><a class="site-nav-link" href="@item.Href">@item.Text</a></li>
+                    }
+                </ul>
+            </nav>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(Company.ContactPhone))
+        {
+            <a class="site-button site-header-call" href="@SiteFormatting.TelHref(Company.ContactPhone)">
+                <span class="site-visually-hidden">Anrufen: </span>@Company.ContactPhone
+            </a>
+        }
+    </div>
+</header>

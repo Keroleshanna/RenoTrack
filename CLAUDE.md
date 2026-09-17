@@ -439,3 +439,25 @@ Four Application-layer exception types exist, added one at a time exactly when f
 - **`Site:PublicBaseUrl` is the marketing site's switch.** Absent: no marketing site, one warning, token and legal pages untouched. Present: it must be an HTTPS origin only (no path, query, fragment or user info), and the identity a public business site can't omit becomes required — name, phone, email, address, at least one service — all missing keys named in one message.
 - **Content model fields grow on demand, like repositories and DTOs (§4, §7).** A field is added in the slice that first renders it, not in the slice that models the content.
 - **Validation checks shape, never truth.** Whether the address is right is verified in the content repository. Code refuses only what cannot be rendered or published as intended.
+- **A page becomes a marketing page only through `MarketingPageConvention`, and only when the marketing site is enabled (D103).**
+  - `MarketingPageMetadata` is deliberately **not an attribute**. Do not add an attribute form, do not add the metadata any other way, and add a new marketing page by listing its page path in `MarketingPageConvention.PagePaths`.
+  - When the site is disabled the convention is never registered, and no endpoint carries the metadata.
+- **Marketing behaviour at request time is decided from the matched endpoint, never from configuration.**
+  - Headers, canonical-path redirects and the shared legal pages' layout all ask `HttpContext.IsMarketingPage()`, and nothing else.
+  - A consumer that re-reads `SiteOptions` per request breaks the startup/request split and fails the DI-replacement test.
+  - What has no endpoint to consult (404 re-execution, the host redirect) is registered or not in `Program.cs` at startup.
+- **Marketing metadata can never reach a token route.** Two independent startup guards enforce it:
+  - the convention refuses page paths under `/Angebot`;
+  - `MarketingPageGuard` refuses any endpoint carrying the metadata with a `token` route parameter.
+
+  Do not weaken either because the other exists. A token page's headers, layout and path are untouched by the marketing site; only the host alias redirect applies to it, and it copies the token byte for byte.
+- **The canonical host alias is derived, not configured, and is the only host redirected.** Unknown hosts belong to `AllowedHosts`; `X-Forwarded-Host` is not trusted.
+- **Company colours are two validated hex values, never CSS.** `Site:Theme` feeds the generated `/site/theme.css`; inline styles and company-authored stylesheets are both out (CSP `style-src 'self'`). Contrast minimums are checked at startup.
+- **Typography is self-hosted Figtree (OFL 1.1), and nothing is loaded from another origin.**
+  - The four font files and their hashes are recorded in D103.
+  - Adding a weight, a subset or another font is a design decision, not a tweak.
+- **The site's stylesheet is `marketing.css`, not `site.css`** (the latter is pinned as a removed scaffold asset). Stylesheet URLs are fingerprinted by `MapStaticAssets` — assert the pattern, not a literal file name.
+- **The site 404 re-executes 404s only, GET/HEAD only, never from a token route, and never echoes the requested address.**
+- **On narrow screens the fixed call bar is the phone CTA; the header phone button is hidden below 768 px by decision (D103).** Do not add it back as a duplicate.
+- **A print rule must out-specify the screen rule it overrides — prove it by printing, not by reading the CSS.** Slice 2's footer links printed white on white because `.site-footer a` lost to `.site-footer .site-footer-link`. The stylesheet looked right; only the PDF showed it (D103).
+- **Accessibility QA uses the browser's real mechanism for each check.** Print means an actual print to PDF. Reduced motion means the emulated media feature. Text resize means the browser's font-size setting. 400% zoom means the browser's page zoom, confirmed by the CSS viewport shrinking to about a quarter. A narrow viewport is not zoom, and a raised device scale factor is not zoom either. Check focus visibility with real Tab key presses, not programmatic `focus()`.

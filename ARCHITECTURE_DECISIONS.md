@@ -2588,3 +2588,94 @@ Only fields with a consumer in Slices 2–4 exist. Statements, media, FAQ, inqui
 - **Fixtures:** two fictional companies with reserved `.test` domains and `+49 000` numbers, enforced by a test.
 - **Forbidden-name variants:** the addendum's check can't hold a real company's spellings here without breaking D100. The product repository ships the *mechanism* (Slice 10); the company's list lives in its content repository.
 - **Cross-application consistency:** `Site:PublicBaseUrl` should match the API's `TokenLink:PublicBaseUrl` origin, as `CompanyIdentity:DisplayName` should match `Email:FromDisplayName`. The two applications can't check each other, so this is a documented deployment check.
+
+---
+
+## D103 — The Marketing Site Shell: Startup-Composed, Endpoint-Decided, Never on a Token Route
+
+**Phase 13 Slice 2.** Approved at the Slice 2 gate, decisions S2-1 to S2-9.
+
+**Problem:** the marketing site needs its own layout, security headers, canonical addresses, typography, theme and 404 page. It shares an application — and two pages, the Impressum and the Datenschutzerklärung — with the customer token pages, whose rules (`CLAUDE.md` §24, D97–D101) must not move by a byte. A token-only deployment must also behave exactly as before.
+
+### Part 1 — Marketing metadata: a startup convention, never an attribute (S2-9)
+
+**Decision:** `MarketingPageMetadata` is a sealed, non-attribute marker. The only code that adds it is `MarketingPageConvention`, a Razor Pages page convention over one list of page paths. `Program.cs` registers the convention **only when `Site:PublicBaseUrl` is set**. When the site is disabled, no endpoint in the application carries the marker (pinned by enumerating every endpoint).
+
+**Every request-time marketing behaviour decides from the matched endpoint alone** — `HttpContext.IsMarketingPage()`:
+- the marketing security headers;
+- the canonical-path redirect;
+- the layout choice of the two shared legal pages;
+- the not-found page's own "render or bare 404".
+
+No consumer reads configuration per request. Pipeline pieces that have no endpoint to consult (404 re-execution, host redirect) are registered or not at startup, with the canonical origin captured then.
+
+A test swaps the registered `SiteOptions` for a disabled instance after composition and proves headers, layout and redirects still follow the metadata. A mutation that re-reads the options in the headers middleware fails that test.
+
+**Alternatives considered:**
+- **An attribute on page models.** Rejected: a page could declare itself a marketing page, and a stray attribute could land on a token page.
+- **An attribute plus a request-time `IsEnabled` check.** Rejected at the design gate: behaviour would depend on configuration read per request.
+
+**Never on a token route — two independent startup guards:**
+1. the convention refuses any page path under `/Angebot`;
+2. `MarketingPageGuard` scans the built endpoints before `app.Run()` and fails naming the route pattern when an endpoint carries the marker *and* a route parameter named `token` (case-insensitive).
+
+The second guard keys on the same parameter rule as `CustomerSecurityHeaders`, so it also covers token routes nobody has written yet.
+
+### Part 2 — Headers
+
+Endpoints with the marker send:
+- `Content-Security-Policy: default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()`
+
+`connect-src 'none'` goes beyond the originally proposed string, closing the fetch channel `default-src 'self'` would leave open. The site-wide baseline (`nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS) is unchanged. **Token pages get no CSP change in this decision.** Proposing a CSP for them is separate hardening.
+
+### Part 3 — Canonical host and path
+
+**Host:** exactly one alias is redirected — the `www.` counterpart of the canonical host, derived rather than configured. There is no alias for an IP, `localhost` or a single-label host.
+- GET/HEAD gets 301; other methods get 308.
+- Path and query are preserved on **every route, token routes included**. The token is never re-cased, and the redirect keeps the token route's `no-store`/`noindex`. Nothing is logged.
+- **Unknown hosts are not redirected** — refusing them is `AllowedHosts`' job, and redirecting everything non-canonical would bounce health checks.
+- `X-Forwarded-Host` is not trusted; the proxy must pass the original `Host`.
+- `http://www…` takes two hops (HTTPS redirect, then host).
+
+**Path:** on endpoints with the marker only, GET/HEAD only.
+- Upper-case ASCII or a trailing slash gets 301 to the lower-case path without the slash, query preserved.
+- A path starting `//` or `/\` is never redirected.
+
+The alias and path rules are unit-tested. Host-level, an escaped `%2F` path never reaches a marketing endpoint, so the protocol-relative guard is unit-proven only — a mutation removing it failed the unit test and no host test.
+
+### Part 4 — The site 404
+
+A custom `UseStatusCodePages` handler, registered only when the site is enabled, re-executes a bodyless 404 into `/nicht-gefunden`:
+- **404 only, GET/HEAD only, never from a token route** — narrower than `UseStatusCodePagesWithReExecute`, which would turn a 405 or a bodyless 400 into "not found".
+- The page always answers 404, is `noindex`, and never renders the requested path or query.
+- Without the marker (site disabled) it returns a bare 404.
+
+POST to an unknown address is untouched: routing answers 405 there, identically with the site disabled.
+
+### Part 5 — Layout, theme, typography
+
+- **Layout.** `_SiteLayout` and partials in `Pages/Shared/Site/`, referenced by full path. The header has the company name as text beside a decorative logo (`alt=""`, since the web logo carries no wordmark) and the phone. The footer has address and contact, opening hours as German ranges with `abbr`, service area, legal links and copyright. There is a fixed "Anrufen" call bar below 768 px. Every fact comes from the content pack; an unconfigured block is omitted, heading included.
+- **Mobile phone CTA (accepted at implementation review).** On narrow screens, the fixed mobile call bar is the primary phone CTA; the duplicate header phone CTA is hidden below 768px. The header button is deliberately not shown alongside the bar.
+- **Navigation.** `SiteNavigation` lists only pages that exist — none in Slice 2, so no `<nav>` renders, and every future entry must answer 200 (pinned). **The narrow-screen `<details>` navigation is introduced with the first real navigation entries** (accepted deferral at implementation review); no empty mobile menu is built.
+- **Head.** Title `<page> | <DisplayName>`; absolute lower-case canonical without query; Open Graph without an image; `noindex` only on non-indexable pages. A marketing page's layout reads a startup snapshot (`MarketingSite`), never `SiteOptions`.
+- **Theme (S2-2).** `Site:Theme:PrimaryColor`/`AccentColor` are `#RRGGBB` only. The primary must reach 4.5:1 against white; the accent 3:1 against the effective primary; failures fail startup naming the key. `/site/theme.css` is generated at startup as two custom properties, served with a content-hash URL and `max-age=3600`, and always available (product defaults when unset). No company-authored CSS and no inline style.
+- **Typography (S2-3).** Figtree, SIL OFL 1.1, *"Copyright 2022 The Figtree Project Authors"*, taken from `@fontsource/figtree@5.3.0` — Latin 400/600/700 woff2 plus `OFL.txt`, served same-origin, `font-display: swap`, 400 preloaded. Chosen for a clean geometric form, body-size legibility, full German coverage in the Latin subset, and a licence with no Reserved Font Name.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `figtree-latin-400-normal.woff2` | 11,384 | `8f98dd642986f1fa39c45b89665a57372897c235b36028e0e4a136e43dc5f8ab` |
+| `figtree-latin-600-normal.woff2` | 11,544 | `367d713287918784702563518f59239989da815c80d3c7337686b9816635a08b` |
+| `figtree-latin-700-normal.woff2` | 11,376 | `7ec4f08d09f91d349917dd6592f6aaae66d8fe1bbd58fa24707961e79236616e` |
+| `OFL.txt` | 4,498 | `ee23e6c84000126692e112ff067b456470493349f993ceaa8b4d3766dd6fad5d` |
+
+**Found while implementing:**
+- `/css/site.css` is pinned as a removed scaffold asset by `ScaffoldRemovalTests`, so the stylesheet is `marketing.css`.
+- `MapStaticAssets` fingerprints stylesheet file names (`/css/marketing.<hash>.css`), so tests match the pattern, not a `?v=` query.
+
+**Found in accessibility QA, before closure.** Print, reduced motion, 200% text-only resize and true 400% page zoom were checked in a real Chromium browser (Edge) over the DevTools Protocol against the published build. The in-app pane can emulate none of them.
+- **Print defect, fixed.** The printed PDF showed the footer's phone, email and legal links white on the background print removes. The print rule `.site-footer a` lost on specificity to the screen rule `.site-footer .site-footer-link`. The print rule now names the specific selector, pinned by a test; after the fix every footer link prints black.
+- **Zoom has to be real zoom.** `--force-device-scale-factor=4` raised `devicePixelRatio` without shrinking the CSS viewport (1256 px), so it is not page zoom. The browser's page-zoom preference at 400% gave the genuine result: a 314 px CSS viewport at `devicePixelRatio` 4, reflowing without overflow. A narrow viewport is not a substitute for either.
+- **Reduced motion:** no transition or animation exists in the shell; the rule is in force for future additions.
+- **200% text:** no overflow or clipping at 1280 or 375 px.
+- **Focus not obscured:** real Tab presses at 400% zoom and 200% text found no focus stop hidden behind the fixed call bar.

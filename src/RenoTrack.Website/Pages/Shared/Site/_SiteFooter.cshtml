@@ -1,0 +1,95 @@
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@inject LegalContentOptions Legal
+@*
+    Company facts from the content pack only. A block whose facts are not configured is omitted entirely, with
+    no heading over nothing and no placeholder (D100). There is no social-media slot: none is configured, and
+    an empty one would suggest accounts that do not exist.
+*@
+@{
+    var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
+    var hasHoursNote = !string.IsNullOrWhiteSpace(Company.OpeningHoursNote);
+    var hasAreaNote = !string.IsNullOrWhiteSpace(Company.ServiceArea.Note);
+    var year = SiteFormatting.CopyrightYear(DateTimeOffset.UtcNow);
+}
+<footer class="site-footer">
+    <div class="site-container site-footer-grid">
+        <section class="site-footer-block" aria-labelledby="site-footer-company">
+            <h2 id="site-footer-company" class="site-footer-heading">@Company.DisplayName</h2>
+            <address class="site-address">
+                @if (Company.Address.IsSupplied)
+                {
+                    <span class="site-address-line">@Company.Address.StreetAddress</span>
+                    <span class="site-address-line">@Company.Address.PostalCode @Company.Address.Locality</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(Company.ContactPhone))
+                {
+                    <span class="site-address-line"><a class="site-footer-link" href="@SiteFormatting.TelHref(Company.ContactPhone)">@Company.ContactPhone</a></span>
+                }
+                @if (!string.IsNullOrWhiteSpace(Company.ContactEmail))
+                {
+                    <span class="site-address-line"><a class="site-footer-link" href="@SiteFormatting.MailtoHref(Company.ContactEmail)">@Company.ContactEmail</a></span>
+                }
+            </address>
+        </section>
+
+        @if (hours.Count > 0 || hasHoursNote)
+        {
+            <section class="site-footer-block" aria-labelledby="site-footer-hours">
+                <h2 id="site-footer-hours" class="site-footer-heading">Öffnungszeiten</h2>
+                @if (hours.Count > 0)
+                {
+                    <ul class="site-hours">
+                        @foreach (var line in hours)
+                        {
+                            <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                        }
+                    </ul>
+                }
+                @if (hasHoursNote)
+                {
+                    <p class="site-footer-note">@Company.OpeningHoursNote</p>
+                }
+            </section>
+        }
+
+        @if (Company.ServiceArea.HasPlaces || hasAreaNote)
+        {
+            <section class="site-footer-block" aria-labelledby="site-footer-area">
+                <h2 id="site-footer-area" class="site-footer-heading">Einsatzgebiet</h2>
+                @if (Company.ServiceArea.HasPlaces)
+                {
+                    <p class="site-footer-text">@SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+                }
+                @if (hasAreaNote)
+                {
+                    <p class="site-footer-note">@Company.ServiceArea.Note</p>
+                }
+            </section>
+        }
+
+        @if (Legal.Impressum.HasContent || Legal.Datenschutz.HasContent)
+        {
+            <nav class="site-footer-block" aria-labelledby="site-footer-legal">
+                <h2 id="site-footer-legal" class="site-footer-heading">Rechtliches</h2>
+                <ul class="site-footer-links">
+                    @if (Legal.Impressum.HasContent)
+                    {
+                        <li><a class="site-footer-link" href="/impressum">Impressum</a></li>
+                    }
+                    @if (Legal.Datenschutz.HasContent)
+                    {
+                        <li><a class="site-footer-link" href="/datenschutz">Datenschutzerklärung</a></li>
+                    }
+                </ul>
+            </nav>
+        }
+    </div>
+
+    <div class="site-footer-bottom">
+        <div class="site-container">
+            <p class="site-copyright">&copy; @year @Company.DisplayName</p>
+        </div>
+    </div>
+</footer>

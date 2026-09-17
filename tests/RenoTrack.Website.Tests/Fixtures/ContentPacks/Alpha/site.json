@@ -26,6 +26,7 @@
   },
   "Site": {
     "PublicBaseUrl": "https://www.alpha-testbetrieb.test",
+    "Theme": { "PrimaryColor": "#1F4B7A", "AccentColor": "#E8C27A" },
     "Services": [
       {
         "Slug": "test-leistung-eins",
