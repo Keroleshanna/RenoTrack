@@ -52,7 +52,8 @@ public sealed class MarketingPageMetadataTests(MarketingSiteFixture site) : ICla
             .Select(endpoint => endpoint.RoutePattern.RawText!.Trim('/'))
             .Order(StringComparer.Ordinal);
 
-        Assert.Equal(new[] { "datenschutz", "impressum", "nicht-gefunden" }, marked);
+        // "" is the homepage at "/" (Slice 3, D104).
+        Assert.Equal(new[] { "", "datenschutz", "impressum", "nicht-gefunden" }, marked);
         Assert.Equal(0, MarkersOn(Route(endpoints, "/angebot/{token}")));
         Assert.All(
             endpoints.Where(endpoint => endpoint.RoutePattern.Parameters.Any(parameter => parameter.Name == "token")),

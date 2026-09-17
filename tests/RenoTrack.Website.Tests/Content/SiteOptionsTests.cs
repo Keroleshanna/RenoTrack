@@ -29,6 +29,9 @@ public sealed class SiteOptionsTests
         Offerings = ["Erfundenes Angebot"],
     };
 
+    /// <summary>The homepage title an enabled site requires (Slice 3, D104).</summary>
+    private static HomePageOptions Home() => new() { MetaTitle = "Testleistungen in Testort" };
+
     private static InvalidOperationException Refused(SiteOptions site, CompanyIdentityOptions? identity = null) =>
         Assert.Throws<InvalidOperationException>(() => site.Validate(identity ?? CompleteIdentity()));
 
@@ -55,7 +58,7 @@ public sealed class SiteOptionsTests
     [Fact]
     public void A_complete_enabled_site_is_valid()
     {
-        var site = new SiteOptions { PublicBaseUrl = Origin, Services = [Service()] };
+        var site = new SiteOptions { PublicBaseUrl = Origin, Services = [Service()], Home = Home() };
 
         site.Validate(CompleteIdentity());
 
@@ -89,7 +92,7 @@ public sealed class SiteOptionsTests
     [InlineData("https://example.test:8443")]
     public void An_https_origin_is_accepted(string value)
     {
-        new SiteOptions { PublicBaseUrl = value, Services = [Service()] }.Validate(CompleteIdentity());
+        new SiteOptions { PublicBaseUrl = value, Services = [Service()], Home = Home() }.Validate(CompleteIdentity());
     }
 
     [Theory]

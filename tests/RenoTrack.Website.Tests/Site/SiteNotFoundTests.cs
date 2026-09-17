@@ -7,7 +7,7 @@ namespace RenoTrack.Website.Tests.Site;
 public sealed class SiteNotFoundTests(MarketingSiteFixture site) : IClassFixture<MarketingSiteFixture>
 {
     [Theory]
-    [InlineData("/")]
+    [InlineData("/index")]
     [InlineData("/unbekannt")]
     [InlineData("/leistungen/fliesen")]
     [InlineData("/fonts/figtree/nicht-da.woff2")]

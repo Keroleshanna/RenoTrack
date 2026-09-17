@@ -35,6 +35,12 @@ public sealed class SiteOptions
     /// </summary>
     public ThemeOptions Theme { get; init; } = new();
 
+    /// <summary>
+    /// What the homepage presents (added in Phase 13 Slice 3, D104). Validated whenever supplied; an enabled
+    /// site requires its <see cref="HomePageOptions.MetaTitle"/>.
+    /// </summary>
+    public HomePageOptions Home { get; init; } = new();
+
     public bool IsEnabled => !ContentText.IsBlank(PublicBaseUrl);
 
     /// <summary>
@@ -56,6 +62,8 @@ public sealed class SiteOptions
 
         Theme.Validate($"{SectionName}:{nameof(Theme)}");
 
+        Home.Validate($"{SectionName}:{nameof(Home)}");
+
         if (!IsEnabled)
         {
             return;
@@ -67,6 +75,12 @@ public sealed class SiteOptions
         if (Services.Count == 0)
         {
             missing.Add($"{SectionName}:{nameof(Services)}");
+        }
+
+        // No fallback to the company name: the homepage title has to say what the company does and where (D104).
+        if (!Home.HasMetaTitle)
+        {
+            missing.Add($"{SectionName}:{nameof(Home)}:{nameof(HomePageOptions.MetaTitle)}");
         }
 
         if (missing.Count > 0)

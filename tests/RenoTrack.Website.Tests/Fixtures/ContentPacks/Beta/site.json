@@ -13,6 +13,7 @@
   },
   "Site": {
     "PublicBaseUrl": "https://beta-musterwerkstatt.test",
+    "Home": { "MetaTitle": "Beta-Testleistung in Testort Beta (Testdaten)" },
     "Services": [
       {
         "Slug": "beta-testleistung",

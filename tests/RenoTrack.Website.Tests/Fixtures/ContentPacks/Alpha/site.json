@@ -27,6 +27,22 @@
   "Site": {
     "PublicBaseUrl": "https://www.alpha-testbetrieb.test",
     "Theme": { "PrimaryColor": "#1F4B7A", "AccentColor": "#E8C27A" },
+    "Home": {
+      "MetaTitle": "Testleistungen in Testort Alpha (Testdaten)",
+      "Headline": "Erfundene Testleistungen für Testort Alpha (Testdaten)",
+      "Subheadline": "Eine erfundene Einleitung für automatisierte Tests des Startseiten-Heros (Testdaten).",
+      "Advantages": [
+        { "Title": "Erster Testvorteil", "Text": "Ein erfundener Vorteil für automatisierte Tests (Testdaten)." },
+        { "Title": "Zweiter Testvorteil", "Text": "Noch ein erfundener Vorteil für automatisierte Tests (Testdaten)." },
+        { "Title": "Dritter Testvorteil", "Text": "Ein dritter erfundener Vorteil (Testdaten)." }
+      ],
+      "Process": [
+        { "Title": "Erster Testschritt", "Text": "Ein erfundener Ablaufschritt (Testdaten)." },
+        { "Title": "Zweiter Testschritt", "Text": "Ein zweiter erfundener Ablaufschritt (Testdaten)." },
+        { "Title": "Dritter Testschritt", "Text": "Ein dritter erfundener Ablaufschritt (Testdaten)." },
+        { "Title": "Vierter Testschritt", "Text": "Ein vierter erfundener Ablaufschritt (Testdaten)." }
+      ]
+    },
     "Services": [
       {
         "Slug": "test-leistung-eins",

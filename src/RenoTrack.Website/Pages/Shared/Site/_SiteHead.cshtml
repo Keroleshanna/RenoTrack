@@ -9,9 +9,13 @@
     "noindex" and no canonical; an indexable page carries no robots directive at all (Phase 13 addendum §D).
 *@
 @{
+    // A document title set by the page is used verbatim — the homepage's company-authored MetaTitle (D104).
+    // Every other page keeps "{Title} | {company}".
+    var documentTitle = ViewData.DocumentTitle();
     var pageTitle = ViewData["Title"] as string;
-    var fullTitle = string.IsNullOrWhiteSpace(pageTitle) ? Company.DisplayName : $"{pageTitle} | {Company.DisplayName}";
-    var ogTitle = string.IsNullOrWhiteSpace(pageTitle) ? Company.DisplayName : pageTitle;
+    var fullTitle = documentTitle
+        ?? (string.IsNullOrWhiteSpace(pageTitle) ? Company.DisplayName : $"{pageTitle} | {Company.DisplayName}");
+    var ogTitle = documentTitle ?? (string.IsNullOrWhiteSpace(pageTitle) ? Company.DisplayName : pageTitle);
     var description = ViewData.Description();
     var indexable = ViewData.IsIndexable();
     var canonical = Marketing.CanonicalUrlFor(Context.Request.Path);

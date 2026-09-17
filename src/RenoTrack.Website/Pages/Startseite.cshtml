@@ -1,0 +1,149 @@
+@page "/"
+@model RenoTrack.Website.Pages.StartseiteModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject MarketingSite Marketing
+@inject CompanyIdentityOptions Company
+@{
+    Layout = SiteLayout.Path;
+    ViewData.SetFullWidth();
+
+    var home = Marketing.Home;
+
+    // Required on an enabled site and validated at startup; used verbatim, with no company-name suffix (D104).
+    ViewData.SetDocumentTitle(home.MetaTitle!.Trim());
+    if (home.HasSubheadline)
+    {
+        ViewData.SetDescription(home.Subheadline!.Trim());
+    }
+
+    var headline = home.HasHeadline ? home.Headline : Company.DisplayName;
+    var phone = Company.ContactPhone!;
+    var email = Company.ContactEmail!;
+    var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
+    var hasHoursNote = !string.IsNullOrWhiteSpace(Company.OpeningHoursNote);
+    var hasAreaNote = !string.IsNullOrWhiteSpace(Company.ServiceArea.Note);
+    var hasOwner = !string.IsNullOrWhiteSpace(Company.OwnerName);
+}
+@*
+    The homepage (Phase 13 Slice 3, D104). Every fact comes from the content pack; an optional section whose
+    content is not configured is omitted whole, with no heading over nothing (D100).
+
+    Deliberately not here yet, each arriving with the page it links to: service-card links (Slice 4), the
+    projects teaser (Slice 5), the about and FAQ teasers (Slice 6) and the inquiry CTA (Slice 8). No link to a
+    page that does not exist, no image before the approved-media pipeline, no price, rating or counter.
+
+    No script and no style attribute: the marketing CSP is script-src 'none' and style-src 'self'.
+*@
+
+<section class="home-hero" aria-labelledby="home-title">
+    <div class="site-container">
+        <h1 id="home-title" class="home-hero-title">@headline</h1>
+        @if (home.HasSubheadline)
+        {
+            <p class="home-hero-lead">@home.Subheadline</p>
+        }
+        @if (Company.ServiceArea.HasPlaces)
+        {
+            <p class="home-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+        }
+        <div class="home-actions">
+            @* Below 768 px the fixed call bar is the phone CTA, so this button is hidden there (D103, D104). *@
+            <a class="site-button home-button-light home-hero-call" href="@SiteFormatting.TelHref(phone)">
+                <span class="site-visually-hidden">Anrufen: </span>@phone
+            </a>
+            <a class="site-button home-button-outline" href="@SiteFormatting.MailtoHref(email)">E-Mail schreiben<span class="home-print-only">: @email</span></a>
+        </div>
+    </div>
+</section>
+
+<section class="home-section" aria-labelledby="home-services">
+    <div class="site-container">
+        <h2 id="home-services" class="home-section-title">Leistungen</h2>
+        <ul class="home-cards">
+            @foreach (var service in Marketing.Services)
+            {
+                <li class="home-card">
+                    <h3 class="home-card-title">@service.Name</h3>
+                    <p class="home-card-text">@service.Summary</p>
+                </li>
+            }
+        </ul>
+    </div>
+</section>
+
+@if (home.Advantages.Count > 0)
+{
+    <section class="home-section home-section-warm" aria-labelledby="home-advantages">
+        <div class="site-container">
+            <h2 id="home-advantages" class="home-section-title">Ihre Vorteile</h2>
+            <ul class="home-cards">
+                @foreach (var advantage in home.Advantages)
+                {
+                    <li class="home-card">
+                        <h3 class="home-card-title">@advantage.Title</h3>
+                        <p class="home-card-text">@advantage.Text</p>
+                    </li>
+                }
+            </ul>
+            @if (hasOwner)
+            {
+                @* A factual identity field, deliberately with no claim about the person's role (D104). *@
+                <p class="home-owner">Inhaber: @Company.OwnerName</p>
+            }
+        </div>
+    </section>
+}
+
+@if (home.Process.Count > 0)
+{
+    <section class="home-section" aria-labelledby="home-process">
+        <div class="site-container">
+            <h2 id="home-process" class="home-section-title">So läuft es ab</h2>
+            <ol class="home-steps">
+                @foreach (var step in home.Process)
+                {
+                    <li class="home-step">
+                        <h3 class="home-card-title">@step.Title</h3>
+                        <p class="home-card-text">@step.Text</p>
+                    </li>
+                }
+            </ol>
+        </div>
+    </section>
+}
+
+<section class="home-section home-contact" aria-labelledby="home-contact">
+    <div class="site-container">
+        <h2 id="home-contact" class="home-section-title">Kontakt aufnehmen</h2>
+        <div class="home-actions">
+            <a class="site-button" href="@SiteFormatting.TelHref(phone)">
+                <span class="site-visually-hidden">Anrufen: </span>@phone
+            </a>
+            <a class="site-button home-button-secondary" href="@SiteFormatting.MailtoHref(email)">E-Mail schreiben<span class="home-print-only">: @email</span></a>
+        </div>
+
+        @if (hours.Count > 0 || hasHoursNote)
+        {
+            <h3 class="home-contact-heading">Öffnungszeiten</h3>
+            @if (hours.Count > 0)
+            {
+                <ul class="home-hours">
+                    @foreach (var line in hours)
+                    {
+                        <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                    }
+                </ul>
+            }
+            @if (hasHoursNote)
+            {
+                <p class="home-contact-note">@Company.OpeningHoursNote</p>
+            }
+        }
+
+        @if (hasAreaNote)
+        {
+            <p class="home-contact-note">@Company.ServiceArea.Note</p>
+        }
+    </div>
+</section>

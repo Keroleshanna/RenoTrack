@@ -18,11 +18,21 @@
 
     <partial name="@SiteLayout.Header" />
 
-    <main id="inhalt" class="site-main" tabindex="-1">
-        <div class="site-container">
+    @if (ViewData.IsFullWidth())
+    {
+        @* The page draws its own full-width bands, each with its own container (D104). *@
+        <main id="inhalt" class="site-main site-main-full" tabindex="-1">
             @RenderBody()
-        </div>
-    </main>
+        </main>
+    }
+    else
+    {
+        <main id="inhalt" class="site-main" tabindex="-1">
+            <div class="site-container">
+                @RenderBody()
+            </div>
+        </main>
+    }
 
     <partial name="@SiteLayout.Footer" />
     <partial name="@SiteLayout.CallBar" />

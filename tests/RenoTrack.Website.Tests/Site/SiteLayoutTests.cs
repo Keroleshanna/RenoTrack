@@ -46,12 +46,14 @@ public sealed class SiteLayoutTests(MarketingSiteFixture site) : IClassFixture<M
     }
 
     [Fact]
-    public async Task No_empty_primary_navigation_is_rendered_while_no_page_exists_to_link()
+    public async Task The_primary_navigation_lists_only_the_pages_that_exist()
     {
         var html = await Impressum();
 
-        Assert.Empty(SiteNavigation.Primary);
-        Assert.DoesNotContain("Hauptnavigation", html, StringComparison.Ordinal);
+        // The homepage is the first and only entry (Slice 3, D104); still no empty or speculative navigation.
+        Assert.Equal(new[] { "/" }, SiteNavigation.Primary.Select(item => item.Href));
+        Assert.Contains("aria-label=\"Hauptnavigation\"", html, StringComparison.Ordinal);
+        Assert.Equal(SiteNavigation.Primary.Count, Html.Count(html, "class=\"site-nav-link\""));
     }
 
     /// <summary>Every navigation entry must answer 200 — vacuous in Slice 2, and pinned for the slices that add them.</summary>

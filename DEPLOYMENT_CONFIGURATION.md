@@ -86,15 +86,18 @@ The company's content is a **content pack**: a directory outside the application
 
 - **The pack is content, never configuration.** A section in a pack file outside its allowed roots — `Logging`, `PublicApi`, `TrustedForwarders`, `ConnectionStrings`, `Jwt`, `Email`, `TokenLink`, `AllowedHosts`, `ContentPack`, the other file's section, even a top-level `"//"` comment — **fails startup** naming the file and section. Product settings stay in the application's own configuration.
 - **Precedence for content:** command line > environment variables > **pack** > user-secrets > `appsettings*.json`. An operator can still correct one value with an environment variable without editing the company's repository.
-- **A list comes from one source.** `Site:Services`, `CompanyIdentity:OpeningHours` and `CompanyIdentity:ServiceArea:Places` supplied by the pack *and* anything else fails startup: configuration merges lists entry by entry and would silently mix them. Remove the stray copy — typically in a developer's `appsettings.Development.json`.
+- **A list comes from one source.** `Site:Services`, `Site:Home:Advantages`, `Site:Home:Process`, `CompanyIdentity:OpeningHours` and `CompanyIdentity:ServiceArea:Places` supplied by the pack *and* anything else fails startup: configuration merges lists entry by entry and would silently mix them. Remove the stray copy — typically in a developer's `appsettings.Development.json`.
 - **Changes take effect on restart.** Pack files are not watched.
 - **Nothing in the pack but `brand/` is served.**
 
 | Key | Required? | Behaviour |
 |---|---|---|
-| `Site:PublicBaseUrl` | No — **the switch** | Absent ⇒ no marketing site; one startup warning; token and legal pages unaffected. Present ⇒ must be an **HTTPS origin only** (no path, query, fragment or user info); the site is enabled and the identity marked \* in §2.2 plus at least one service become required. |
+| `Site:PublicBaseUrl` | No — **the switch** | Absent ⇒ no marketing site; one startup warning; token and legal pages unaffected. Present ⇒ must be an **HTTPS origin only** (no path, query, fragment or user info); the site is enabled and the identity marked \* in §2.2, at least one service and `Site:Home:MetaTitle` become required. |
 | `Site:Theme:PrimaryColor` / `AccentColor` | No | `#RRGGBB`. Primary ≥ 4.5:1 against white, accent ≥ 3:1 against the primary, or startup fails naming the key. Absent ⇒ neutral product defaults. Served as the generated `/site/theme.css` (D103). |
 | `Site:Services` | When enabled | List of `{ Slug, Name, Summary, Offerings[] }`. `Slug` is lowercase ASCII with single hyphens (`tueren`, not `türen`) and unique — it becomes a URL the company must keep stable. `Name` unique ignoring case; `Summary` required; at least one non-blank offering. Validated whenever supplied, enabled or not. |
+| `Site:Home:MetaTitle` | When enabled | The homepage `<title>`, used verbatim (text ≤ 70). **No fallback to the company name** — an enabled site without it fails startup, named with every other missing key (D104). Company-authored: the real value lives only in the private content pack. |
+| `Site:Home:Headline` / `Subheadline` | No | Text ≤ 90 / ≤ 160. Absent headline ⇒ the `h1` is the company name; absent subheadline ⇒ no lead and no meta description. |
+| `Site:Home:Advantages` / `Process` | No | None, or 2–6 `{ Title ≤ 60, Text ≤ 200 }`. Absent ⇒ that homepage section is omitted. See `CONTENT_PACK.md` §3.1. |
 
 ---
 

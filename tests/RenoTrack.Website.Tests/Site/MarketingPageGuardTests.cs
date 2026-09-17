@@ -60,7 +60,7 @@ public sealed class MarketingPageGuardTests
     public void The_marketing_page_list_contains_no_token_page()
     {
         Assert.DoesNotContain(MarketingPageConvention.PagePaths, path => path.StartsWith("/Angebot", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(new[] { "/Impressum", "/Datenschutz", "/NichtGefunden" }, MarketingPageConvention.PagePaths);
+        Assert.Equal(new[] { "/Impressum", "/Datenschutz", "/NichtGefunden", "/Startseite" }, MarketingPageConvention.PagePaths);
     }
 
     /// <summary>

@@ -1,6 +1,21 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-> **2026-09-16 — Phase 13 Slice 2 (site shell, D103) is approved and closed on `feature/phase-13-public-website` (not pushed).** Slice 1 is committed (`ff1d6cb`). Marketing pages get a startup-composed shell: metadata applied by a Razor Pages convention only when the site is enabled, every request-time decision read from the endpoint, two startup guards keeping it off token routes, CSP and Permissions-Policy, derived `www` alias and lower-case path redirects, a site 404, validated theme colours, self-hosted Figtree (OFL 1.1). Tests, per project and not as one unified run: **Website 721** (+135: 586 → 721) and Application 470 / Infrastructure 412 / Api 478 passed in Release; Domain 389 passed in Debug, with Release refused by the known Windows Application Control block. Those four projects are unchanged by Slice 2. 0 warnings. Accessibility QA (print, reduced motion, 200% text, true 400% zoom) found and fixed a print defect. See `PHASE13_PROGRESS.md` §5b.
+> **2026-09-17 — Phase 13 Slice 3 (homepage, D104) is implemented on `feature/phase-13-public-website` and pending Tech Lead review. It is not committed and not pushed.** Slice 2 is committed (`1b6337a`). The homepage at `/` is built from the content pack's new `Site:Home` section:
+> - a company-authored `MetaTitle`, required once the site is enabled, with no fallback to the company name;
+> - an optional headline and subheadline;
+> - optional advantages and process lists;
+> - `Inhaber: {OwnerName}`.
+>
+> Services are listed unlinked, contact is `tel:`/`mailto:` only, and "Startseite" is the first navigation entry. There is no link ahead of its page, no image, no JavaScript and no third-party request. Token pages are unchanged.
+>
+> **Tests, measured per project:**
+> - Website **800** (+79: 721 → 800), passed in Release, after the known Windows Application Control block refused the first builds;
+> - Domain 389, Application 470, Infrastructure 412 and Api 478 passed in Release, all unchanged by Slice 3;
+> - 0 warnings.
+>
+> Browser QA against the published build found and fixed two defects: a header squeezed at 200% text, and focus hidden behind the call bar at 400% zoom. The pre-commit review corrected print, so contact actions print as phone and address text. See `PHASE13_PROGRESS.md` §5c.
+>
+> *Earlier status:* **2026-09-16 — Phase 13 Slice 2 (site shell, D103) is approved and closed on `feature/phase-13-public-website` (not pushed).** Slice 1 is committed (`ff1d6cb`). Marketing pages get a startup-composed shell: metadata applied by a Razor Pages convention only when the site is enabled, every request-time decision read from the endpoint, two startup guards keeping it off token routes, CSP and Permissions-Policy, derived `www` alias and lower-case path redirects, a site 404, validated theme colours, self-hosted Figtree (OFL 1.1). Tests, per project and not as one unified run: **Website 721** (+135: 586 → 721) and Application 470 / Infrastructure 412 / Api 478 passed in Release; Domain 389 passed in Debug, with Release refused by the known Windows Application Control block. Those four projects are unchanged by Slice 2. 0 warnings. Accessibility QA (print, reduced motion, 200% text, true 400% zoom) found and fixed a print defect. See `PHASE13_PROGRESS.md` §5b.
 >
 > *Earlier status:* **2026-09-16 — Phase 13 Slice 1 (content model, D102) is approved and closed on `feature/phase-13-public-website` (not pushed).** Slice 0 is closed (`0d2f22a`). The Website now loads an isolated company content pack from outside the repository: pack files can contribute only `CompanyIdentity`/`Site`/`Legal`, never product configuration. Tests **2,335/2,335** (+210, all in Website: 376 → 586), 0 warnings. No migration, no package, no layer outside the Website. See `PHASE13_PROGRESS.md` §5a.
 >

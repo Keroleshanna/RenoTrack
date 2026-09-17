@@ -16,7 +16,7 @@
 | **0** | Housekeeping and preparation | ✅ **closed** — commit `0d2f22a` (§5) |
 | **1** | Content model (content pack schema, isolation, startup validation, runtime mount) | ✅ **closed** (§5a) |
 | **2** | Site shell (`_SiteLayout`, tokens, header/footer, marketing headers + CSP, host/lowercase 301s) | ✅ **closed** (§5b) |
-| 3 | Homepage | ⏸ |
+| **3** | Homepage | 🔍 **implemented, pending Tech Lead review** — not committed (§5c) |
 | 4 | Services overview + service detail (`/leistungen/{slug}`) | ⏸ |
 | 5 | Media preparation + Projects gallery | ⏸ |
 | 6 | About + FAQ + **running-prototype visual checkpoint** (before any integration) | ⏸ |
@@ -355,9 +355,136 @@ Screenshots sometimes timed out in the pane, so most widths there were verified 
 
 ---
 
+## 5c. Slice 3 — Homepage (D104)
+
+**Design:** approved at the Slice 3 gate, S3-1 to S3-11, with the Tech Lead's corrections:
+- **C1:** `Site:Home:MetaTitle` is the homepage `<title>`, with no `DisplayName` fallback.
+- **C2:** the owner is stated as `Inhaber: {OwnerName}`, never "Ihr Ansprechpartner".
+
+**S3-11** approved adding `MetaTitle` to enabled-site test inputs.
+
+**Delivered:**
+- **`/`** — `Pages/Startseite` (`@page "/"`). It is marketing only through the convention; with the site disabled it is a bare 404, and `/Index` and `/startseite` do not exist.
+- **Sections:**
+  - hero: `h1` from `Headline` or the company name; `Subheadline`; "Einsatzgebiet: …"; `tel:` button from 768 px and `mailto:` button;
+  - services: all, in pack order, name and summary, unlinked;
+  - "Ihre Vorteile" plus `Inhaber:` line (optional);
+  - "So läuft es ab" as an `<ol>` (optional);
+  - "Kontakt aufnehmen": phone, email, hours and notes.
+- **Head:** `<title>` and `og:title` = `MetaTitle` verbatim; description = `Subheadline`; canonical `origin/`; indexable.
+- **Shell:**
+  - `SitePage.SetDocumentTitle` and `SetFullWidth`;
+  - "Startseite" as the first and only navigation entry, a plain list at every width with `aria-current`;
+  - brand linked to `/`;
+  - `MarketingSite` snapshot of `Home` and `Services`.
+
+**Frozen for Slice 5 — hero image requirements** (not built):
+- an owner-approved photo of the company's own work with recorded provenance; no stock, no AI, no rendering presented as work;
+- no identifiable person without consent;
+- EXIF, GPS and XMP stripped, with a test;
+- WebP and JPEG at 480, 960 and 1600 px;
+- `<picture>` with `srcset`/`sizes`, explicit `width`/`height`, `fetchpriority="high"`, never lazy, never a CSS background;
+- alt text required;
+- captions state no place or date unless the owner confirms it;
+- headline text never over the photo.
+
+**Files changed (production):**
+- **New:**
+  - `Content/HomePageOptions.cs` (with `HomeItemOptions`)
+  - `Pages/Startseite.cshtml`
+  - `Pages/Startseite.cshtml.cs`
+- **Modified:**
+  - `Content/SiteOptions.cs`
+  - `Content/ContentListSourceGuard.cs`
+  - `Site/MarketingPageConvention.cs`
+  - `Site/MarketingSite.cs`
+  - `Site/SiteNavigation.cs`
+  - `Site/SitePage.cs`
+  - `Pages/Shared/Site/_SiteLayout.cshtml`
+  - `Pages/Shared/Site/_SiteHead.cshtml`
+  - `Pages/Shared/Site/_SiteHeader.cshtml`
+  - `wwwroot/css/marketing.css`
+  - `appsettings.json` (documentation keys only)
+
+**Differences from the design's file list:**
+1. **`ContentListSourceGuard.cs` changed.** The design said the guard covered the new lists automatically; it holds an explicit list.
+2. **`Program.cs` unchanged.** No startup log line was needed: `Home` is validated inside `SiteOptions.Validate`.
+3. **No `SiteNavigationTests.cs`.** The existing `SiteLayoutTests.Every_primary_navigation_link_answers_200`, vacuous in Slice 2, now carries that proof, together with a homepage-wide same-origin link test.
+4. **`ContentPackStartupTests.cs` unchanged — an intentional S3-11 deviation, accepted at final review (Tech Lead).** S3-11 approved adding `MetaTitle` to this file's enabled-site input. That input belongs to `An_enabled_site_with_an_incomplete_identity_fails_startup_naming_every_missing_key`, a startup-failure test whose purpose is an incomplete enabled site. Supplying `MetaTitle` there would add nothing, and the test's intent is preserved as written: startup still fails naming every missing key, now including `Site:Home:MetaTitle`. `SiteOptionsTests.cs` received the approved input change.
+5. **Four Slice 2 test files changed beyond the S3-11 approval**, because each pinned a "no homepage yet" state the approved design necessarily ends. Intent kept, nothing deleted:
+   - `MarketingPageGuardTests`: page-path list gains `/Startseite`;
+   - `MarketingPageMetadataTests`: the marked endpoint set gains `""` (the `/` route);
+   - `SiteNotFoundTests`: the unknown-address row `/` becomes `/index`;
+   - `SiteLayoutTests`: "no empty navigation" becomes "navigation lists only the pages that exist".
+6. **Print — corrected at pre-commit review (Tech Lead).** The first implementation hid the contact buttons in print and relied on the footer. That deviation was **not accepted**, so the design now holds:
+   - each contact action prints as text, as "Anrufen: <phone>" and "E-Mail schreiben: <address>", in the hero and the contact section;
+   - the address is carried by a `home-print-only` span, which is `display: none` on screen, so the visible label and the accessible name stay "E-Mail schreiben";
+   - only the call bar is hidden on paper.
+
+**Tests (measured, not derived):**
+
+| Project | Before | After | Delta | Measured in |
+|---|---|---|---|---|
+| Website | 721 | **800** | **+79** | Release (baseline 721 re-measured before any change) |
+| Domain | 389 | 389 | — | Release |
+| Application | 470 | 470 | — | Release |
+| Infrastructure (LocalDB) | 412 | 412 | — | Release |
+| Api (LocalDB) | 478 | 478 | — | Release |
+
+- **+79 by class:** `HomePageTests` 41, `HomePageOptionsTests` 38, each counted with a class filter. Existing classes keep their counts.
+- **Build:** 0 warnings, 0 errors.
+- **Application Control:** freshly built Website binaries were refused repeatedly (`0x800711C7`), the known condition. Repeated non-deterministic rebuilds loaded, and no green figure above comes from a run that did not execute.
+
+**Mutation checks** — each applied to the finished code, built, run, then restored and byte-compared (all restored identical):
+
+| Mutation | Tests failing |
+|---|---|
+| Page model ignores `IsMarketingPage` | 4 — incl. the unedited `ScaffoldRemovalTests` root and the disabled-site root tests |
+| Offerings rendered | 1 |
+| Service cards linked to `/leistungen/{slug}` | 5 |
+| Headline through `Html.Raw` | 1 |
+| Navigation entry to a missing page | 4 |
+| **C1:** homepage title falls back to `"{…} | {DisplayName}"` | 3 |
+| **C1:** `MetaTitle` not required | 3 (a first `if (false)` form did not compile under warnings-as-errors and was rewritten) |
+| **C2:** label reverted to "Ihr Ansprechpartner" | 1 |
+| Print hides the contact actions again | 1 |
+| Email address removed from the hero's email action | 2 |
+
+**Also verified:** the complete example in `CONTENT_PACK.md` §5 boots and renders its `MetaTitle` and `Inhaber:` line, checked with a throwaway test that was deleted afterwards.
+
+**Browser QA** — `dotnet publish -c Release` output, Production environment, fictional Alpha pack, plus a five-service variant:
+
+| Check | Result |
+|---|---|
+| Rendering | `<title>` = `MetaTitle`; one `h1`; `h2`/`h3` hierarchy without gaps; 0 `<script>`, 0 `[style]`; canonical `https://www.alpha-testbetrieb.test/`; `aria-current="page"` on Startseite |
+| Network | Six same-origin resources (three Figtree weights, `marketing.<hash>.css`, `theme.css`, logo); nothing off-origin |
+| Widths, Alpha | 320 / 375 / 414 / 768 / 1024 / 1366 / 1920: no horizontal overflow, no element past the viewport. Below 768 px: hero phone hidden, call bar shown, actions stacked, 1 column, 4 process rows. From 768 px: hero phone shown, call bar hidden. Process in one row from 1024 px. Header one 73 px row at every width. |
+| Five services | 1 column below 768 px; 2 + 2 + 1 at 768; 3 + 2 left-aligned from 1024 through 1920; no overflow |
+| Print (real `printToPDF`, read back), **re-run after the pre-commit correction** | The PDF shows "Anrufen: +49 000 1111111" and "E-Mail schreiben: kontakt@alpha-testbetrieb.test" under the hero and again under "Kontakt aufnehmen". All four action links compute black text, no background, no border. Hero and warm band print black on white; step numbers outlined in black; call bar and navigation hidden; footer links black. On screen the address span is `display: none`, the visible text stays "E-Mail schreiben", and the accessibility tree still names both links "E-Mail schreiben" |
+| Reduced motion (emulated) | 109 elements after the correction (107 before): 0 transitions, 0 animations, 0 smooth scrolling, 0 running animations |
+| 200% text (font-size setting) | 1280 and 375 px: root 32 px, no overflow, nothing clipped, nothing past the viewport; every Tab stop visible. **Defect found and fixed:** at 375 px the brand link was 1,105 px tall (header squeezed by the new navigation entry); after the fix it is 128 px |
+| True 400% zoom (page-zoom preference) | CSS viewport 310 px at `devicePixelRatio` 4: no overflow, nothing clipped. **Defect found and fixed:** Tab stopped on the contact "E-Mail schreiben" at 155–202 px against the call bar at 177 px; with `scroll-padding-bottom` every stop clears the bar |
+| Token page | `/angebot/<probe>` still `_CustomerLayout`, `customer.<hash>.css` only, `no-store` / `noindex, nofollow, noarchive`, no CSP added; 503 with the API deliberately unreachable |
+| Site 404, `/Index` | 404; probe not reflected; `noindex` |
+| Logs | Neither the token probe, the 404 probe nor any homepage content value appears; the startup line reports counts only |
+
+Screenshots in the in-app pane timed out as in Slice 2, so widths were verified by DOM measurement. Evidence (PDF, JSON) stays in the session scratchpad, uncommitted. No temporary launch entry was left: `.claude/launch.json` is byte-identical.
+
+**Migrations:** none. **Packages:** none. **Layers touched:** `RenoTrack.Website` and its tests only.
+
+**Documentation:**
+- `ARCHITECTURE_DECISIONS.md` **D104**;
+- `CLAUDE.md` §25 additions;
+- `CONTENT_PACK.md` §3.1, §5, §6;
+- `DEPLOYMENT_CONFIGURATION.md` (`Site:Home` rows, list rule);
+- `appsettings.json` (`//Home`);
+- this file; `PROJECT_STATE.md`.
+
+---
+
 ## 6. Open actions
 
-- **Narrow-screen `<details>` navigation:** to be built with the first real navigation entry (accepted deferral, Slice 2 review).
+- **Narrow-screen `<details>` navigation:** to be built when there are several real primary navigation entries (Tech Lead decision at the Slice 3 gate). The homepage is the first entry and is a plain list.
 
 - **Slice 1 mutation gap — accepted as documented (Tech Lead, 2026-09-16).** No test-only seam is added: validation and the independently tested filter overlap, and an unobservable call removal is not a production security gap.
 

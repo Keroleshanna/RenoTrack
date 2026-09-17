@@ -5,18 +5,23 @@
     The logo is decorative here (alt=""): the company name sits beside it as real text. That differs from
     _CustomerLayout, where the logo replaces the name, because the web logo carries no wordmark (D103).
 
-    The primary navigation renders only when SiteNavigation has entries, which are pages that exist. There are
-    none in Slice 2, so there is no empty <nav>. The narrow-screen disclosure arrives with the first entry.
+    The brand links to the homepage (D104); the name text gives the link its accessible name.
+
+    The primary navigation renders only when SiteNavigation has entries, which are pages that exist. It is a plain
+    list at every width: the narrow-screen <details> disclosure arrives when there are several real entries (D104).
 *@
+@{
+    var currentPath = Context.Request.Path.Value ?? "/";
+}
 <header class="site-header">
     <div class="site-container site-header-inner">
-        <div class="site-brand">
+        <a class="site-brand" href="/">
             @if (Company.HasLogo)
             {
                 <img class="site-brand-logo" src="@Company.LogoPath" alt="" width="48" height="48" />
             }
             <span class="site-brand-name">@Company.DisplayName</span>
-        </div>
+        </a>
 
         @if (SiteNavigation.Primary.Count > 0)
         {
@@ -24,7 +29,8 @@
                 <ul class="site-nav-list">
                     @foreach (var item in SiteNavigation.Primary)
                     {
-                        <li><a class="site-nav-link" href="@item.Href">@item.Text</a></li>
+                        var isCurrent = string.Equals(currentPath, item.Href, StringComparison.Ordinal);
+                        <li><a class="site-nav-link" href="@item.Href" aria-current="@(isCurrent ? "page" : null)">@item.Text</a></li>
                     }
                 </ul>
             </nav>

@@ -72,6 +72,18 @@ A file must be valid JSON with an object at the top level and no duplicate keys 
 
 Colours are served as the generated `/site/theme.css`; a pack never supplies CSS, and a colour that fails its contrast minimum fails startup naming the key.
 
+### 3.1 `Site:Home` — the homepage (Slice 3, D104)
+
+| Key | Type | Rules |
+|---|---|---|
+| `Home.MetaTitle` | text ≤ 70 | **Required for a marketing site.** The homepage's `<title>` and `og:title`, used **verbatim** — no company-name suffix is added. Say what the company does and where it works (see §6). It never falls back to `DisplayName`. |
+| `Home.Headline` | text ≤ 90 | Optional. The homepage's one `h1`. Absent: `DisplayName`. |
+| `Home.Subheadline` | text ≤ 160 | Optional. Shown under the headline, and used as the meta description and `og:description`. Absent: none of them is rendered. |
+| `Home.Advantages[]` | list | Optional: none, or **2–6** entries `{ "Title": text ≤ 60, "Text": text ≤ 200 }`, both required. Absent: no "Ihre Vorteile" section. When `CompanyIdentity:OwnerName` is set, the section also shows `Inhaber: <OwnerName>`. |
+| `Home.Process[]` | list | Optional: none, or **2–6** steps `{ "Title": text ≤ 60, "Text": text ≤ 200 }`, in order. Absent: no "So läuft es ab" section. |
+
+Both lists must come from one configuration source, like `Services`. A supplied-but-blank value is refused rather than rendered empty.
+
 ## 4. `legal.json` → `Legal`
 
 Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Sections": [ { "Heading", "Paragraphs": [ { "Text", "LinkText", "LinkUrl" } ] } ] }`. `LinkText` and `LinkUrl` come together; link schemes are `http`, `https`, `mailto`, `tel`, or a site-relative path. A document with no content is a 404, not an empty page. See `DEPLOYMENT_CONFIGURATION.md` §2.3.
@@ -101,6 +113,19 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
   "Site": {
     "PublicBaseUrl": "https://beispielbetrieb.test",
     "Theme": { "PrimaryColor": "#1F4B7A", "AccentColor": "#E8C27A" },
+    "Home": {
+      "MetaTitle": "Testleistungen in Testort und Testregion",
+      "Headline": "Erfundene Testleistungen für Testort und Testregion",
+      "Subheadline": "Eine erfundene Einleitung zur Veranschaulichung des Schemas.",
+      "Advantages": [
+        { "Title": "Erster erfundener Vorteil", "Text": "Ein Satz, der den Vorteil erklärt." },
+        { "Title": "Zweiter erfundener Vorteil", "Text": "Noch ein Satz, der den Vorteil erklärt." }
+      ],
+      "Process": [
+        { "Title": "Erster Schritt", "Text": "Was in diesem Schritt geschieht." },
+        { "Title": "Zweiter Schritt", "Text": "Was danach geschieht." }
+      ]
+    },
     "Services": [
       {
         "Slug": "test-leistung",
@@ -121,3 +146,8 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
 - **Invent nothing.** A missing fact is left out; it is never filled with a plausible placeholder.
 - **No secrets.** The pack is public-facing content. No key in it can hold a credential, and a pack that tries to set product configuration is refused.
 - **One spelling per fact.** The name, phone number and address are written once here and derived everywhere else.
+- **Homepage copy (D104) — checked in review, because code cannot check it:**
+  - **`MetaTitle` says what the company does and where it works**, in natural German, with the company name (if used) spelled exactly as `DisplayName`. No keyword lists, no chains of place names.
+  - **No unverified claims** in the title, headline, subheadline, advantages or process: no superlatives or rankings ("Nr. 1", "bester", "führend"), no prices, "kostenlos", "Festpreis" or discounts, no response-time promises, and no ratings, review counts, years in business, project counts or certifications.
+  - **The headline states what the company does**, not a quality slogan. The service area is shown from `ServiceArea`, not repeated as a city list in the copy.
+  - **The owner is shown only as `Inhaber: <OwnerName>`** — a restatement of the identity field. The site attaches no role, availability or contact claim to the person.

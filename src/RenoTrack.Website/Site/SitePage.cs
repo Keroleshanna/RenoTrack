@@ -11,6 +11,8 @@ public static class SitePage
 {
     private const string DescriptionKey = "SitePage.Description";
     private const string NoIndexKey = "SitePage.NoIndex";
+    private const string DocumentTitleKey = "SitePage.DocumentTitle";
+    private const string FullWidthKey = "SitePage.FullWidth";
 
     public static void SetDescription(this ViewDataDictionary viewData, string description) =>
         viewData[DescriptionKey] = description;
@@ -21,4 +23,22 @@ public static class SitePage
     public static void SetNoIndex(this ViewDataDictionary viewData) => viewData[NoIndexKey] = true;
 
     public static bool IsIndexable(this ViewDataDictionary viewData) => viewData[NoIndexKey] is not true;
+
+    /// <summary>
+    /// Sets the exact document title, rendered verbatim with no company-name suffix (<b>D104</b>). Only the
+    /// homepage uses it, because its title is company-authored content (<c>Site:Home:MetaTitle</c>); every other
+    /// page keeps <c>ViewData["Title"]</c> and the layout's <c>"{Title} | {company}"</c> form.
+    /// </summary>
+    public static void SetDocumentTitle(this ViewDataDictionary viewData, string title) =>
+        viewData[DocumentTitleKey] = title;
+
+    public static string? DocumentTitle(this ViewDataDictionary viewData) => viewData[DocumentTitleKey] as string;
+
+    /// <summary>
+    /// Renders the page body without the layout's content container, so a page can draw full-width bands and
+    /// place its own containers inside them (<b>D104</b>). Pages that do not ask keep the container.
+    /// </summary>
+    public static void SetFullWidth(this ViewDataDictionary viewData) => viewData[FullWidthKey] = true;
+
+    public static bool IsFullWidth(this ViewDataDictionary viewData) => viewData[FullWidthKey] is true;
 }

@@ -23,6 +23,7 @@ public static class MarketingPageConvention
         "/Impressum",
         "/Datenschutz",
         "/NichtGefunden",
+        "/Startseite",
     ];
 
     /// <summary>The page folder that holds the customer token pages; nothing under it may be a marketing page.</summary>

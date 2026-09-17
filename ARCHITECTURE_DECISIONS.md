@@ -2679,3 +2679,81 @@ POST to an unknown address is untouched: routing answers 405 there, identically 
 - **Reduced motion:** no transition or animation exists in the shell; the rule is in force for future additions.
 - **200% text:** no overflow or clipping at 1280 or 375 px.
 - **Focus not obscured:** real Tab presses at 400% zoom and 200% text found no focus stop hidden behind the fixed call bar.
+
+## D104 — The Homepage: Company-Authored Title and Copy, Every Section Earned, No Link Ahead of Its Page
+
+**Phase 13 Slice 3.** Approved at the Slice 3 gate, decisions S3-1 to S3-11, with the Tech Lead's two corrections (C1, C2).
+
+**Problem:** the homepage is the first page that is marketing rather than legal. It has to say what the company does, where it works and how to reach it, for people and for search/AI discovery alike. At this point:
+- the content model holds identity, services and theme only;
+- every page it would naturally link to (services, projects, about, FAQ, inquiry) is built in a later slice;
+- no company photo has been approved.
+
+Nothing may be invented, and nothing may link to a page that answers 404.
+
+### Part 1 — Content: `Site:Home`, grown for what this slice renders
+
+| Key | Rule | Renders as |
+|---|---|---|
+| `MetaTitle` | text ≤ 70; **required once the site is enabled** | the homepage `<title>` and `og:title`, verbatim |
+| `Headline` | text ≤ 90; optional | the one `h1`; absent → `CompanyIdentity:DisplayName` |
+| `Subheadline` | text ≤ 160; optional | hero lead, `meta description` and `og:description`; absent → none of them |
+| `Advantages[]` | none, or 2–6 `{ Title ≤ 60, Text ≤ 200 }` | "Ihre Vorteile" section; absent → no section |
+| `Process[]` | none, or 2–6 `{ Title ≤ 60, Text ≤ 200 }` | "So läuft es ab" ordered list; absent → no section |
+
+- **Shape rules** are those of all pack text: single line, no control characters, bounded, and a supplied-but-blank value refused. Messages name the key, never the value. Malformed content is refused on a disabled site as well.
+- **Both lists are single-source lists** (`ContentListSourceGuard`), for the same index-merge reason as `Site:Services`.
+- **C1 — the title never falls back to the company name.** A homepage titled only with the company name tells a searcher, or an AI system summarising the page, nothing about what the company does or where. The title is therefore company-authored content, and an enabled site without it fails startup, named in the same single message as every other missing key. The real value lives in the company's private content pack. Fixtures use fictional values.
+- **The `h1` may fall back to the name; the title may not.** A heading is read in the context of the page around it, while a title is read alone in a result list.
+- **Headings and button labels are product copy** ("Leistungen", "Ihre Vorteile", "So läuft es ab", "Kontakt aufnehmen", "Anrufen", "E-Mail schreiben", "Inhaber"). They make no claim about any company.
+- **Truth stays in the content repository.** `CONTENT_PACK.md` §6 lists what the title, headline and lists must not claim without verification: superlatives, prices, "kostenlos", response times, ratings, counts, certifications, keyword or city chains.
+
+**Alternatives considered:**
+- **A code-derived title** (services plus places). Rejected: keyword-shaped, and a generator is a second author of company copy.
+- **Code-defined process steps.** Rejected (S3-5): wording such as "kostenlose Besichtigung" is a company claim, and neutral wording says nothing.
+
+### Part 2 — The page
+
+- **`Pages/Startseite` with `@page "/"`**, never `Index`: the explicit template replaces the page-name route, so `/Index` and `/startseite` do not exist and the homepage has one address. It becomes marketing only through `MarketingPageConvention`.
+- **Its page model returns a bare `NotFound()` when the endpoint carries no marketing metadata**, so a token-only deployment keeps the bare 404 at `/` that `ScaffoldRemovalTests` pins.
+- **Section order:** hero → services → advantages → *(projects teaser, Slice 5)* → process → *(about and FAQ teasers, Slice 6)* → contact.
+- **Services (S3-3):** every entry in pack order, name and summary only. Offerings belong to the service page. **Not linked until `/leistungen/{slug}` exists (Slice 4).**
+- **C2 — the owner line reads `Inhaber: {OwnerName}`.** It is rendered in the advantages section when both are present. "Ihr Ansprechpartner" was rejected: it asserts the person's role as the visitor's direct contact, which no field states. "Inhaber" restates the identity field exactly.
+- **Conversion points in this slice are `tel:` and `mailto:` only:**
+  - hero, with the phone button hidden below 768 px where the fixed call bar is the phone CTA (S3-2, D103);
+  - the contact section, phone button at every width, because it sits in the page flow (S3-6);
+  - the existing header, call bar and footer.
+
+  "Angebot anfragen" arrives with its route in Slice 8.
+- **Contact actions stay understandable on paper.** A link cannot be followed in print, so each prints as the information it stands for: "Anrufen: <phone>" (revealing its visually hidden prefix) and "E-Mail schreiben: <address>". The address travels in a `home-print-only` span that is `display: none` on screen, so the visible label and accessible name are unchanged. Only the fixed call bar is hidden on paper. A first implementation hid the buttons and relied on the footer; that was rejected at pre-commit review as a deviation from the approved design, and the correction is pinned by tests.
+- **No reviews, ratings, testimonials, counters, badges, prices or images.** The hero is text on the primary colour (S3-1). The approved-photo requirements for Slice 5 are frozen in `PHASE13_PROGRESS.md` §5c.
+
+### Part 3 — Shell changes
+
+- **`SitePage.SetDocumentTitle`:** the head renders a page-set document title verbatim. Every other page keeps `"{Title} | {DisplayName}"`, pinned by a test.
+- **`SitePage.SetFullWidth`:** the layout omits its content container for a page that draws full-width bands. Pages that do not ask are unchanged.
+- **Navigation (S3-7):**
+  - `SiteNavigation.Primary` is `[Startseite → /]`, a plain list at every width, with `aria-current="page"` on the current entry;
+  - the brand links to `/`;
+  - **the narrow-screen `<details>` menu is introduced when there are several real primary entries**, not for one.
+- **`MarketingSite` carries the startup snapshot of `Home` and `Services`**, so the page never reads `SiteOptions` per request.
+
+### Part 4 — What deliberately did not change
+
+- `_CustomerLayout`, every token route, their headers, logging and tests.
+- CSP, cookies (the homepage has no form and sets none) and fonts.
+- No JavaScript, no third-party request, no new package, no migration, no project outside `RenoTrack.Website`.
+
+**Found while implementing:**
+- **Four Slice 2 tests pinned "no homepage yet"**, and the approved design necessarily changes each one:
+  - the exact marketing page-path list;
+  - the exact set of marked endpoints;
+  - `/` as an unknown address answering the site 404, now `/index`;
+  - the empty primary navigation, now "only pages that exist".
+
+  Each was updated to the Slice 3 state with its intent kept. None was deleted.
+- **`ContentListSourceGuard` holds an explicit list**, so the two new lists had to be added to it. The design had assumed they were covered automatically.
+
+**Found in browser QA, before closure** (headless Edge over the DevTools Protocol, against the published build, D103's method). Both defects were invisible to the test suite and are now pinned by tests.
+- **The first navigation entry squeezed the brand.** At 200% text and 375 px, flex shrinking narrowed the brand link until the company name wrapped almost character by character, about 1,100 px tall. The header now wraps (`flex-wrap: wrap`), and the brand claims a basis (`flex: 1 1 10rem`). After the fix the brand is 128 px tall there, and at normal text size the header stays one 73 px row from 320 to 1920 px.
+- **Focus stopped behind the call bar.** At true 400% zoom, a real Tab press scrolled the contact section's "E-Mail schreiben" button to 155–202 px against a call bar starting at 177 px. `scroll-padding-bottom` below 768 px now reserves the bar's height, and every focus stop clears it. Slice 2's footer-only page never had a focusable element low enough to expose this.

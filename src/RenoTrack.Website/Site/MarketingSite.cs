@@ -3,7 +3,8 @@ using RenoTrack.Website.Content;
 namespace RenoTrack.Website.Site;
 
 /// <summary>
-/// What marketing pages need that is fixed at startup: the canonical origin (<b>D103</b>).
+/// What marketing pages need that is fixed at startup: the canonical origin (<b>D103</b>), and the homepage's
+/// content and services (<b>D104</b>).
 /// </summary>
 /// <remarks>
 /// <b>A startup snapshot, registered only when the marketing site is enabled.</b> The marketing layout reads
@@ -15,6 +16,12 @@ public sealed class MarketingSite(SiteOptions site)
 {
     /// <summary>e.g. <c>https://www.example.test</c> — lower-cased host, no trailing slash.</summary>
     public string CanonicalOrigin { get; } = site.CanonicalOrigin;
+
+    /// <summary>The homepage's content, as validated at startup.</summary>
+    public HomePageOptions Home { get; } = site.Home;
+
+    /// <summary>The services, in the order the content pack lists them.</summary>
+    public IReadOnlyList<ServiceOptions> Services { get; } = site.Services;
 
     /// <summary>The absolute canonical URL of a path on this site: lower case, no query.</summary>
     public string CanonicalUrlFor(PathString path) =>
