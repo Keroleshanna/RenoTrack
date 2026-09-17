@@ -41,6 +41,12 @@ public sealed class SiteOptions
     /// </summary>
     public HomePageOptions Home { get; init; } = new();
 
+    /// <summary>
+    /// What the services overview presents (added in Phase 13 Slice 4, D105). Validated whenever supplied; an
+    /// enabled site requires its <see cref="ServicesPageOptions.MetaTitle"/>.
+    /// </summary>
+    public ServicesPageOptions ServicesPage { get; init; } = new();
+
     public bool IsEnabled => !ContentText.IsBlank(PublicBaseUrl);
 
     /// <summary>
@@ -64,6 +70,13 @@ public sealed class SiteOptions
 
         Home.Validate($"{SectionName}:{nameof(Home)}");
 
+        ServicesPage.Validate($"{SectionName}:{nameof(ServicesPage)}");
+
+        // Every page's title and description must be its own (D105, S4-5): two pages sharing one compete with
+        // each other in a result list and tell a reader nothing about which is which.
+        EnsureUniquePageText(PageTitles(), "document title");
+        EnsureUniquePageText(PageDescriptions(), "meta description");
+
         if (!IsEnabled)
         {
             return;
@@ -81,6 +94,20 @@ public sealed class SiteOptions
         if (!Home.HasMetaTitle)
         {
             missing.Add($"{SectionName}:{nameof(Home)}:{nameof(HomePageOptions.MetaTitle)}");
+        }
+
+        // The same rule for the overview and every service page (D105, S4-2): no fallback to a generated title.
+        if (!ServicesPage.HasMetaTitle)
+        {
+            missing.Add($"{SectionName}:{nameof(ServicesPage)}:{nameof(ServicesPageOptions.MetaTitle)}");
+        }
+
+        for (var index = 0; index < Services.Count; index++)
+        {
+            if (!Services[index].HasMetaTitle)
+            {
+                missing.Add($"{SectionName}:{nameof(Services)}:{index}:{nameof(ServiceOptions.MetaTitle)}");
+            }
         }
 
         if (missing.Count > 0)
@@ -120,6 +147,44 @@ public sealed class SiteOptions
             throw new InvalidOperationException(
                 $"Configuration '{key}' has value '{PublicBaseUrl}', but must be an origin only — scheme and host, " +
                 "with no path, query, fragment or user information.");
+        }
+    }
+
+    private IEnumerable<(string Key, string? Value)> PageTitles()
+    {
+        yield return ($"{SectionName}:{nameof(Home)}:{nameof(HomePageOptions.MetaTitle)}", Home.MetaTitle);
+        yield return ($"{SectionName}:{nameof(ServicesPage)}:{nameof(ServicesPageOptions.MetaTitle)}", ServicesPage.MetaTitle);
+
+        for (var index = 0; index < Services.Count; index++)
+        {
+            yield return ($"{SectionName}:{nameof(Services)}:{index}:{nameof(ServiceOptions.MetaTitle)}", Services[index].MetaTitle);
+        }
+    }
+
+    private IEnumerable<(string Key, string? Value)> PageDescriptions()
+    {
+        yield return ($"{SectionName}:{nameof(Home)}:{nameof(HomePageOptions.Subheadline)}", Home.Subheadline);
+        yield return ($"{SectionName}:{nameof(ServicesPage)}:{nameof(ServicesPageOptions.Intro)}", ServicesPage.Intro);
+
+        for (var index = 0; index < Services.Count; index++)
+        {
+            yield return ($"{SectionName}:{nameof(Services)}:{index}:{nameof(ServiceOptions.MetaDescription)}", Services[index].MetaDescription);
+        }
+    }
+
+    /// <summary>Compares supplied values only, trimmed and ignoring case; names both keys, never the value.</summary>
+    private static void EnsureUniquePageText(IEnumerable<(string Key, string? Value)> entries, string what)
+    {
+        var duplicate = entries
+            .Where(entry => !ContentText.IsBlank(entry.Value))
+            .GroupBy(entry => entry.Value!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+
+        if (duplicate is not null)
+        {
+            throw new InvalidOperationException(
+                $"Configurations {string.Join(" and ", duplicate.Select(entry => $"'{entry.Key}'"))} have the same " +
+                $"{what}. Every page needs its own.");
         }
     }
 

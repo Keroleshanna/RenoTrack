@@ -1,0 +1,23 @@
+@model RenoTrack.Website.Site.HeroActionsModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@*
+    A hero band's contact actions (D104, shared since D105). Phone and email are required on an enabled site.
+
+    Below 768 px the fixed call bar is the phone CTA, so the phone button is hidden there (D103). On paper each action
+    prints as the information it stands for: the visually hidden "Anrufen: " prefix, and the address in the
+    print-only span — the visible label and accessible name stay "E-Mail schreiben".
+
+    Carries no id and no heading, so it can appear on any page without colliding with anything.
+*@
+@{
+    var phone = Company.ContactPhone!;
+    var email = Company.ContactEmail!;
+}
+<div class="page-actions">
+    <a class="site-button page-button-light page-hero-call" href="@SiteFormatting.TelHref(phone)">
+        <span class="site-visually-hidden">Anrufen: </span>@phone
+    </a>
+    <a class="site-button page-button-outline" href="@SiteFormatting.MailtoHref(email, Model.MailSubject)">E-Mail schreiben<span class="page-print-only">: @email</span></a>
+</div>

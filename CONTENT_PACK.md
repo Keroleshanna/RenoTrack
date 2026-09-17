@@ -66,7 +66,11 @@ A file must be valid JSON with an object at the top level and no duplicate keys 
 | `Services[].Slug` | text ≤ 40 | Lowercase ASCII letters and digits, single hyphens: `tueren`, not `Türen`. Unique. **Becomes a URL — keep it stable.** |
 | `Services[].Name` | text ≤ 60 | Unique ignoring case. |
 | `Services[].Summary` | text ≤ 300 | Required. One or two plain sentences. |
-| `Services[].Offerings[]` | list of text ≤ 160 | At least one; none blank. What the company actually offers, one item each. |
+| `Services[].Offerings[]` | list of text ≤ 160 | **1–12**; none blank. What the company actually offers, one item each. Shown as the service page's "Leistungsumfang" list (Slice 4, D105); the limit keeps that list scannable. |
+| `Services[].MetaTitle` | text ≤ 70 | **Required for a marketing site** (Slice 4, D105). The service page's `<title>` and `og:title`, used **verbatim**. There is no fallback to `"{Name} \| {DisplayName}"`. See §6. |
+| `Services[].Headline` | text ≤ 90 | Optional. The service page's one `h1`. Absent: `Name`. |
+| `Services[].MetaDescription` | text ≤ 160 | Optional. The service page's meta description and `og:description`. Absent: none is rendered. `Summary` is never used for this, because code does not shorten company text. |
+| `Services[].Sections[]` | list | Optional: none, or **1–4** blocks `{ "Heading": text ≤ 80, "Paragraphs": [ 1–4 × text ≤ 600 ] }`, in order. They describe the service and its typical uses on its page. Absent: no descriptive blocks. |
 | `Theme.PrimaryColor` | `#RRGGBB` | Optional (Slice 2, D103). Must reach **4.5:1 against white** — it carries white button and link text. Absent: a neutral product default. |
 | `Theme.AccentColor` | `#RRGGBB` | Optional. Must reach **3:1 against the effective primary** — used for decoration, borders and large text only. Absent: a neutral product default. |
 
@@ -83,6 +87,32 @@ Colours are served as the generated `/site/theme.css`; a pack never supplies CSS
 | `Home.Process[]` | list | Optional: none, or **2–6** steps `{ "Title": text ≤ 60, "Text": text ≤ 200 }`, in order. Absent: no "So läuft es ab" section. |
 
 Both lists must come from one configuration source, like `Services`. A supplied-but-blank value is refused rather than rendered empty.
+
+### 3.2 `Site:ServicesPage` and the service pages (Slice 4, D105)
+
+| Key | Type | Rules |
+|---|---|---|
+| `ServicesPage.MetaTitle` | text ≤ 70 | **Required for a marketing site.** The `/leistungen` overview's `<title>` and `og:title`, used **verbatim**, with no fallback. |
+| `ServicesPage.Headline` | text ≤ 90 | Optional. The overview's `h1`. Absent: "Leistungen". |
+| `ServicesPage.Intro` | text ≤ 160 | Optional. Shown under the headline, and used as the overview's meta description. Absent: neither is rendered. |
+
+**What the pages are.** `/leistungen` lists every service in pack order, each card linking to `/leistungen/<Slug>`. Each service page shows:
+- a breadcrumb;
+- a hero with `Headline` (or `Name`), `Summary`, the company's service area and the contact actions;
+- "Leistungsumfang" (`Offerings`);
+- `Sections`;
+- the contact section;
+- "Weitere Leistungen", linking the other services.
+
+Every service is also linked from the footer of every page.
+
+**Rules the application enforces:**
+- **Every page has its own title and description.** The homepage, the overview and every service must not share a `MetaTitle`, and no two supplied descriptions (`Home.Subheadline`, `ServicesPage.Intro`, `Services[].MetaDescription`) may match. Comparison ignores case and surrounding spaces, and a refusal names both keys, never the text.
+- **A slug is matched exactly.** `/leistungen/waende` finds the service whose `Slug` is `waende`, and nothing else does. There is no case folding, no transliteration (`wände` is not `waende`), no closest match and no fallback. An upper-case or trailing-slash address is permanently redirected to its lower-case form first.
+- **Changing a slug breaks its old address.** The old URL answers 404, and there are no redirects from old slugs. Choose slugs once. The inquiry flow (Slice 8) will use the same key.
+- **No images yet.** Service photos arrive with the approved-media pipeline (Slice 5). Until then a service page is text only, and must read as complete that way, because some services may never have approved photos.
+- **The service area is the company's**, from `CompanyIdentity:ServiceArea`, shown on every service page. There is no per-service area and there are no pages per town.
+- **Nested lists** (`Offerings`, `Sections`, `Paragraphs`) are part of `Site:Services` and must come from the same single configuration source.
 
 ## 4. `legal.json` → `Legal`
 
@@ -126,12 +156,21 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
         { "Title": "Zweiter Schritt", "Text": "Was danach geschieht." }
       ]
     },
+    "ServicesPage": {
+      "MetaTitle": "Alle Testleistungen in Testort und Testregion",
+      "Intro": "Eine erfundene Einleitung zur Leistungsübersicht."
+    },
     "Services": [
       {
         "Slug": "test-leistung",
         "Name": "Testleistung",
         "Summary": "Eine erfundene Leistung zur Veranschaulichung des Schemas.",
-        "Offerings": [ "Erstes erfundenes Angebot", "Zweites erfundenes Angebot" ]
+        "Offerings": [ "Erstes erfundenes Angebot", "Zweites erfundenes Angebot" ],
+        "MetaTitle": "Testleistung in Testort und Testregion",
+        "MetaDescription": "Eine erfundene Beschreibung der Testleistung.",
+        "Sections": [
+          { "Heading": "Erfundener Abschnitt", "Paragraphs": [ "Ein Absatz, der die Leistung beschreibt." ] }
+        ]
       }
     ]
   }
@@ -151,3 +190,14 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
   - **No unverified claims** in the title, headline, subheadline, advantages or process: no superlatives or rankings ("Nr. 1", "bester", "führend"), no prices, "kostenlos", "Festpreis" or discounts, no response-time promises, and no ratings, review counts, years in business, project counts or certifications.
   - **The headline states what the company does**, not a quality slogan. The service area is shown from `ServiceArea`, not repeated as a city list in the copy.
   - **The owner is shown only as `Inhaber: <OwnerName>`** — a restatement of the identity field. The site attaches no role, availability or contact claim to the person.
+- **Service copy (D105) — checked in review, because code cannot check it:**
+  - **Each `MetaTitle` names the service and the region** in natural German, e.g. the trade and the main town or region. No keyword lists, no chains of towns, no second town-specific variant of the same page.
+  - **One service entry per real service the company performs.** Never an entry per town, and never an entry for work the company does not do.
+  - **`Offerings` and `Sections` describe what is actually done.** Typical uses are fine; invented project details, customer situations or results are not.
+  - **No unverified claims** anywhere in the service copy:
+    - no Meister or Meisterbetrieb claim, and no other qualification, certification, norm or standard compliance unless verified;
+    - no manufacturer, brand-partner or dealer claims unless verified;
+    - no guarantee or warranty wording beyond what is verified;
+    - no prices, "kostenlos", "Festpreis" or discounts, and no response-time promises;
+    - no superlatives, rankings, ratings, review counts, years in business or project counts.
+  - **Slugs are plain ASCII forms of the service name** (`waende`, `innenausbau`), chosen once and kept.

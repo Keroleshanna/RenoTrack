@@ -13,6 +13,12 @@ public static class SiteLayout
     public const string Footer = "/Pages/Shared/Site/_SiteFooter.cshtml";
     public const string CallBar = "/Pages/Shared/Site/_MobileCallBar.cshtml";
 
+    /// <summary>Content partials shared by several marketing pages (<b>D105</b>).</summary>
+    public const string Breadcrumb = "/Pages/Shared/Site/_Breadcrumb.cshtml";
+    public const string ServiceCards = "/Pages/Shared/Site/_ServiceCards.cshtml";
+    public const string ContactSection = "/Pages/Shared/Site/_ContactSection.cshtml";
+    public const string HeroActions = "/Pages/Shared/Site/_HeroActions.cshtml";
+
     /// <summary>The customer layout, which a shared page keeps when its endpoint is not a marketing page.</summary>
     public const string CustomerLayout = "_CustomerLayout";
 

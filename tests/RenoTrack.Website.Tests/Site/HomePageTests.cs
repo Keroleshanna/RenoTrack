@@ -51,8 +51,13 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
         }
         """;
 
-    private static string Services(int count) => "\"Services\": [" + string.Join(",", Enumerable.Range(1, count).Select(index =>
-        $$"""{ "Slug": "leistung-{{index}}", "Name": "Testleistung {{index}}", "Summary": "Zusammenfassung {{index}} (Testdaten).", "Offerings": [ "Angebot {{index}}" ] }"""))
+    /// <summary>
+    /// The services, plus the overview title an enabled site requires since Slice 4 (D105) — each service carries
+    /// its own required title too.
+    /// </summary>
+    private static string Services(int count) =>
+        "\"ServicesPage\": { \"MetaTitle\": \"Übersichtstitel (Testdaten)\" }, \"Services\": [" + string.Join(",", Enumerable.Range(1, count).Select(index =>
+        $$"""{ "Slug": "leistung-{{index}}", "Name": "Testleistung {{index}}", "Summary": "Zusammenfassung {{index}} (Testdaten).", "Offerings": [ "Angebot {{index}}" ], "MetaTitle": "Leistungstitel {{index}} (Testdaten)" }"""))
         + "]";
 
     private static string Section(string html, string id)
@@ -91,7 +96,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
         var html = await Home();
 
         Assert.Equal(1, Html.Count(html, "<h1"));
-        Assert.Contains($"<h1 id=\"home-title\" class=\"home-hero-title\">{AlphaHeadline}</h1>", html, StringComparison.Ordinal);
+        Assert.Contains($"<h1 id=\"home-title\" class=\"page-hero-title\">{AlphaHeadline}</h1>", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -101,7 +106,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal(1, Html.Count(html, "<h1"));
-        Assert.Contains("<h1 id=\"home-title\" class=\"home-hero-title\">Testfirma (Testdaten)</h1>", html, StringComparison.Ordinal);
+        Assert.Contains("<h1 id=\"home-title\" class=\"page-hero-title\">Testfirma (Testdaten)</h1>", html, StringComparison.Ordinal);
     }
 
     // ---- Head ----------------------------------------------------------------
@@ -145,7 +150,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
         Assert.DoesNotContain("name=\"description\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("og:description", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("home-hero-lead", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("page-hero-lead", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -180,8 +185,8 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
         var hero = Section(await Home(), "home-title");
 
         Assert.Contains("Einsatzgebiet: Testort Alpha und Testregion Nord", hero, StringComparison.Ordinal);
-        Assert.Contains("class=\"site-button home-button-light home-hero-call\" href=\"tel:&#x2B;490001111111\"", hero, StringComparison.Ordinal);
-        Assert.Contains("href=\"mailto:kontakt@alpha-testbetrieb.test\">E-Mail schreiben<span class=\"home-print-only\">: kontakt@alpha-testbetrieb.test</span></a>", hero, StringComparison.Ordinal);
+        Assert.Contains("class=\"site-button page-button-light page-hero-call\" href=\"tel:&#x2B;490001111111\"", hero, StringComparison.Ordinal);
+        Assert.Contains("href=\"mailto:kontakt@alpha-testbetrieb.test\">E-Mail schreiben<span class=\"page-print-only\">: kontakt@alpha-testbetrieb.test</span></a>", hero, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -198,7 +203,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
             var section = Section(html, id);
             // Razor encodes the '+' of the visible number as &#x2B; too, as CompanyIdentityRenderingTests documents.
             Assert.Matches("href=\"tel:&#x2B;490001111111\">\\s*<span class=\"site-visually-hidden\">Anrufen: </span>(\\+|&#x2B;)49 000 1111111\\s*</a>", section);
-            Assert.Contains("<span class=\"home-print-only\">: kontakt@alpha-testbetrieb.test</span>", section, StringComparison.Ordinal);
+            Assert.Contains("<span class=\"page-print-only\">: kontakt@alpha-testbetrieb.test</span>", section, StringComparison.Ordinal);
         }
     }
 
@@ -215,12 +220,12 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
         var screen = css[..css.IndexOf("@media", StringComparison.Ordinal)];
         var print = css[css.IndexOf("@media print", StringComparison.Ordinal)..];
 
-        Assert.Contains(".home-print-only {\n    display: none;", screen.ReplaceLineEndings("\n"), StringComparison.Ordinal);
-        Assert.DoesNotMatch("\\.home-actions\\s*\\{\\s*display:\\s*none", print);
-        Assert.Contains(".home-actions {\n        display: block !important;", print.ReplaceLineEndings("\n"), StringComparison.Ordinal);
-        Assert.Contains(".home-actions .home-hero-call {", print, StringComparison.Ordinal);
-        Assert.Contains(".home-actions .site-visually-hidden {", print, StringComparison.Ordinal);
-        Assert.Contains(".home-print-only {\n        display: inline;", print.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.Contains(".page-print-only {\n    display: none;", screen.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.DoesNotMatch("\\.page-actions\\s*\\{\\s*display:\\s*none", print);
+        Assert.Contains(".page-actions {\n        display: block !important;", print.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.Contains(".page-actions .page-hero-call {", print, StringComparison.Ordinal);
+        Assert.Contains(".page-actions .site-visually-hidden {", print, StringComparison.Ordinal);
+        Assert.Contains(".page-print-only {\n        display: inline;", print.ReplaceLineEndings("\n"), StringComparison.Ordinal);
         Assert.Matches("\\.site-callbar,[^{]*\\{\\s*display:\\s*none !important;", print);
     }
 
@@ -229,7 +234,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
     {
         var contact = Section(await Home(), "home-contact");
 
-        Assert.Contains("<h2 id=\"home-contact\" class=\"home-section-title\">Kontakt aufnehmen</h2>", contact, StringComparison.Ordinal);
+        Assert.Contains("<h2 id=\"home-contact\" class=\"page-section-title\">Kontakt aufnehmen</h2>", contact, StringComparison.Ordinal);
         Assert.Contains("href=\"tel:&#x2B;490001111111\"", contact, StringComparison.Ordinal);
         Assert.Contains("href=\"mailto:kontakt@alpha-testbetrieb.test\"", contact, StringComparison.Ordinal);
         Assert.Contains("<abbr title=\"Montag bis Freitag\">Mo–Fr</abbr> 08:00–17:00 Uhr", contact, StringComparison.Ordinal);
@@ -244,8 +249,9 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
     {
         var services = Section(await Home(), "home-services");
 
-        var first = services.IndexOf("<h3 class=\"home-card-title\">Testleistung Eins</h3>", StringComparison.Ordinal);
-        var second = services.IndexOf("<h3 class=\"home-card-title\">Testleistung Zwei</h3>", StringComparison.Ordinal);
+        // Linked to its page since Slice 4 (D105); the heading and its one link carry only the service name.
+        var first = services.IndexOf("<h3 class=\"page-card-title\"><a class=\"page-card-link\" href=\"/leistungen/test-leistung-eins\">Testleistung Eins</a></h3>", StringComparison.Ordinal);
+        var second = services.IndexOf("<h3 class=\"page-card-title\"><a class=\"page-card-link\" href=\"/leistungen/test-leistung-zwei\">Testleistung Zwei</a></h3>", StringComparison.Ordinal);
         Assert.True(first >= 0 && second >= 0, "both services must be present");
         Assert.True(first < second);
         Assert.Contains("Eine erfundene Leistung für automatisierte Tests (Testdaten).", services, StringComparison.Ordinal);
@@ -262,10 +268,10 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
         Assert.Equal(HttpStatusCode.OK, status);
         var services = Section(html, "home-services");
-        Assert.Equal(count, Html.Count(services, "<li class=\"home-card\">"));
+        Assert.Equal(count, Html.Count(services, "<li class=\"page-card page-card-linked\">"));
 
         var positions = Enumerable.Range(1, count)
-            .Select(index => services.IndexOf($">Testleistung {index}</h3>", StringComparison.Ordinal))
+            .Select(index => services.IndexOf($"href=\"/leistungen/leistung-{index}\">Testleistung {index}</a></h3>", StringComparison.Ordinal))
             .ToList();
         Assert.All(positions, position => Assert.True(position >= 0));
         Assert.Equal(positions.Order(), positions);
@@ -279,8 +285,8 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
         var html = await Home();
 
         var advantages = Section(html, "home-advantages");
-        Assert.Equal(3, Html.Count(advantages, "<li class=\"home-card\">"));
-        Assert.Contains("<h3 class=\"home-card-title\">Erster Testvorteil</h3>", advantages, StringComparison.Ordinal);
+        Assert.Equal(3, Html.Count(advantages, "<li class=\"page-card\">"));
+        Assert.Contains("<h3 class=\"page-card-title\">Erster Testvorteil</h3>", advantages, StringComparison.Ordinal);
 
         var process = Section(html, "home-process");
         Assert.Contains("<ol class=\"home-steps\">", process, StringComparison.Ordinal);
@@ -303,7 +309,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
         var html = await client.GetStringAsync("/");
 
-        foreach (var absent in new[] { "home-advantages", "Ihre Vorteile", "home-process", "So läuft es ab", "Inhaber", "home-hero-lead", "Einsatzgebiet:", "Öffnungszeiten", "home-contact-note" })
+        foreach (var absent in new[] { "home-advantages", "Ihre Vorteile", "home-process", "So läuft es ab", "Inhaber", "page-hero-lead", "Einsatzgebiet:", "Öffnungszeiten", "page-contact-note" })
         {
             Assert.DoesNotContain(absent, html, StringComparison.Ordinal);
         }
@@ -341,9 +347,11 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
     // ---- Links ---------------------------------------------------------------------
 
-    /// <summary>No link to a page a later slice builds, and never to a customer token page.</summary>
+    /// <summary>
+    /// No link to a page a later slice builds, and never to a customer token page. <c>/leistungen</c> left this list
+    /// in Slice 4, which built it (D105); the link test below proves every link that remains answers 200.
+    /// </summary>
     [Theory]
-    [InlineData("href=\"/leistungen")]
     [InlineData("href=\"/projekte")]
     [InlineData("href=\"/ueber-uns")]
     [InlineData("href=\"/faq")]
@@ -352,6 +360,16 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
     public async Task No_link_points_at_a_page_that_does_not_exist_yet(string link)
     {
         Assert.DoesNotContain(link, await Home(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task The_services_section_links_every_service_page_and_the_overview()
+    {
+        var services = Section(await Home(), "home-services");
+
+        Assert.Contains("href=\"/leistungen/test-leistung-eins\"", services, StringComparison.Ordinal);
+        Assert.Contains("href=\"/leistungen/test-leistung-zwei\"", services, StringComparison.Ordinal);
+        Assert.Contains("<a class=\"page-more-link\" href=\"/leistungen\">Alle Leistungen ansehen</a>", services, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -498,7 +516,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
         Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
         var html = await response.Content.ReadAsStringAsync();
-        Assert.DoesNotContain("home-hero", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("page-hero", html, StringComparison.Ordinal);
     }
 
     [Fact]

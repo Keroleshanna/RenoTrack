@@ -14,12 +14,14 @@
   "Site": {
     "PublicBaseUrl": "https://beta-musterwerkstatt.test",
     "Home": { "MetaTitle": "Beta-Testleistung in Testort Beta (Testdaten)" },
+    "ServicesPage": { "MetaTitle": "Leistungen der Beta Musterwerkstatt (Testdaten)" },
     "Services": [
       {
         "Slug": "beta-testleistung",
         "Name": "Beta-Testleistung",
         "Summary": "Die einzige erfundene Leistung der zweiten Testfirma (Testdaten).",
-        "Offerings": [ "Erfundenes Beta-Angebot" ]
+        "Offerings": [ "Erfundenes Beta-Angebot" ],
+        "MetaTitle": "Beta-Testleistung bei der Beta Musterwerkstatt (Testdaten)"
       }
     ]
   }

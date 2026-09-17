@@ -40,5 +40,30 @@ internal static class ContentText
         }
     }
 
+    /// <summary>
+    /// An optional value: absent is fine, supplied but blank is not — a whitespace-only value is a paste accident
+    /// that would otherwise render as an empty title or heading (D104, D105).
+    /// </summary>
+    internal static void ValidateOptional(string? value, string key, int maxLength)
+    {
+        if (value is not null && IsBlank(value))
+        {
+            throw new InvalidOperationException($"Configuration '{key}' is blank. Supply text or remove the key.");
+        }
+
+        Validate(value, key, maxLength);
+    }
+
+    /// <summary>A required value: present, not blank, and within the shared shape rules.</summary>
+    internal static void ValidateRequired(string? value, string key, int maxLength)
+    {
+        if (IsBlank(value))
+        {
+            throw new InvalidOperationException($"Configuration '{key}' is required.");
+        }
+
+        Validate(value, key, maxLength);
+    }
+
     internal static bool IsBlank(string? value) => string.IsNullOrWhiteSpace(value);
 }

@@ -50,8 +50,8 @@ public sealed class SiteLayoutTests(MarketingSiteFixture site) : IClassFixture<M
     {
         var html = await Impressum();
 
-        // The homepage is the first and only entry (Slice 3, D104); still no empty or speculative navigation.
-        Assert.Equal(new[] { "/" }, SiteNavigation.Primary.Select(item => item.Href));
+        // The homepage (Slice 3, D104) and the services overview (Slice 4, D105); still no speculative navigation.
+        Assert.Equal(new[] { "/", "/leistungen" }, SiteNavigation.Primary.Select(item => item.Href));
         Assert.Contains("aria-label=\"Hauptnavigation\"", html, StringComparison.Ordinal);
         Assert.Equal(SiteNavigation.Primary.Count, Html.Count(html, "class=\"site-nav-link\""));
     }
@@ -97,6 +97,10 @@ public sealed class SiteLayoutTests(MarketingSiteFixture site) : IClassFixture<M
         Assert.Contains("Weitere Orte nach Absprache (Testdaten).", html, StringComparison.Ordinal);
         Assert.Contains("href=\"/impressum\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"/datenschutz\"", html, StringComparison.Ordinal);
+        // Every service page, from every page (Slice 4, D105).
+        Assert.Contains("<h2 id=\"site-footer-services\" class=\"site-footer-heading\">Leistungen</h2>", html, StringComparison.Ordinal);
+        Assert.Contains("href=\"/leistungen/test-leistung-eins\"", html, StringComparison.Ordinal);
+        Assert.Contains("href=\"/leistungen/test-leistung-zwei\"", html, StringComparison.Ordinal);
         Assert.Contains($"&copy; {DateTimeOffset.UtcNow.Year} {MarketingSiteFixture.CompanyName}", html, StringComparison.Ordinal);
         Assert.Contains("aria-label=\"Schnellkontakt\"", html, StringComparison.Ordinal);
     }

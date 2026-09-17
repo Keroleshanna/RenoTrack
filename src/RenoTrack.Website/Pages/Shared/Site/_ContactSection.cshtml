@@ -1,0 +1,53 @@
+@model RenoTrack.Website.Site.ContactSectionModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@*
+    "Kontakt aufnehmen" (D104, shared since D105): phone, email, opening hours and notes, every fact from the content
+    pack and every unconfigured one omitted whole.
+
+    The heading id comes from the calling page, so aria-labelledby resolves and no id repeats. The heading is an h2 and
+    its sub-heading an h3 on every page that uses it: each caller places it as a top-level section of its main content.
+    Its phone button stays visible at every width, because it sits in the page flow rather than fixed on screen.
+*@
+@{
+    var phone = Company.ContactPhone!;
+    var email = Company.ContactEmail!;
+    var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
+    var hasHoursNote = !string.IsNullOrWhiteSpace(Company.OpeningHoursNote);
+    var hasAreaNote = !string.IsNullOrWhiteSpace(Company.ServiceArea.Note);
+}
+<section class="page-section page-contact" aria-labelledby="@Model.HeadingId">
+    <div class="site-container">
+        <h2 id="@Model.HeadingId" class="page-section-title">Kontakt aufnehmen</h2>
+        <div class="page-actions">
+            <a class="site-button" href="@SiteFormatting.TelHref(phone)">
+                <span class="site-visually-hidden">Anrufen: </span>@phone
+            </a>
+            <a class="site-button page-button-secondary" href="@SiteFormatting.MailtoHref(email, Model.MailSubject)">E-Mail schreiben<span class="page-print-only">: @email</span></a>
+        </div>
+
+        @if (hours.Count > 0 || hasHoursNote)
+        {
+            <h3 class="page-contact-heading">Öffnungszeiten</h3>
+            @if (hours.Count > 0)
+            {
+                <ul class="page-hours">
+                    @foreach (var line in hours)
+                    {
+                        <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                    }
+                </ul>
+            }
+            @if (hasHoursNote)
+            {
+                <p class="page-contact-note">@Company.OpeningHoursNote</p>
+            }
+        }
+
+        @if (hasAreaNote)
+        {
+            <p class="page-contact-note">@Company.ServiceArea.Note</p>
+        }
+    </div>
+</section>

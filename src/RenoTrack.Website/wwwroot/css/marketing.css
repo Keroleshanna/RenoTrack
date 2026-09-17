@@ -292,24 +292,28 @@ body.site {
     overflow-wrap: anywhere;
 }
 
-/* ---- Homepage (Slice 3, D104) -------------------------------------------------------------------- */
+/*
+  ---- Page components (Slice 3, D104; shared and renamed from home-* in Slice 4, D105) -----------------
+  Hero, sections, cards, actions and the contact section are used by the homepage, the services overview and every
+  service page. Only what exists on the homepage alone keeps a home-* name (the owner line and the process steps).
+*/
 
 /* A full-width page draws its own bands, so the main element adds no vertical padding of its own. */
 .site-main.site-main-full {
     padding-block: 0;
 }
 
-.home-hero {
+.page-hero {
     background: var(--color-primary);
     color: var(--color-on-primary);
     padding-block: var(--space-6);
 }
 
-.home-hero :focus-visible {
+.page-hero :focus-visible {
     outline-color: var(--color-on-primary);
 }
 
-.home-hero-title {
+.page-hero-title {
     max-width: 48rem;
     margin: 0 0 var(--space-2);
     font-size: clamp(1.875rem, 1.4rem + 2.2vw, 3rem);
@@ -319,67 +323,74 @@ body.site {
     overflow-wrap: anywhere;
 }
 
-.home-hero-lead {
+.page-hero-lead {
     max-width: 40rem;
     margin: 0 0 var(--space-2);
     font-size: 1.1875rem;
     overflow-wrap: anywhere;
 }
 
-.home-hero-area {
+.page-hero-area {
     margin: 0 0 var(--space-3);
     font-weight: 600;
     overflow-wrap: anywhere;
 }
 
-.home-actions {
+.page-actions {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
 }
 
-.home-actions .site-button {
+.page-actions .site-button {
     white-space: normal;
     overflow-wrap: anywhere;
     text-align: center;
 }
 
-.home-button-light {
+.page-button-light {
     background: var(--color-on-primary);
     color: var(--color-primary) !important;
 }
 
-.home-button-outline {
+.page-button-outline {
     background: transparent;
     border: 2px solid var(--color-on-primary);
     color: var(--color-on-primary) !important;
 }
 
-.home-button-secondary {
+.page-button-secondary {
     background: var(--color-page);
     border: 2px solid var(--color-primary);
     color: var(--color-primary) !important;
 }
 
 /* Below 768 px the fixed call bar is the phone CTA (D103), so the hero does not repeat it. */
-.home-hero-call {
+.page-hero-call {
     display: none !important;
 }
 
 /* Text a contact action carries on paper only, e.g. the email address behind "E-Mail schreiben" (D104). */
-.home-print-only {
+.page-print-only {
     display: none;
 }
 
-.home-section {
+.page-section {
     padding-block: var(--space-6);
 }
 
-.home-section-warm {
+.page-section-warm {
     background: var(--color-surface-warm);
 }
 
-.home-section-title {
+/*
+  An inline-block sizes to its longest word, so a single long heading word ("Leistungsumfang") at 200% text on a
+  375 px screen pushed the page wider than the viewport. Found in Slice 4 QA; hyphens: auto alone did not break it,
+  because hyphenation depends on the browser having a dictionary (D105).
+*/
+.page-section-title {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     margin: 0 0 var(--space-3);
     padding-bottom: 0.375rem;
     border-bottom: 3px solid var(--color-accent);
@@ -389,7 +400,7 @@ body.site {
     line-height: 1.2;
 }
 
-.home-cards,
+.page-cards,
 .home-steps {
     display: grid;
     grid-template-columns: 1fr;
@@ -399,7 +410,7 @@ body.site {
     list-style: none;
 }
 
-.home-card {
+.page-card {
     padding: var(--space-3);
     background: var(--color-page);
     border: 1px solid var(--color-line);
@@ -407,7 +418,7 @@ body.site {
     border-radius: var(--radius);
 }
 
-.home-card-title {
+.page-card-title {
     margin: 0 0 var(--space-1);
     font-size: 1.25rem;
     font-weight: 600;
@@ -415,7 +426,7 @@ body.site {
     overflow-wrap: anywhere;
 }
 
-.home-card-text {
+.page-card-text {
     margin: 0;
     color: var(--color-ink-muted);
     overflow-wrap: anywhere;
@@ -454,35 +465,197 @@ body.site {
     font-weight: 700;
 }
 
-.home-contact {
+.page-contact {
     border-top: 1px solid var(--color-line);
 }
 
-.home-contact .home-actions {
+.page-contact .page-actions {
     margin-bottom: var(--space-3);
 }
 
-.home-contact-heading {
+.page-contact-heading {
     margin: 0 0 var(--space-1);
     font-size: 1.125rem;
     font-weight: 600;
 }
 
-.home-hours {
+.page-hours {
     margin: 0 0 var(--space-1);
     padding: 0;
     list-style: none;
 }
 
-.home-hours abbr {
+.page-hours abbr {
     text-decoration: none;
     font-weight: 600;
 }
 
-.home-contact-note {
+.page-contact-note {
     margin: 0 0 var(--space-1);
     color: var(--color-ink-muted);
     overflow-wrap: anywhere;
+}
+
+/* ---- Service pages (Slice 4, D105) --------------------------------------------------------------- */
+
+/* Long German compounds ("Leistungsumfang") break at syllables on narrow and text-enlarged screens. */
+.page-hero-title,
+.page-section-title,
+.page-card-title,
+.page-prose-title,
+.page-checklist-item {
+    hyphens: auto;
+}
+
+.page-section-more {
+    margin: var(--space-3) 0 0;
+}
+
+.page-more-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-weight: 600;
+}
+
+/*
+  A linked service card: one link, on the heading, stretched over the whole card by a pseudo-element, so the card
+  is one click target with one accessible name. The link keeps its own focus outline; the card shows it too.
+*/
+.page-card-linked {
+    position: relative;
+}
+
+.site a.page-card-link {
+    color: var(--color-ink);
+    text-decoration: none;
+}
+
+.page-card-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+
+.page-card-linked:hover {
+    border-color: var(--color-primary);
+}
+
+.site .page-card-linked:hover .page-card-link {
+    text-decoration: underline;
+}
+
+.page-card-linked:has(.page-card-link:focus-visible) {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 3px;
+}
+
+/* A chevron drawn with borders: decoration only, no text for a screen reader to announce. */
+.page-card-linked .page-card-title {
+    padding-inline-end: 1.5rem;
+}
+
+.page-card-linked::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--space-3) + 0.5rem);
+    inset-inline-end: var(--space-3);
+    width: 0.5rem;
+    height: 0.5rem;
+    border-top: 2px solid var(--color-primary);
+    border-right: 2px solid var(--color-primary);
+    transform: rotate(45deg);
+}
+
+.page-breadcrumb-bar {
+    background: var(--color-surface-warm);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.page-breadcrumb-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.9375rem;
+}
+
+.page-breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    overflow-wrap: anywhere;
+}
+
+/* The separator is drawn, never typed, so it is not read out as punctuation. */
+.page-breadcrumb-item + .page-breadcrumb-item::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-inline: 0.625rem;
+    border-top: 1.5px solid var(--color-ink-muted);
+    border-right: 1.5px solid var(--color-ink-muted);
+    transform: rotate(45deg);
+    flex: none;
+}
+
+.page-breadcrumb-item [aria-current="page"] {
+    font-weight: 600;
+}
+
+.page-checklist {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-1) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.page-checklist-item {
+    position: relative;
+    padding-inline-start: 2rem;
+    overflow-wrap: anywhere;
+}
+
+/* A check mark drawn with borders: decoration only; the list itself carries the meaning. */
+.page-checklist-item::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0.375rem;
+    top: 0.3em;
+    width: 0.5rem;
+    height: 0.875rem;
+    border-bottom: 3px solid var(--color-primary);
+    border-right: 3px solid var(--color-primary);
+    transform: rotate(45deg);
+}
+
+.page-section-text + .page-section-text {
+    padding-top: 0;
+}
+
+.page-prose {
+    max-width: 44rem;
+}
+
+.page-prose-title {
+    margin: 0 0 var(--space-2);
+    font-size: clamp(1.375rem, 1.2rem + 0.7vw, 1.75rem);
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.page-prose-paragraph {
+    margin: 0 0 var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.page-prose-paragraph:last-child {
+    margin-bottom: 0;
 }
 
 /* ---- Footer -------------------------------------------------------------------------------------- */
@@ -501,9 +674,13 @@ body.site {
     outline-color: var(--color-on-primary);
 }
 
+/*
+  minmax(0, 1fr), not 1fr: a bare 1fr track cannot shrink below its longest unbreakable word. Found in Slice 4 QA at
+  200% text and 375 px, when the footer's services column put a long service name there and the page overflowed (D105).
+*/
 .site-footer-grid {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
     padding-block: var(--space-6);
 }
@@ -545,7 +722,9 @@ body.site {
 
 .site-footer-links a {
     display: inline-block;
+    max-width: 100%;
     padding-block: 0.25rem;
+    overflow-wrap: anywhere;
 }
 
 .site-footer-text,
@@ -640,25 +819,29 @@ body.site {
         padding-block: 0;
     }
 
-    .home-hero {
+    .page-hero {
         padding-block: var(--space-8);
     }
 
-    .home-hero-call {
+    .page-hero-call {
         display: inline-flex !important;
     }
 
-    .home-actions {
+    .page-actions {
         flex-direction: row;
         flex-wrap: wrap;
     }
 
-    .home-section {
+    .page-section {
         padding-block: var(--space-8);
     }
 
-    .home-cards,
+    .page-cards,
     .home-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .page-checklist {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
@@ -672,7 +855,7 @@ body.site {
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
-    .home-cards {
+    .page-cards {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
@@ -681,6 +864,16 @@ body.site {
         grid-template-columns: none;
         grid-auto-flow: column;
         grid-auto-columns: minmax(0, 1fr);
+    }
+}
+
+@media (min-width: 1280px) {
+    /*
+      The footer gained its services column in Slice 4 (D105): wide screens fit every configured block in one row,
+      and a pack with fewer blocks leaves no empty tracks.
+    */
+    .site-footer-grid {
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
     }
 }
 
@@ -730,18 +923,18 @@ body.site {
       "E-Mail schreiben: <address>", in black, with no button chrome. The phone action is shown in print at
       every paper width; only the fixed call bar stays hidden.
     */
-    .home-hero,
-    .home-section-warm {
+    .page-hero,
+    .page-section-warm {
         background: none;
         color: #000000;
     }
 
-    .home-actions {
+    .page-actions {
         display: block !important;
     }
 
-    .home-actions .site-button,
-    .home-actions .home-hero-call {
+    .page-actions .site-button,
+    .page-actions .page-hero-call {
         display: block !important;
         min-height: 0;
         padding: 0;
@@ -752,7 +945,7 @@ body.site {
         text-decoration: none;
     }
 
-    .home-actions .site-visually-hidden {
+    .page-actions .site-visually-hidden {
         position: static;
         width: auto;
         height: auto;
@@ -762,12 +955,12 @@ body.site {
         white-space: normal;
     }
 
-    .home-print-only {
+    .page-print-only {
         display: inline;
     }
 
-    .home-hero,
-    .home-section {
+    .page-hero,
+    .page-section {
         padding-block: var(--space-3);
     }
 
@@ -776,5 +969,30 @@ body.site {
         background: none;
         border: 2px solid #000000;
         color: #000000;
+    }
+
+    /*
+      Service pages (D105). The breadcrumb stays on paper — it says where the page sits — but loses its band; card
+      and breadcrumb links print as black text; the drawn chevrons are screen affordances and are dropped. The check
+      marks stay, drawn in black.
+    */
+    .page-breadcrumb-bar {
+        background: none;
+        border: 0;
+    }
+
+    .site .page-breadcrumb-link,
+    .site a.page-card-link,
+    .site a.page-more-link {
+        color: #000000 !important;
+        text-decoration: none;
+    }
+
+    .page-card-linked::before {
+        display: none;
+    }
+
+    .page-checklist-item::before {
+        border-color: #000000;
     }
 }

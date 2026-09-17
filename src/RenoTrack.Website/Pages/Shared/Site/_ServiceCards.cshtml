@@ -1,0 +1,28 @@
+@model RenoTrack.Website.Site.ServiceCardsModel
+@using RenoTrack.Website.Site
+@*
+    Service cards (D105): name and summary, one link per card, in the order given.
+
+    The link sits on the heading and its accessible name is the service name alone; a CSS pseudo-element stretches it
+    over the card, so there is no second "Mehr erfahren" link and nothing interactive nested inside the link.
+
+    The heading level is the caller's (ServiceCardsModel), so no page skips a level. Written out as two branches rather
+    than a computed tag name, which would need Html.Raw.
+*@
+<ul class="page-cards">
+    @foreach (var service in Model.Services)
+    {
+        var href = MarketingSite.ServicePath(service);
+        <li class="page-card page-card-linked">
+            @if (Model.HeadingLevel == 2)
+            {
+                <h2 class="page-card-title"><a class="page-card-link" href="@href">@service.Name</a></h2>
+            }
+            else
+            {
+                <h3 class="page-card-title"><a class="page-card-link" href="@href">@service.Name</a></h3>
+            }
+            <p class="page-card-text">@service.Summary</p>
+        </li>
+    }
+</ul>

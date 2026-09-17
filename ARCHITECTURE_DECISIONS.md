@@ -2757,3 +2757,86 @@ Nothing may be invented, and nothing may link to a page that answers 404.
 **Found in browser QA, before closure** (headless Edge over the DevTools Protocol, against the published build, D103's method). Both defects were invisible to the test suite and are now pinned by tests.
 - **The first navigation entry squeezed the brand.** At 200% text and 375 px, flex shrinking narrowed the brand link until the company name wrapped almost character by character, about 1,100 px tall. The header now wraps (`flex-wrap: wrap`), and the brand claims a basis (`flex: 1 1 10rem`). After the fix the brand is 128 px tall there, and at normal text size the header stays one 73 px row from 320 to 1920 px.
 - **Focus stopped behind the call bar.** At true 400% zoom, a real Tab press scrolled the contact section's "E-Mail schreiben" button to 155–202 px against a call bar starting at 177 px. `scroll-padding-bottom` below 768 px now reserves the bar's height, and every focus stop clears it. Slice 2's footer-only page never had a focusable element low enough to expose this.
+
+## D105 — The Service Pages: One Real Page per Service, Matched Exactly, Titled by the Company
+
+**Phase 13 Slice 4.** Approved at the Slice 4 gate, decisions S4-1 to S4-13, with the Tech Lead's three implementation guardrails (exact slug comparison; shared partials must keep semantic structure; no company-specific literal in production code).
+
+**Problem:** the service pages are the site's main sales pages: what the company does in a trade, what that covers, where, and how to get in touch. They must:
+- be reachable from the homepage without a dead link;
+- serve any company's services from its content pack;
+- give search and AI systems one clean, factual, self-canonical page per real service, with no doorway or town pages;
+- stand as finished text-only pages, because approved photography arrives only in Slice 5 and may never exist for some services;
+- leave every token-route protection untouched.
+
+### Part 1 — Routes and lookup (S4-1, guardrail 1)
+
+- **`Pages/Leistungen` with `@page "/leistungen"`, `Pages/Leistung` with `@page "/leistungen/{slug}"`.** Never `Index`, for `Startseite`'s reason: explicit templates replace page-name routes, so `/leistung` and `/leistungen/index` are not addresses of these pages. Both become marketing pages only through `MarketingPageConvention`, and both return a bare `NotFound()` without the metadata.
+- **The slug is looked up through `MarketingSite.FindService`, a dictionary built once at startup with `StringComparer.Ordinal`.** There is no case folding, trimming, transliteration, closest match or fallback. An unknown slug is a bodyless 404, which the site's not-found page renders without echoing the address.
+- **Upper-case and trailing-slash addresses never reach the lookup:** D103's canonical-path redirect answers them with a 301 first. That same redirect makes a case-insensitive lookup invisible to every host-level test, so the ordinal contract is pinned on `FindService` itself, including under the `tr-TR` culture. A mutation to `OrdinalIgnoreCase` fails exactly those unit tests.
+- **`LeistungModel` resolves `MarketingSite` from request services after the marketing check.** The snapshot is registered only when the site is enabled, so it cannot be a constructor dependency of a page that also exists on a token-only deployment.
+- **Slug stability is the company's responsibility and is documented, not engineered:** a changed slug's old address answers 404. Redirects from previous slugs are out of scope. Slice 8's inquiry flow will use the same key.
+
+### Part 2 — Content (S4-2 to S4-5)
+
+| Key | Rule | Renders as |
+|---|---|---|
+| `ServicesPage.MetaTitle` | ≤ 70; **required once enabled** | overview `<title>`/`og:title`, verbatim |
+| `ServicesPage.Headline` | ≤ 90; optional | overview `h1`; absent → "Leistungen" |
+| `ServicesPage.Intro` | ≤ 160; optional | overview lead and meta description |
+| `Services[].MetaTitle` | ≤ 70; **required once enabled** | service `<title>`/`og:title`, verbatim |
+| `Services[].Headline` | ≤ 90; optional | service `h1`; absent → `Name` |
+| `Services[].MetaDescription` | ≤ 160; optional | service meta description; absent → none |
+| `Services[].Sections[]` | none or 1–4 `{ Heading ≤ 80, Paragraphs[1–4 × ≤ 600] }` | descriptive blocks |
+| `Services[].Offerings[]` | existing rules, **now at most 12** | "Leistungsumfang" |
+
+- **S4-2 — no generated titles.** D104 C1's reasoning applies with more force here: a service page is where a "trade + region" search lands, and `"{Name} | {company}"` says neither. Every missing title is named in the existing single startup message.
+- **`Summary` is not the meta description.** At up to 300 characters it is too long for one, and code never shortens company copy.
+- **S4-5 — unique titles and descriptions.** Across the homepage, the overview and every service, `MetaTitle`s must differ, and so must every supplied description (`Home.Subheadline`, `ServicesPage.Intro`, `Services[].MetaDescription`). Values are trimmed and compared ignoring case. The refusal names both keys and never the text. This is checked whenever content is supplied, enabled or not, and prepares Slice 10's crawl rule.
+- **Nested lists** (`Offerings`, `Sections`, `Paragraphs`) sit under `Site:Services` and are covered by the existing single-source guard. Slice 3 had assumed its lists were covered and was wrong, so this was verified with startup tests rather than assumed.
+
+**Alternatives considered:**
+- **Optional service titles falling back to `"{Name} | {DisplayName}"`.** Rejected at the gate: fewer required keys, but a title with no region, on exactly the pages whose purpose is regional discovery.
+- **A per-service service area.** Rejected: it invites town pages. The company's `ServiceArea` is shown on every service page instead.
+
+### Part 3 — The pages
+
+- **Overview:** breadcrumb → hero (`h1`, intro, "Einsatzgebiet", phone and email actions) → one linked card per service (`h2`) → contact section.
+- **Service page:** breadcrumb → hero (`h1`, `Summary`, "Einsatzgebiet", actions with the email subject "Anfrage: {Name}") → "Leistungsumfang" → `Sections` → *(Slice 5 photos)* → contact section → "Weitere Leistungen" (every other service, `h3` cards under its `h2`; omitted for a single-service site).
+- **Homepage:** its service cards link to their pages, and "Alle Leistungen ansehen" links to the overview.
+- **Navigation** gains "Leistungen". It stays a plain list, because two entries are not several (S4-7). `aria-current` stays exact-match, and on a service page the breadcrumb carries the location.
+- **Footer** gains a "Leistungen" navigation block linking every service from every page (S4-8). From 1280 px the footer grid fits every configured block in one row.
+- **Breadcrumb (S4-10):** a `nav` labelled "Pfadnavigation" with an ordered list. The current page is text marked `aria-current="page"`, never a link to itself. Separators are drawn by CSS. Slice 10's `BreadcrumbList` must agree with it.
+- **Cards:** one link per card, on the heading, stretched over the card by a pseudo-element, with no repeated "Mehr erfahren". The link keeps its focus outline, and the card repeats it via `:has(:focus-visible)`.
+- **Email subject (S4-9)** is percent-encoded whole with `Uri.EscapeDataString`, so a name containing `&`, `?`, `#` or `%` cannot add a `body`, `cc` or fragment.
+- **No image, placeholder or empty frame.** The text-only page must read as finished.
+
+### Part 4 — Shared markup without weakened structure (S4-6, guardrail 2)
+
+- **Partials:** `_ServiceCards`, `_ContactSection`, `_Breadcrumb` and `_HeroActions`, under `Pages/Shared/Site/`, referenced through `SiteLayout` constants.
+- **A partial never fixes a page-specific choice.** `_ServiceCards` takes its heading level (validated 2 or 3), `_ContactSection` takes its heading id, and `_HeroActions` and `_Breadcrumb` carry no id at all. Heading levels are written as two branches, not a computed tag name, which would need `Html.Raw`.
+- **Shared classes were renamed from `home-*` to `page-*`.** Only the owner line and the process steps, which exist on the homepage alone, keep `home-*`. The 33 homepage test assertions on class names were updated with intent kept. Homepage ids (`home-title`, `home-services`, …) are unchanged.
+- **`PageSemanticsTests` proves the guardrail on every marketing page,** with a full pack and a minimal one:
+  - ids are unique, and every `aria-labelledby` resolves;
+  - there is one `h1`, it comes first, and no heading level is skipped;
+  - there is one `header`, `main` and `footer`, and every `nav` is named with no shared name;
+  - each page's exact heading outline is pinned.
+
+  A self-test proves the checker catches each defect it claims to.
+
+### Part 5 — What deliberately did not change
+
+- `_CustomerLayout`, every token route, their headers, logging and tests.
+- CSP, cookies, fonts, `Program.cs`.
+- No JavaScript, no third-party request, no package, no migration, no project outside `RenoTrack.Website`.
+- **No company literal in production code (guardrail 3).** Every service word, title and description comes from the pack. The fixed labels are product copy.
+
+**Found while implementing:**
+- **A Slice 1 test's "not served" marker stopped being unique.** `Pack_files_outside_the_brand_directory_are_never_served` asserted the 404 body lacked "Testleistung". Once the footer linked every service, the site 404 legitimately contained it. The marker became text found only in the raw pack files (the fixture comment and the `"Offerings"` key), with the intent kept.
+- **A test expectation was too broad, not the code.** The mailto-injection test first asserted the page contained no `?body=` anywhere. The service name is also visible text (h1, breadcrumb), correctly encoded. The assertion was narrowed to the `mailto:` attributes (CLAUDE.md §14).
+- **`--list-tests` undercounts.** Theories whose data is not serializable are listed as one case but executed per row, so class counts were measured with filtered runs.
+
+**Found in browser QA, before closure** (headless Edge over the DevTools Protocol, against the published build, D103's method). Both defects were invisible to the test suite and are now pinned by tests and by mutations that revert them:
+- **A section heading widened the page.** At 200% text and 375 px, "Leistungsumfang" in the `inline-block` `.page-section-title` was wider than the viewport. `hyphens: auto` did not break it, because hyphenation depends on the browser having a dictionary. The heading now has `max-width: 100%` and `overflow-wrap: anywhere`.
+- **A long service name widened the footer.** With the five-service fictional pack, 200% text at 375 px overflowed through the new footer services column: a bare `1fr` grid track cannot shrink below its longest word. The one-column track is now `minmax(0, 1fr)`, and footer links wrap.
+- **Accepted, not changed:** a very long single-word service name can break mid-word in a narrow footer column at wide screens. Real service names are short, and the alternative is overflow.

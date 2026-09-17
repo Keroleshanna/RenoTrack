@@ -99,6 +99,27 @@ public sealed class SiteFormattingTests
     }
 
     [Fact]
+    public void A_mailto_link_without_a_subject_is_the_plain_address()
+    {
+        Assert.Equal("mailto:kontakt@example.test", SiteFormatting.MailtoHref(" kontakt@example.test", subject: null));
+    }
+
+    [Theory]
+    [InlineData("Anfrage: Innenausbau", "mailto:kontakt@example.test?subject=Anfrage%3A%20Innenausbau")]
+    [InlineData("Anfrage: Wände & Decken", "mailto:kontakt@example.test?subject=Anfrage%3A%20W%C3%A4nde%20%26%20Decken")]
+    [InlineData("a?b=c#d%e+f", "mailto:kontakt@example.test?subject=a%3Fb%3Dc%23d%25e%2Bf")]
+    public void A_mailto_subject_is_percent_encoded_whole(string subject, string expected)
+    {
+        Assert.Equal(expected, SiteFormatting.MailtoHref("kontakt@example.test", subject));
+    }
+
+    [Fact]
+    public void A_service_mail_subject_names_the_service()
+    {
+        Assert.Equal("Anfrage: Innenausbau", SiteFormatting.ServiceMailSubject(new ServiceOptions { Name = " Innenausbau " }));
+    }
+
+    [Fact]
     public void The_copyright_year_is_taken_in_utc()
     {
         Assert.Equal("2027", SiteFormatting.CopyrightYear(new DateTimeOffset(2026, 12, 31, 23, 30, 0, TimeSpan.FromHours(-2))));

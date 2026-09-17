@@ -180,7 +180,10 @@ public sealed partial class ContentPackStartupTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
-        Assert.DoesNotContain("Testleistung", body, StringComparison.Ordinal);
+        // Markers found only in the raw pack files. Service names are no marker since Slice 4: the site 404 page
+        // links every service from its footer (D105), as every marketing page does.
+        Assert.DoesNotContain("FICTIONAL TEST FIXTURE", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Offerings\"", body, StringComparison.Ordinal);
         Assert.DoesNotContain("PublicBaseUrl", body, StringComparison.Ordinal);
     }
 

@@ -1,6 +1,21 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-> **2026-09-17 — Phase 13 Slice 3 (homepage, D104) is implemented on `feature/phase-13-public-website` and pending Tech Lead review. It is not committed and not pushed.** Slice 2 is committed (`1b6337a`). The homepage at `/` is built from the content pack's new `Site:Home` section:
+> **2026-09-17 — Phase 13 Slice 4 (service pages, D105) is implemented on `feature/phase-13-public-website` and pending Tech Lead review. It is not committed and not pushed.** Slice 3 is committed (`8734bb9`).
+> - **New pages:** `/leistungen` and one page per configured service at `/leistungen/{slug}`, matched exactly (ordinal, case-sensitive, no fallback).
+> - **Titles:** every page's `<title>` is company-authored with no fallback (`Site:ServicesPage:MetaTitle`, `Site:Services[]:MetaTitle`). Titles and descriptions must be unique across pages.
+> - **Service page content:** optional headline, meta description and descriptive sections, "Leistungsumfang" (at most 12 offerings), breadcrumb, contact section and "Weitere Leistungen".
+> - **Site-wide changes:** the homepage cards link to the service pages, the navigation gains "Leistungen", and the footer lists every service.
+> - **Shared markup:** partials whose heading levels and ids the page supplies; shared CSS renamed `home-*` → `page-*`.
+> - **Unchanged:** no image, no JavaScript, no third-party request. Token pages are unchanged.
+>
+> **Tests, measured per project in Release on one non-deterministic build** (the known Application Control block refused the first, deterministic build):
+> - Website **957** (+157: 800 → 957);
+> - Domain 389, Application 470, Infrastructure 412 and Api 478, all unchanged by Slice 4;
+> - 0 warnings, 0 errors.
+>
+> **Verification:** 21 mutations, all caught. Browser QA against the published build found and fixed two overflow defects at 200% text on 375 px (a section heading, and the footer's services column with long names). See `PHASE13_PROGRESS.md` §5d.
+>
+> *Earlier status:* **2026-09-17 — Phase 13 Slice 3 (homepage, D104) is approved and closed (`8734bb9`).** Slice 2 is committed (`1b6337a`). The homepage at `/` is built from the content pack's new `Site:Home` section:
 > - a company-authored `MetaTitle`, required once the site is enabled, with no fallback to the company name;
 > - an optional headline and subheadline;
 > - optional advantages and process lists;

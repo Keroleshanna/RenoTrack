@@ -25,11 +25,19 @@ public sealed class HomePageOptionsTests
     private static ServiceOptions Service() => new()
     {
         Slug = "test-leistung", Name = "Testleistung", Summary = "Eine erfundene Leistung.", Offerings = ["Angebot"],
+        MetaTitle = "Testleistung in Testort",
     };
 
     private static HomeItemOptions Item(string title = "Titel", string text = "Text.") => new() { Title = title, Text = text };
 
-    private static SiteOptions Enabled(HomePageOptions home) => new() { PublicBaseUrl = Origin, Services = [Service()], Home = home };
+    /// <summary>An enabled site complete apart from the homepage under test; Slice 4 made the other titles required (D105).</summary>
+    private static SiteOptions Enabled(HomePageOptions home) => new()
+    {
+        PublicBaseUrl = Origin,
+        Services = [Service()],
+        Home = home,
+        ServicesPage = new ServicesPageOptions { MetaTitle = "Alle Testleistungen in Testort" },
+    };
 
     private static InvalidOperationException Refused(SiteOptions site) =>
         Assert.Throws<InvalidOperationException>(() => site.Validate(CompleteIdentity()));

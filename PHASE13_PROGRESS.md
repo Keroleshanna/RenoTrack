@@ -16,8 +16,8 @@
 | **0** | Housekeeping and preparation | ✅ **closed** — commit `0d2f22a` (§5) |
 | **1** | Content model (content pack schema, isolation, startup validation, runtime mount) | ✅ **closed** (§5a) |
 | **2** | Site shell (`_SiteLayout`, tokens, header/footer, marketing headers + CSP, host/lowercase 301s) | ✅ **closed** (§5b) |
-| **3** | Homepage | 🔍 **implemented, pending Tech Lead review** — not committed (§5c) |
-| 4 | Services overview + service detail (`/leistungen/{slug}`) | ⏸ |
+| **3** | Homepage | ✅ **closed** — commit `8734bb9` (§5c) |
+| **4** | Services overview + service detail (`/leistungen/{slug}`) | 🔍 **implemented, pending Tech Lead review** — not committed (§5d) |
 | 5 | Media preparation + Projects gallery | ⏸ |
 | 6 | About + FAQ + **running-prototype visual checkpoint** (before any integration) | ⏸ |
 | 7 | API hardening of anonymous `POST /api/v1/leads` (backend) | ⏸ |
@@ -479,6 +479,142 @@ Screenshots in the in-app pane timed out as in Slice 2, so widths were verified 
 - `DEPLOYMENT_CONFIGURATION.md` (`Site:Home` rows, list rule);
 - `appsettings.json` (`//Home`);
 - this file; `PROJECT_STATE.md`.
+
+---
+
+## 5d. Slice 4 — Service pages (D105)
+
+**Design:** approved at the Slice 4 gate, S4-1 to S4-13, with the Tech Lead's three implementation guardrails:
+1. exact, ordinal slug comparison;
+2. shared partials keep semantic structure;
+3. no company-specific literal in production code.
+
+**Delivered:**
+- **`/leistungen`** (`Pages/Leistungen`): breadcrumb, hero (headline or "Leistungen", intro, "Einsatzgebiet", phone and email), one linked `h2` card per service in pack order, contact section.
+- **`/leistungen/{slug}`** (`Pages/Leistung`): breadcrumb, hero (headline or name, summary, "Einsatzgebiet", actions with the email subject "Anfrage: {Name}"), "Leistungsumfang", optional sections, contact section, "Weitere Leistungen".
+  - The slug is looked up through `MarketingSite.FindService`, a `StringComparer.Ordinal` dictionary. Anything else is the site 404.
+- **Content:**
+  - `Site:ServicesPage { MetaTitle*, Headline, Intro }`;
+  - `Site:Services[]` gains `MetaTitle*`, `Headline`, `MetaDescription`, `Sections[]` (0–4 × `{ Heading, Paragraphs[1–4] }`), and offerings are limited to 12;
+  - `*` = required once enabled, no fallback;
+  - titles and supplied descriptions must be unique across pages.
+- **Homepage:** service cards link to their pages; "Alle Leistungen ansehen" links to the overview.
+- **Navigation** gains "Leistungen" (still a plain list, exact-match `aria-current`).
+- **Footer** gains a "Leistungen" navigation block.
+- **Shared partials:** `_ServiceCards` (caller-supplied heading level), `_ContactSection` (caller-supplied heading id), `_HeroActions`, `_Breadcrumb`. Shared CSS classes renamed from `home-*` to `page-*`.
+
+**Files changed (production):**
+- **New:**
+  - `Content/ServicesPageOptions.cs`
+  - `Site/SitePartials.cs`
+  - `Pages/Leistungen.cshtml`, `Pages/Leistungen.cshtml.cs`
+  - `Pages/Leistung.cshtml`, `Pages/Leistung.cshtml.cs`
+  - `Pages/Shared/Site/_Breadcrumb.cshtml`
+  - `Pages/Shared/Site/_ServiceCards.cshtml`
+  - `Pages/Shared/Site/_ContactSection.cshtml`
+  - `Pages/Shared/Site/_HeroActions.cshtml`
+- **Modified:**
+  - `Content/ServiceOptions.cs` (with `ServiceSectionOptions`)
+  - `Content/SiteOptions.cs`
+  - `Content/ContentText.cs`
+  - `Site/MarketingSite.cs`
+  - `Site/MarketingPageConvention.cs`
+  - `Site/SiteNavigation.cs` (with `BreadcrumbItem`)
+  - `Site/SiteLayout.cs`
+  - `Site/SiteFormatting.cs`
+  - `Pages/Startseite.cshtml`
+  - `Pages/Shared/Site/_SiteFooter.cshtml`
+  - `wwwroot/css/marketing.css`
+  - `appsettings.json` (documentation keys only)
+
+**Differences from the design's file list:**
+1. **`_HeroActions.cshtml` and `Site/SitePartials.cs` are new files beyond the list.** The hero actions appeared on three pages, and the partial models needed a home. This is the "related shared markup" the approval anticipated; no behaviour beyond the design.
+2. **`Content/ContentText.cs` changed:** `ValidateOptional` and `ValidateRequired` helpers, used by the new content classes. `HomePageOptions` is untouched.
+3. **"Weitere Leistungen" cards are `h3`, not `h2`.** The gate text said `h2` "on the overview and under Weitere Leistungen". Under the section's own `h2`, `h2` cards would not be subordinate to it. `h3` keeps the outline correct with no skipped level, which is guardrail 2's requirement. The overview's cards are `h2` as designed.
+4. **`Program.cs` unchanged,** as expected.
+5. **Tests changed beyond pure additions, intent kept, nothing deleted:**
+   - `HomePageTests`: class names, linked cards, and `/leistungen` leaving the "not yet" list; one new link test.
+   - `MarketingPageGuardTests` and `MarketingPageMetadataTests`: the page list and the marked endpoints.
+   - `SiteLayoutTests`: the navigation, and footer services assertions.
+   - `SiteOptionsTests` and `HomePageOptionsTests`: the newly required titles in enabled inputs.
+   - `ContentPackStartupTests`: the "not served" marker, see D105.
+   - Alpha and Beta fixture packs.
+
+**Tests (measured, not derived)** — Release, one non-deterministic build. The first, deterministic build was refused by Windows Application Control (`FileLoadException`) for Domain, Infrastructure and Api, the known condition.
+
+| Project | Before | After | Delta |
+|---|---|---|---|
+| Website | 800 | **957** | **+157** |
+| Domain | 389 | 389 | — |
+| Application | 470 | 470 | — |
+| Infrastructure (LocalDB) | 412 | 412 | — |
+| Api (LocalDB) | 478 | 478 | — |
+
+- **The +157 by class, counted with filtered runs:**
+  - new: `ServicePageTests` 60, `ServiceContentOptionsTests` 54, `ServicesOverviewPageTests` 24, `PageSemanticsTests` 14;
+  - changed: `SiteFormattingTests` 19 → 24 (+5).
+
+  `HomePageTests` stays at 41 (one link added, one "not yet" row removed). `--list-tests` undercounts theories with non-serializable data, so it was not used for counts.
+- **Build:** 0 warnings, 0 errors.
+- **Domain, Application, Infrastructure and Api:** no file changed in their projects or tests (`git diff` empty).
+
+**Mutation checks** — each applied to the finished code, built, run and restored. Every file was verified byte-identical, and the full diff hash was unchanged afterwards.
+
+| # | Mutation | Tests failing |
+|---|---|---|
+| 1 | Page models ignore `IsMarketingPage` | 2 |
+| 2 | Unknown slug renders the first service | 12 |
+| 3 | Slug lookup `OrdinalIgnoreCase` (guardrail 1) | 3 — lookup unit tests only; host tests cannot see it |
+| 4 | Service title falls back to `{Name} \| {DisplayName}` | 4 |
+| 5 | `MetaTitle` requirement removed (overview and services) | 4 |
+| 6 | Offerings not rendered | 1 |
+| 7a | `Summary` through `Html.Raw` | 1 |
+| 7b | Section paragraph through `Html.Raw` | 1 |
+| 8 | Mailto subject not encoded | 7 |
+| 9 | "Weitere Leistungen" includes the current service | 5 |
+| 10 | Breadcrumb's last step rendered as a link | 1 |
+| 11 | Homepage cards unlinked again | 6 |
+| 12 | `/Leistung` missing from `PagePaths` | 39 |
+| 13 | Title/description uniqueness removed | 6 |
+| 14 | 12-offering limit removed | 2 |
+| 15 | Print rule for service-page links removed | 1 |
+| 16 | Footer links to a slug that does not exist | 6 |
+| 17 | Contact partial reuses the hero's id (guardrail 2) | 3 |
+| 18 | Overview cards skip a heading level (guardrail 2) | 4 |
+| 19 | Breadcrumb loses its landmark name (guardrail 2) | 7 |
+| 20 | QA fix reverted: section heading cannot break a word | 1 |
+| 21 | QA fix reverted: footer track cannot shrink | 1 |
+
+**Browser QA** — `dotnet publish -c Release`, Production environment, API deliberately unreachable. Driven in headless Edge over the DevTools Protocol, with two fictional packs: Alpha, and a five-service variant with realistically long German names and texts (scratchpad only).
+
+| Check | Result |
+|---|---|
+| Widths 320–1920, `/`, `/leistungen`, two service pages each pack | No horizontal overflow, nothing clipped, nothing past the viewport. One `h1`, 0 scripts, 0 style attributes, 0 images in `main`. Every resource same-origin. Cards 1 column below 768 px; 2 at 768; 3 from 1024 (five services: 3 + 2). Scope list 1 column below 768 px, 2 from 768. Call bar below 768 px only; hero phone from 768. Footer 1 / 3 / 4 columns, 5 in one row from 1366. |
+| Header | At 320–375 px it now wraps into two rows (113 px) with the second navigation entry. It wraps rather than squeezes, as §25 requires. One 73 px row from 768 px. |
+| Heading outlines | Match `PageSemanticsTests`' pinned outlines on every page. |
+| Card focus (real Tab) | Every card link matches `:focus-visible`, with a 3 px outline on the link and on the card. |
+| Print (real `printToPDF`, read back) | Overview and service page: breadcrumb printed as text, chevrons dropped, check marks black, both contact actions print "Anrufen: <phone>" / "E-Mail schreiben: <address>", call bar and navigation hidden, footer links black. Homepage print unchanged by the class rename. |
+| Reduced motion (emulated) | 0 transitions, 0 animations, 0 smooth scrolling, 0 running animations on every page. |
+| 200% text (font-size setting), 1280 and 375 px | **Two defects found and fixed.** (1) Service pages overflowed at 375 px: `h2.page-section-title` ("Leistungsumfang", `inline-block`) could not break. (2) With the five-service pack every page overflowed at 375 px through the new footer services column: a bare `1fr` track and unbreakable long names. After the fixes: no overflow, nothing clipped, on every page of both packs. |
+| True 400% zoom (page-zoom preference) | CSS viewport 310 px at `devicePixelRatio` 4. No overflow, nothing clipped. Real Tab walk: 16 stops (Alpha), 22 (five services), none obscured by the call bar, none offscreen. |
+| Token page | `/angebot/<probe>`: `_CustomerLayout` (`customer.<hash>.css` only), `no-store`, `noindex, nofollow, noarchive`, `Referrer-Policy: no-referrer`, no marketing CSP; 503 with the API unreachable. Probe not in the body. |
+| Unknown slug | `/leistungen/<probe>`: 404, site page, `noindex`, marketing CSP, probe not reflected. `/Leistungen/Test-Leistung-Eins` → 301 to lower case. |
+| Logs | Neither the token probe, the slug probe nor any service content appears in either server log. |
+| Visual review | Full-page screenshots at 1366 and 375 px. Accepted, not changed: a very long single-word service name can break mid-word in a narrow footer column at wide widths. |
+
+Evidence (JSON, PDFs, screenshots) stays in the session scratchpad, uncommitted. `.claude/launch.json` received a temporary entry for a QA attempt and was restored byte-for-byte (the QA servers ran from the published output instead).
+
+**Guardrail 3 scan:** no company identity (name, owner, address, phone, email, domain) anywhere in production code, tests or fixtures. Generic trade words that Slice 4 had added as examples in comments and unit-test inputs were replaced with neutral ones. The pre-existing slug examples in `ServiceOptions`, `SiteOptionsTests` and `SiteNotFoundTests` (Slices 1–2) were left as they were.
+
+**Migrations:** none. **Packages:** none. **Layers touched:** `RenoTrack.Website` and its tests only.
+
+**Documentation:**
+- `ARCHITECTURE_DECISIONS.md` **D105**;
+- `CLAUDE.md` §25 additions;
+- `CONTENT_PACK.md` §3, new §3.2, §5, §6;
+- `DEPLOYMENT_CONFIGURATION.md` (`Site:ServicesPage`, service fields, the switch row);
+- `appsettings.json` (`//Services`, `//ServicesPage`);
+- this file (including the stale Slice 3 status); `PROJECT_STATE.md`.
 
 ---
 

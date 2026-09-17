@@ -18,71 +18,58 @@
     }
 
     var headline = home.HasHeadline ? home.Headline : Company.DisplayName;
-    var phone = Company.ContactPhone!;
-    var email = Company.ContactEmail!;
-    var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
-    var hasHoursNote = !string.IsNullOrWhiteSpace(Company.OpeningHoursNote);
-    var hasAreaNote = !string.IsNullOrWhiteSpace(Company.ServiceArea.Note);
     var hasOwner = !string.IsNullOrWhiteSpace(Company.OwnerName);
+
+    // Hoisted rather than written inline in the attribute: a string literal inside a quoted attribute is the trap
+    // CLAUDE.md §24 records.
+    var contact = new ContactSectionModel(HeadingId: "home-contact");
 }
 @*
     The homepage (Phase 13 Slice 3, D104). Every fact comes from the content pack; an optional section whose
     content is not configured is omitted whole, with no heading over nothing (D100).
 
-    Deliberately not here yet, each arriving with the page it links to: service-card links (Slice 4), the
-    projects teaser (Slice 5), the about and FAQ teasers (Slice 6) and the inquiry CTA (Slice 8). No link to a
-    page that does not exist, no image before the approved-media pipeline, no price, rating or counter.
+    Service cards link to their pages, and "Alle Leistungen ansehen" to the overview, since those exist (Slice 4,
+    D105). Still not here, each arriving with the page it links to: the projects teaser (Slice 5), the about and FAQ
+    teasers (Slice 6) and the inquiry CTA (Slice 8). No link to a page that does not exist, no image before the
+    approved-media pipeline, no price, rating or counter.
 
     No script and no style attribute: the marketing CSP is script-src 'none' and style-src 'self'.
 *@
 
-<section class="home-hero" aria-labelledby="home-title">
+<section class="page-hero" aria-labelledby="home-title">
     <div class="site-container">
-        <h1 id="home-title" class="home-hero-title">@headline</h1>
+        <h1 id="home-title" class="page-hero-title">@headline</h1>
         @if (home.HasSubheadline)
         {
-            <p class="home-hero-lead">@home.Subheadline</p>
+            <p class="page-hero-lead">@home.Subheadline</p>
         }
         @if (Company.ServiceArea.HasPlaces)
         {
-            <p class="home-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+            <p class="page-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
         }
-        <div class="home-actions">
-            @* Below 768 px the fixed call bar is the phone CTA, so this button is hidden there (D103, D104). *@
-            <a class="site-button home-button-light home-hero-call" href="@SiteFormatting.TelHref(phone)">
-                <span class="site-visually-hidden">Anrufen: </span>@phone
-            </a>
-            <a class="site-button home-button-outline" href="@SiteFormatting.MailtoHref(email)">E-Mail schreiben<span class="home-print-only">: @email</span></a>
-        </div>
+        <partial name="@SiteLayout.HeroActions" model="new HeroActionsModel()" />
     </div>
 </section>
 
-<section class="home-section" aria-labelledby="home-services">
+<section class="page-section" aria-labelledby="home-services">
     <div class="site-container">
-        <h2 id="home-services" class="home-section-title">Leistungen</h2>
-        <ul class="home-cards">
-            @foreach (var service in Marketing.Services)
-            {
-                <li class="home-card">
-                    <h3 class="home-card-title">@service.Name</h3>
-                    <p class="home-card-text">@service.Summary</p>
-                </li>
-            }
-        </ul>
+        <h2 id="home-services" class="page-section-title">Leistungen</h2>
+        <partial name="@SiteLayout.ServiceCards" model="new ServiceCardsModel(Marketing.Services, headingLevel: 3)" />
+        <p class="page-section-more"><a class="page-more-link" href="@MarketingSite.ServicesPath">Alle Leistungen ansehen</a></p>
     </div>
 </section>
 
 @if (home.Advantages.Count > 0)
 {
-    <section class="home-section home-section-warm" aria-labelledby="home-advantages">
+    <section class="page-section page-section-warm" aria-labelledby="home-advantages">
         <div class="site-container">
-            <h2 id="home-advantages" class="home-section-title">Ihre Vorteile</h2>
-            <ul class="home-cards">
+            <h2 id="home-advantages" class="page-section-title">Ihre Vorteile</h2>
+            <ul class="page-cards">
                 @foreach (var advantage in home.Advantages)
                 {
-                    <li class="home-card">
-                        <h3 class="home-card-title">@advantage.Title</h3>
-                        <p class="home-card-text">@advantage.Text</p>
+                    <li class="page-card">
+                        <h3 class="page-card-title">@advantage.Title</h3>
+                        <p class="page-card-text">@advantage.Text</p>
                     </li>
                 }
             </ul>
@@ -97,15 +84,15 @@
 
 @if (home.Process.Count > 0)
 {
-    <section class="home-section" aria-labelledby="home-process">
+    <section class="page-section" aria-labelledby="home-process">
         <div class="site-container">
-            <h2 id="home-process" class="home-section-title">So läuft es ab</h2>
+            <h2 id="home-process" class="page-section-title">So läuft es ab</h2>
             <ol class="home-steps">
                 @foreach (var step in home.Process)
                 {
                     <li class="home-step">
-                        <h3 class="home-card-title">@step.Title</h3>
-                        <p class="home-card-text">@step.Text</p>
+                        <h3 class="page-card-title">@step.Title</h3>
+                        <p class="page-card-text">@step.Text</p>
                     </li>
                 }
             </ol>
@@ -113,37 +100,4 @@
     </section>
 }
 
-<section class="home-section home-contact" aria-labelledby="home-contact">
-    <div class="site-container">
-        <h2 id="home-contact" class="home-section-title">Kontakt aufnehmen</h2>
-        <div class="home-actions">
-            <a class="site-button" href="@SiteFormatting.TelHref(phone)">
-                <span class="site-visually-hidden">Anrufen: </span>@phone
-            </a>
-            <a class="site-button home-button-secondary" href="@SiteFormatting.MailtoHref(email)">E-Mail schreiben<span class="home-print-only">: @email</span></a>
-        </div>
-
-        @if (hours.Count > 0 || hasHoursNote)
-        {
-            <h3 class="home-contact-heading">Öffnungszeiten</h3>
-            @if (hours.Count > 0)
-            {
-                <ul class="home-hours">
-                    @foreach (var line in hours)
-                    {
-                        <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
-                    }
-                </ul>
-            }
-            @if (hasHoursNote)
-            {
-                <p class="home-contact-note">@Company.OpeningHoursNote</p>
-            }
-        }
-
-        @if (hasAreaNote)
-        {
-            <p class="home-contact-note">@Company.ServiceArea.Note</p>
-        }
-    </div>
-</section>
+<partial name="@SiteLayout.ContactSection" model="contact" />

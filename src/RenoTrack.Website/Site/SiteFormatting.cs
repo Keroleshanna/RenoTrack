@@ -72,6 +72,17 @@ public static class SiteFormatting
     /// <summary>A <c>mailto:</c> link. The address is already validated as one plain address.</summary>
     public static string MailtoHref(string email) => $"mailto:{email.Trim()}";
 
+    /// <summary>
+    /// A <c>mailto:</c> link with a subject, or without one when <paramref name="subject"/> is null. The subject is
+    /// percent-encoded whole, so company text containing <c>&amp;</c>, <c>?</c>, <c>#</c> or <c>%</c> can never add
+    /// a <c>body</c>, <c>cc</c> or any other field (D105).
+    /// </summary>
+    public static string MailtoHref(string email, string? subject) =>
+        subject is null ? MailtoHref(email) : $"{MailtoHref(email)}?subject={Uri.EscapeDataString(subject)}";
+
+    /// <summary>The subject of an email started from a service page, e.g. <c>Anfrage: Innenausbau</c> (D105).</summary>
+    public static string ServiceMailSubject(ServiceOptions service) => $"Anfrage: {service.Name!.Trim()}";
+
     /// <summary>The year for the copyright line, taken in UTC.</summary>
     public static string CopyrightYear(DateTimeOffset now) => now.UtcDateTime.Year.ToString(CultureInfo.InvariantCulture);
 

@@ -92,12 +92,16 @@ The company's content is a **content pack**: a directory outside the application
 
 | Key | Required? | Behaviour |
 |---|---|---|
-| `Site:PublicBaseUrl` | No — **the switch** | Absent ⇒ no marketing site; one startup warning; token and legal pages unaffected. Present ⇒ must be an **HTTPS origin only** (no path, query, fragment or user info); the site is enabled and the identity marked \* in §2.2, at least one service and `Site:Home:MetaTitle` become required. |
+| `Site:PublicBaseUrl` | No — **the switch** | Absent ⇒ no marketing site; one startup warning; token and legal pages unaffected. Present ⇒ must be an **HTTPS origin only** (no path, query, fragment or user info); the site is enabled and the identity marked \* in §2.2, at least one service, `Site:Home:MetaTitle`, `Site:ServicesPage:MetaTitle` and every service's `MetaTitle` become required. |
 | `Site:Theme:PrimaryColor` / `AccentColor` | No | `#RRGGBB`. Primary ≥ 4.5:1 against white, accent ≥ 3:1 against the primary, or startup fails naming the key. Absent ⇒ neutral product defaults. Served as the generated `/site/theme.css` (D103). |
-| `Site:Services` | When enabled | List of `{ Slug, Name, Summary, Offerings[] }`. `Slug` is lowercase ASCII with single hyphens (`tueren`, not `türen`) and unique — it becomes a URL the company must keep stable. `Name` unique ignoring case; `Summary` required; at least one non-blank offering. Validated whenever supplied, enabled or not. |
+| `Site:Services` | When enabled | List of `{ Slug, Name, Summary, Offerings[], MetaTitle, Headline, MetaDescription, Sections[] }` (the last four from Slice 4). Each becomes the page `/leistungen/<Slug>`, matched exactly. `Slug` is lowercase ASCII with single hyphens (`tueren`, not `türen`) and unique — it becomes a URL the company must keep stable. `Name` unique ignoring case; `Summary` required; at least one non-blank offering. Validated whenever supplied, enabled or not. |
 | `Site:Home:MetaTitle` | When enabled | The homepage `<title>`, used verbatim (text ≤ 70). **No fallback to the company name** — an enabled site without it fails startup, named with every other missing key (D104). Company-authored: the real value lives only in the private content pack. |
 | `Site:Home:Headline` / `Subheadline` | No | Text ≤ 90 / ≤ 160. Absent headline ⇒ the `h1` is the company name; absent subheadline ⇒ no lead and no meta description. |
 | `Site:Home:Advantages` / `Process` | No | None, or 2–6 `{ Title ≤ 60, Text ≤ 200 }`. Absent ⇒ that homepage section is omitted. See `CONTENT_PACK.md` §3.1. |
+| `Site:ServicesPage:MetaTitle` | When enabled | The `/leistungen` overview's `<title>`, used verbatim (text ≤ 70). **No fallback**, like `Site:Home:MetaTitle` (D105). |
+| `Site:ServicesPage:Headline` / `Intro` | No | Text ≤ 90 / ≤ 160. Absent headline ⇒ the `h1` is "Leistungen"; absent intro ⇒ no lead and no meta description. |
+| `Site:Services[]:MetaTitle` | When enabled | Each service page's `<title>`, used verbatim (text ≤ 70). Every missing one is named in the single startup message (D105). |
+| `Site:Services[]:Headline` / `MetaDescription` / `Sections` | No | Text ≤ 90 / ≤ 160; `Sections` none or 1–4 `{ Heading ≤ 80, Paragraphs[1–4 × ≤ 600] }`. Offerings are limited to 12. **All page titles, and all supplied descriptions, must be unique** — a duplicate fails startup naming both keys. See `CONTENT_PACK.md` §3.2. |
 
 ---
 

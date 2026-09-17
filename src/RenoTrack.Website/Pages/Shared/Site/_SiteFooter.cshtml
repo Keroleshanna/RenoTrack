@@ -2,6 +2,7 @@
 @using RenoTrack.Website.Site
 @inject CompanyIdentityOptions Company
 @inject LegalContentOptions Legal
+@inject MarketingSite Marketing
 @*
     Company facts from the content pack only. A block whose facts are not configured is omitted entirely, with
     no heading over nothing and no placeholder (D100). There is no social-media slot: none is configured, and
@@ -33,6 +34,17 @@
                 }
             </address>
         </section>
+
+        @* Every service page linked from every page (D105, S4-8). An enabled site has at least one service. *@
+        <nav class="site-footer-block" aria-labelledby="site-footer-services">
+            <h2 id="site-footer-services" class="site-footer-heading">Leistungen</h2>
+            <ul class="site-footer-links">
+                @foreach (var service in Marketing.Services)
+                {
+                    <li><a class="site-footer-link" href="@MarketingSite.ServicePath(service)">@service.Name</a></li>
+                }
+            </ul>
+        </nav>
 
         @if (hours.Count > 0 || hasHoursNote)
         {
