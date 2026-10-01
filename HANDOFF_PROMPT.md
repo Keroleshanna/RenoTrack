@@ -2,10 +2,9 @@
 
 Copy everything in the code block below into the first message of a brand-new conversation.
 
-**Last updated: 2026-10-01, with Phase 14 Slice 2 implemented on
-`feature/phase-14-slice-2-invoice-document` (off `origin/main` = `3f4f8f9`), not yet merged.** Keep this
-file current whenever a phase or slice is merged — it is the one file a fresh session is pointed at
-first.
+**Last updated: 2026-10-01, at `origin/main` = `dff57c4` (PR #32, Phase 14 Slice 2 merged and
+verified).** Keep this file current whenever a phase or slice is merged — it is the one file a fresh
+session is pointed at first.
 
 ---
 
@@ -15,34 +14,39 @@ a customer token-link portal, a public marketing website, and the API behind all
 existing, actively-developed project, not a fresh start. A prior conversation ended deliberately and
 persisted everything into the repository, so you depend on the files, not on any chat history.
 
+IF THIS TEXT WAS PASTED INTO THE CHAT, COMPARE IT WITH HANDOFF_PROMPT.md ON origin/main FIRST. If they
+disagree, the repository wins — a stale local copy of this file has been pasted before, and it
+pointed a session at work that was already finished. Say so to the user before doing anything.
+
 READ FIRST, IN THIS ORDER, AND READ THEM IN FULL:
 1. CLAUDE.md — the binding engineering rules (§1–§26). Every rule is settled unless the user
    reopens it with new evidence.
 2. PROJECT_STATE.md — where the project actually stands, newest entry first.
 3. NEXT_STEPS.md — known gaps and requirements that exist in the documents but are not built.
+   §8 is the current list of candidate slices and recorded findings.
 4. ARCHITECTURE_DECISIONS.md — D1–D111. Read at least D100–D111 (the recent phases).
 5. PROJECT_ROADMAP.md — the phase map and what remains.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: 3f4f8f9 ("Merge pull request #31 from
-  Keroleshanna/docs/handoff-after-phase-14-slice-1").
-- PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1) and #31 (handoff) are MERGED.
-- Phase 14 Slice 2 is on feature/phase-14-slice-2-invoice-document — check whether it has been
-  merged since (git fetch; git log origin/main). If it has, the figures below are main's.
+- origin/main: dff57c4165fdc3bb648a9b91c1c3a16379f69ba5 ("Merge pull request #32 from
+  Keroleshanna/feature/phase-14-slice-2-invoice-document").
+- PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31 (handoff) and
+  #32 (Phase 14 Slice 2) are MERGED.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests at Slice 2, executed locally: Domain 429 · Application 530 · Infrastructure 419 (LocalDB) ·
-  Api 498 (LocalDB) · Website 1,136 · MediaPrep 20 = 3,032, all passing.
-  Documents.Tests: 23 tests COMPILE, 0 EXECUTED locally — Windows Application Control blocks
-  PdfSharp.System.dll here (see the environment notes). CI's Linux job MUST run them before Slice 2
-  is verified. Expected CI total: 3,055.
-  Dashboard: 81 existing specs + 13 new = 94, lint clean. Re-run everything before relying on it.
+- Tests, measured in CI on PR #32 — 3,055 passing, 0 failing:
+  Domain 429 · Application 530 · Infrastructure 419 (LocalDB) · Api 498 (LocalDB) ·
+  Website 1,136 · MediaPrep 20 · Documents 23.
+  The 23 Documents (PDF) tests cannot run on the development machine (see the environment notes);
+  CI's Linux job ran them and they passed. CI does not build or test the Dashboard: locally it has
+  94 specs passing, lint clean. Re-run everything yourself before relying on it.
 - Migrations: 14 (#14 AddInvoiceDescriptionServicePeriodAndVatLines, Slice 2).
 
 PHASES: 0–12 complete and merged. Phase 13 (public website) is PARKED BY DECISION after Slices
-5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slice 1 merged, Slice 2 implemented (D111).
+5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slice 1 and Slice 2 are COMPLETE, MERGED AND
+VERIFIED. NO LATER SLICE HAS STARTED.
 
-WHAT THE LAST SESSION DID, AND WHY
+WHAT EARLIER SESSIONS DID, AND WHY
 
 1. Phase 13 was PARKED BY DECISION (PR #28), not abandoned and not failing. The Product Owner's
    call: finish RenoTrack itself to 100% first, then approach a company about its public website.
@@ -55,50 +59,54 @@ WHAT THE LAST SESSION DID, AND WHY
 
 2. Slice 7 came OUT of that parking deliberately and was merged (PR #29, D109), because it is a
    product boundary rather than website work: POST /api/v1/leads is how a Lead reaches RenoTrack
-   from ANY website — the company's existing one, one built by someone else, or one built from the
-   content pack. It closed three documented gaps: no rate limiting (now its own policy, 5 per 10
-   minutes, a separate bucket from the token-link surface), no maximum lengths (an over-long value
-   was a 500 from the database; the limits are now Lead's own constants read by the validator, the
-   Domain guard and the EF configuration alike), and a full LeadDto returned to an anonymous caller
-   (now 201 with no body and no Location — Q17 resolved).
+   from ANY website. It added its own rate limit (5 per 10 minutes), maximum lengths read from
+   Lead's own constants by validator, Domain and EF alike, and an anonymous reply of 201 with no
+   body and no Location (Q17 resolved).
 
 3. Phase 14 Slice 1 was merged (PR #30, D110): MigraDoc/PDFsharp (MIT) composing a document model
-   rather than HTML→PDF, an embedded Liberation Sans with its own font resolver because PDFsharp
-   resolves no font on its own (measured, on Windows as readily as Linux), IPdfGenerator taking a
-   pre-formatted document model and returning bytes, CompanyLegalIdentity configuration that is
+   rather than HTML→PDF, an embedded Liberation Sans with its own font resolver, IPdfGenerator taking
+   a pre-formatted document model and returning bytes, CompanyLegalIdentity configuration that is
    never invented and refuses generation naming every missing key, and the Angebot document.
 
-4. Phase 14 Slice 2 — THE INVOICE DOCUMENT (D111) — implemented. "One VAT rate" was REPLACED in
-   design review, before any code: it would have broken FR-8.2 and BR-6 for every mixed-rate
-   Angebot. Decided instead (all approved by the Product Owner):
-   - THE INVOICE AGGREGATE CALCULATES ITS OWN VAT. Invoice.Create takes the Admin's gross and the
-     originating Angebot's rate mix and stores one InvoiceVatLine per rate; net and VAT are their
-     sums. NO caller — handler, API request, Dashboard — may send a net amount, a VAT amount, a rate
-     or a line. GrossAmount stays the Admin's input (FR-8.1's instalments).
+4. Phase 14 Slice 2 — THE INVOICE DOCUMENT (D111) — was merged (PR #32) and verified in CI. These
+   decisions were approved by the Product Owner before implementation and must not be silently
+   reopened:
+   - THE INVOICE CALCULATES ITS OWN VAT FROM THE ORIGINATING ANGEBOT'S RATE MIX. Invoice.Create takes
+     the Admin's gross and the rate mix and stores ONE InvoiceVatLine PER VAT RATE; net and VAT are
+     the lines' sums. NO caller — handler, API request, Dashboard — may send a net amount, a VAT
+     amount, a rate or a line. "One VAT rate per invoice" was considered and REJECTED: it would have
+     broken FR-8.2 and BR-6 for every mixed-rate Angebot.
    - An InvoiceVatLine is a calculated result, NOT an invoice line. InvoiceLine stays deferred.
-   - One line per rate: Domain guard AND a unique (InvoiceId, Rate) index.
-   - Description required, max 500 after trimming, one constant for validator/Domain/schema; no
-     default text. Optional service date/period, printed only when given. NO quantity field — the
-     legal reviewer decides whether that suffices (Q20). No invoice editing: void and reissue.
-   - Historical rows keep an empty description and no lines; InvoiceDocumentFactory REFUSES them
-     (and any customer without an address) rather than inventing or recomputing anything.
-   - RenderInvoice and the assembler have NO production caller yet, deliberately — Slice 3 wires them.
-   - THE INVOICE DATE AND NUMBER YEAR ARE READ IN EUROPE/BERLIN, FROM ONE SERVER INSTANT (D111 Part 6):
-     TimeProvider read once after every guard (D66 unchanged), passed to Invoice.Create as issuedAt —
-     never a request field. Stored value stays the UTC instant; no migration. The zone is resolved at
-     startup; no tzdata, no start. THIS COVERS THE INVOICE ONLY: the Angebot number year, overdue
-     "today" and date serialisation are still UTC, recorded for a separate time-policy slice
-     (NEXT_STEPS.md §8e). Do not change them in passing.
+     One line per rate is enforced twice: a Domain guard and a unique (InvoiceId, Rate) index.
+   - GROSSAMOUNT REMAINS THE ADMIN'S INPUT (FR-8.1's instalments). The Admin decides how much an
+     invoice bills; the Invoice decides how it splits.
+   - DESCRIPTION REQUIRED, MAX 500 after trimming — one constant (Invoice.MaxDescriptionLength) for
+     validator, Domain and schema; no default text. OPTIONAL SERVICE DATE OR PERIOD, printed only
+     when given, never assumed. NO QUANTITY FIELD — nothing claims the description satisfies §14
+     UStG's "Menge und Art"; that is the legal reviewer's question (Q20).
+   - AN ISSUED INVOICE IS IMMUTABLE. A correction is VOID AND REISSUE; the voided number is kept
+     (BR-9). There is no invoice edit.
+   - THE INVOICE DATE AND NUMBER YEAR COME FROM ONE SERVER INSTANT READ IN EUROPE/BERLIN (D111
+     Part 6): TimeProvider is read once, after every guard (D66's order unchanged), the number year
+     comes from InvoiceCalendar.YearOf, and the same instant is passed to Invoice.Create as issuedAt —
+     never a request field. The stored value stays the UTC instant; no migration. The zone is
+     resolved at startup; a host without time-zone data refuses to start (deployment prerequisite).
+     THIS COVERS THE INVOICE ONLY. The Angebot number year, overdue/receivables "today", date
+     serialisation and every other UTC date are STILL UTC and are FUTURE WORK (NEXT_STEPS.md §8e).
+     Do not change them in passing.
+   - PDF RENDERING IS PREPARED, NOT WIRED: InvoiceDocument, InvoiceDocumentFactory and
+     IPdfGenerator.RenderInvoice exist with no production caller, deliberately. Slice 3 wires them.
+     The factory refuses an invoice with no description, no VAT lines (historical rows) or a
+     customer without an address — it never invents or recomputes anything.
+   - CUSTOMER ADDRESS CORRECTION IS OUTSIDE SLICE 2 (it is 2b, below).
 
-THE NEXT TASK: REVIEW, MERGE, THEN THE PRODUCT OWNER CHOOSES THE NEXT SLICE
+THE NEXT TASK: THE PRODUCT OWNER CHOOSES THE NEXT SLICE — DO NOT START ONE
 
-The Product Owner reviews Slice 2 and decides on commit, push, PR and merge — never do any of these
-without explicit permission. After that, the candidate slices are in NEXT_STEPS.md §8, and THEIR
-ORDER IS NOT DECIDED — do not start one, or treat a suggested order as approved:
+None of the following has started, and THEIR ORDER IS NOT DECIDED. Do not start one, and do not
+treat any suggested order as approved. NEXT_STEPS.md §8 is the full record:
 - Slice 3: archive the invoice PDF at send time (an issued invoice stays exactly as sent), the
   authenticated Dashboard download, the token-based customer download, the email attachment.
   Whether it also archives the Angebot PDF at every send is a proposal, not approved.
-- A time-policy slice for the remaining UTC dates (NEXT_STEPS.md §8e) — design first.
 - 2b: correct a customer's address. Customer.Address is optional and has no command (D91), yet
   BR-5 requires it — until this exists, an invoice to an address-less customer cannot be rendered.
 - A (design first): ADMIN EDITING OF AN INSPECTOR'S ANGEBOT. Today forbidden by documented decision
@@ -111,8 +119,11 @@ ORDER IS NOT DECIDED — do not start one, or treat a suggested order as approve
   is a dead end. Required: revisions, each sent revision retrievable as sent. The model, states,
   Lead behaviour and token behaviour are undecided. Add NO state, number, token or API change
   until its design is approved.
+- A time-policy slice for the remaining UTC dates (NEXT_STEPS.md §8e) — design first.
 - KEEP THREE WORKFLOWS SEPARATE: editing an Angebot before sending (A), revising one after sending
   (B), and correcting an issued Invoice (void and reissue — settled, unchanged by A or B).
+- An Angebot that reached CustomerApproved must stay immutable under any design for A or B:
+  invoice creation reads its rate mix live. Issued invoices are already safe — their lines are stored.
 
 LEGAL BOUNDARY, NOT NEGOTIABLE: whether a rendered document satisfies §14 UStG is a legal
 reviewer's judgement, never this project's. Build the fields BR-5 enumerates; sign-off belongs to
@@ -124,20 +135,30 @@ that the product is complete, and the parked website work is revisited with a re
 
 HOW TO WORK HERE — these are the user's standing rules, learned the hard way:
 
-- DESIGN APPROVAL GATE: never write implementation code until the user explicitly approves the
-  design, however routine the change looks. Present the design, name the real decisions, recommend
-  one, and wait.
-- Documentation-first: when a design review reveals a rule, contradiction or gap, update the
-  documents in the SAME change as the code that depends on them. A decision gets an ADR entry; a
-  rule that generalises gets a CLAUDE.md bullet.
-- Git: never force-push to main. Every phase or slice on its own branch, merged via PR only. Never
-  merge until every required check has completed successfully — not just the fast ones.
+- DESIGN REVIEW BEFORE IMPLEMENTATION, ALWAYS: never write implementation code until the user
+  explicitly approves the design, however routine the change looks. Present the design, name the
+  real decisions, recommend one, and wait.
+- EXPLICIT APPROVAL BEFORE ADVANCING: a slice does not start, and the next does not begin, without
+  the user saying so. Never start the next slice automatically — not even a "small" one.
+- REVIEW THE ACTUAL CODE, DIFF AND FILES, NOT SUMMARIES: read the code a decision touches before
+  proposing it, and review the real diff against the approved scope before every commit. Prose —
+  including this file's — is verified against the repository, never trusted as-is.
+- Documentation belongs with the change it describes: when a design review reveals a rule,
+  contradiction or gap, update the documents in the SAME commit as the code that depends on them.
+  A decision gets an ADR entry; a rule that generalises gets a CLAUDE.md bullet. Documentation
+  reconciliation is a completion criterion, not a publication step.
+- Git: NO DIRECT COMMITS TO MAIN and NEVER FORCE-PUSH (D5 records why). Every phase or slice on its
+  own branch, merged via PR only. Never commit, push, open a PR or merge without the user's explicit
+  permission for that step.
+- TESTS AND VERIFICATION BEFORE MERGE: never merge until every required CI check has completed
+  successfully — not just the fast ones — and anything that could not run locally has run in CI.
 - Verify counts, never derive them. Re-measure test numbers before writing them anywhere. If a
   figure cannot be measured locally, say so and let CI confirm it rather than stating it.
 - Report outcomes faithfully. If something was not run, say it was not run. If an assumption turns
   out wrong — and several did — say so immediately and correct the record.
 - Green suites are a precondition for QA, never a substitute. Drive the built application before
-  calling anything complete.
+  calling anything complete. Prove a safeguard by breaking it (a mutation), watching a test fail,
+  and restoring the file byte-for-byte; a mutation that does not compile proves nothing.
 
 ENVIRONMENT CONDITIONS YOU WILL HIT, ALL DOCUMENTED AND NONE A CODE DEFECT:
 
@@ -153,11 +174,14 @@ ENVIRONMENT CONDITIONS YOU WILL HIT, ALL DOCUMENTED AND NONE A CODE DEFECT:
   `https` profile for Dashboard QA (NEXT_STEPS.md §8e). And do QA on a SEPARATE database — copy the
   gitignored appsettings.Development.json into the worktree with another database name and
   Database:Mode=Migrate — so an unmerged migration never reaches the shared development database.
+  A QA database from Slice 2, RenoTrack_Slice2QA, may still exist in LocalDB; it holds QA data only.
+  Ask the user before dropping it.
 - Browser QA of the Website runs against `dotnet publish` output, started from the publish
   directory. Started from anywhere else, MapStaticAssets serves every static file as 200 with zero
   bytes and the page renders unstyled, which looks exactly like a CSS defect (CLAUDE.md §24).
 
 CONFIRM YOU HAVE READ THE FIVE FILES ABOVE AND SUMMARISE THE CURRENT STATE BACK TO THE USER IN YOUR
-OWN WORDS. THEN PROPOSE THE PHASE 14 SLICE 2 DESIGN AND WAIT FOR EXPLICIT APPROVAL — NEVER
+OWN WORDS. THEN ASK THE USER WHICH SLICE COMES NEXT — DO NOT CHOOSE ONE, AND DO NOT START ANY.
+WHATEVER THEY CHOOSE BEGINS WITH A DESIGN REVIEW AND WAITS FOR EXPLICIT APPROVAL — NEVER
 IMPLEMENTATION FIRST.
 ```
