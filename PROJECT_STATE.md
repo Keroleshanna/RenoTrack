@@ -1,6 +1,21 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-> **2026-09-17 — Phase 13 Slice 4 (service pages, D105) is implemented on `feature/phase-13-public-website` and pending Tech Lead review. It is not committed and not pushed.** Slice 3 is committed (`8734bb9`).
+> **2026-10-01 — Phase 13 (Public Website) is PARKED BY DECISION after Slices 5a, 5v and 5h, all committed on `feature/phase-13-public-website`.** The Product Owner's call: finish RenoTrack itself first, then approach a company about its site. Nothing here is failing, and nothing company-specific was built — what exists is a site template driven by the content pack, so resuming means supplying a pack rather than writing code for a company.
+> - **5a (D106):** media foundation — offline preparation tool, byte-level verification at startup, `/medien/` allowlist, split hero and card photos, `og:image`. **Real-media QA (S5-13) and the byte-budget freeze (S5-11) remain open; both need the owner's approvals.**
+> - **5v (D107):** the visual system — six surface roles derived from two configured colours and contrast-checked at startup, dark bands framing the page, the layered hero, the fact panel, card treatment, and a band-alternation rule enforced by two independent checks.
+> - **5h (D108):** the header composed to an approved reference — accent brand zone bleeding to the viewport edge with an angled notch, uppercase navigation of real pages only, an inverted phone CTA.
+> - **Tests:** Website **1,136** (1,110 → 1,135 → 1,136); Domain 389, Application 470, Infrastructure 412, Api 478, MediaPrep 20 — all unchanged by these slices. 0 warnings, 0 errors.
+> - **Browser QA** against the published build: 0 findings across three fictional packs × seven widths, plus 200 % text, true 400 % zoom, keyboard focus, reduced motion and print. It found four defects in the slices and four in the QA harness itself before it was trusted (D107 Part 5).
+> - **Next, by decision:** **Slice 7** — hardening the anonymous `POST /api/v1/leads` (no rate limit, no maximum lengths, full `LeadDto` to an anonymous caller; `PHASE13_PROGRESS.md` §3.4). It is a product boundary rather than website work: every way a customer company's site can feed RenoTrack depends on it. Then **Phase 14 (PDF)**.
+
+> **2026-09-17 — Phase 13 Slice 5a (media foundation, D106) is implemented on `feature/phase-13-public-website` and pending Tech Lead review. It is not committed and not pushed.** Slice 4 is committed (`91232e0`).
+> - **Photos:** `tools/RenoTrack.MediaPrep` prepares owner-approved photos offline. The Website verifies every listed derivative byte by byte at startup (exact size, byte budget, no EXIF/GPS/XMP/IPTC) and serves only listed files at `/medien/`.
+> - **Pages:** photos appear in a split hero on the homepage and photographed service pages; card photos are all-or-nothing; `og:image` only for a page's own photo. The text-only layouts are unchanged.
+> - **Tests** (Release, one build): Website **1,110** (+153: 957 → 1,110), new MediaPrep **20**, Domain 389, Application 470, Infrastructure 412, Api 478. 0 warnings. 23 mutations, all caught.
+> - **Browser QA** on synthetic derivatives found and fixed one defect (card chevron drawn on the photo).
+> - **Still open before 5a closes:** the private QA with real owner-approved photos, and freezing the byte budgets from its evidence. Both need the owner's approvals first. Budgets remain provisional. See `PHASE13_PROGRESS.md` §5e.
+>
+> *Earlier status:* **2026-09-17 — Phase 13 Slice 4 (service pages, D105) is approved and closed (`91232e0`).** Slice 3 is committed (`8734bb9`).
 > - **New pages:** `/leistungen` and one page per configured service at `/leistungen/{slug}`, matched exactly (ordinal, case-sensitive, no fallback).
 > - **Titles:** every page's `<title>` is company-authored with no fallback (`Site:ServicesPage:MetaTitle`, `Site:Services[]:MetaTitle`). Titles and descriptions must be unique across pages.
 > - **Service page content:** optional headline, meta description and descriptive sections, "Leistungsumfang" (at most 12 offerings), breadcrumb, contact section and "Weitere Leistungen".

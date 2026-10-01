@@ -17,8 +17,11 @@
 | **1** | Content model (content pack schema, isolation, startup validation, runtime mount) | ✅ **closed** (§5a) |
 | **2** | Site shell (`_SiteLayout`, tokens, header/footer, marketing headers + CSP, host/lowercase 301s) | ✅ **closed** (§5b) |
 | **3** | Homepage | ✅ **closed** — commit `8734bb9` (§5c) |
-| **4** | Services overview + service detail (`/leistungen/{slug}`) | 🔍 **implemented, pending Tech Lead review** — not committed (§5d) |
-| 5 | Media preparation + Projects gallery | ⏸ |
+| **4** | Services overview + service detail (`/leistungen/{slug}`) | ✅ **closed** — commit `91232e0` (§5d) |
+| **5a** | Media foundation: preparation tool, verification, `/medien/` allowlist, hero and service photos, `og:image` | ✅ implemented and committed. **The private real-media QA and the budget freeze (S5-13, S5-11) remain open** — they need the owner's approvals (§5e) |
+| **5v** | Visual system (surface roles, layered hero, fact panel, card treatment, band rhythm) — **D107** | ✅ implemented and committed; prototype checkpoint passed (§5f) |
+| **5h** | Header / top toolbar composed to the approved reference — **D108** | ✅ implemented and committed (§5g) |
+| 5b | Projects (`/projekte`, teaser, service-page projects) | ⏸ designed (S5-14), not started |
 | 6 | About + FAQ + **running-prototype visual checkpoint** (before any integration) | ⏸ |
 | 7 | API hardening of anonymous `POST /api/v1/leads` (backend) | ⏸ |
 | 8 | Inquiry flow (`/angebot-anfragen`, → Lead) | ⏸ |
@@ -29,6 +32,27 @@
 | 13 | Post-launch (Search Console, Bing, Business Profile, AI-search monitoring) — no code | ⏸ |
 
 **No slice starts before the previous one is reviewed.**
+
+---
+
+## 0. Phase status: PARKED BY DECISION (2026-10-01)
+
+**This phase is paused deliberately, not abandoned, and not because anything here is failing.** The Product Owner's decision: finish RenoTrack itself to 100 % first, and only then approach a company about its public website. The remaining product work — **Phase 14 (PDF for Angebot and Invoice, BR-5 / §14 UStG)** and **Phase 15 (audit log UI, hardening, GDPR review)** — is what makes the product sellable; a marketing site for one company is not.
+
+**What is parked:** the company-facing marketing pages and everything that serves them — Slices 5b (projects), 6 (about, FAQ), 9 (contact form and map), 10 (discoverability), 11 (legal content), 12 and 13.
+
+**What is explicitly *not* parked, and why.** Slices **7** (hardening the anonymous `POST /api/v1/leads`) and **8** (the inquiry flow) are not "website" work: they are how a Lead reaches RenoTrack from *any* website, including a website this project did not build. Every way a customer company can be served depends on them:
+
+| How the company's site exists | What it needs from us |
+|---|---|
+| It already has one | a hardened, documented public intake: per-caller credential, rate limit, abuse controls, field mapping, delivery evidence |
+| Someone else builds it | the same intake |
+| We build it from the content pack | the same intake, plus this phase's parked slices |
+| No site; dashboard only | neither — this works today |
+
+**The gaps in §3.4 are therefore the next thing to close, before any third party posts to us:** no rate limiting on that endpoint, no maximum lengths (so over-long `Notes` is a 500 rather than a 400), and a full `LeadDto` — sequential `Id`, `Status`, `AssignedInspectorId` — returned to an anonymous caller.
+
+**Nothing company-specific was built.** What exists is a site *template* driven by the content pack (D100/D102): the same build serves any company's pack without a fork. Resuming means supplying a pack, not writing code for a company.
 
 ---
 
@@ -618,6 +642,136 @@ Evidence (JSON, PDFs, screenshots) stays in the session scratchpad, uncommitted.
 
 ---
 
+## 5e. Slice 5a — Media foundation (D106)
+
+**Design:** approved at the Slice 5 gate:
+- S5-1 to S5-15, with the Tech Lead's two corrections: byte budgets frozen only after real-media validation, and the alt-text wording;
+- 5a implemented; 5b not started.
+
+**Delivered:**
+- **`tools/RenoTrack.MediaPrep`** (SkiaSharp 4.152.0 pinned):
+  - applies EXIF orientation;
+  - crops to the operator's explicit 3:2 and 1200:630 rectangles;
+  - downscales only (2× box halvings, then Mitchell cubic);
+  - encodes WebP q80 and JPEG q82 (4:2:0, baseline) with no ICC profile or metadata;
+  - verifies each file with the Website's own inspector;
+  - never overwrites, never enlarges, never fits a budget (reports and exits with code 3).
+- **Shared specification:** `MediaDerivatives.cs` (sizes, provisional budgets) and `ImageFileInspector.cs` (allowlist JPEG/WebP parser refusing EXIF/GPS, XMP, IPTC, comments, unknown chunks and trailing data), linked into the tool.
+- **`Site:Media`:**
+  - fields: `Id`, `Alt` (required), `Caption`, `SourceRef` (required, opaque), `HasSocialImage`;
+  - references from `Site:Home:HeroImage` and `Site:Services[]:Image`;
+  - unknown references and unreferenced entries fail startup;
+  - single configuration source.
+- **`MediaCatalog`:** verifies every derivative at startup (existence, budget, format, exact size, no metadata) and content-hashes every URL.
+- **`GET/HEAD /medien/{datei}`:** an allowlist by ordinal file name, immutable caching, mapped only for an enabled site.
+- **Pages:**
+  - split hero on the homepage and photographed service pages, text first, sharing `_PageHeroText` with the unchanged text-only hero;
+  - `_Picture` (WebP source, JPEG img, 3 widths, `sizes`, `width`/`height`, priority or lazy);
+  - card photos all-or-nothing;
+  - `og:image` only for a page's own photo.
+
+**Files (production):**
+- **New:**
+  - `Content/MediaItemOptions.cs`
+  - `Site/MediaDerivatives.cs`, `Site/ImageFileInspector.cs`, `Site/MediaCatalog.cs`, `Site/MediaEndpoint.cs`
+  - `Pages/Shared/Site/_Picture.cshtml`, `Pages/Shared/Site/_PageHeroText.cshtml`
+- **Modified:**
+  - `Content/SiteOptions.cs`, `HomePageOptions.cs`, `ServiceOptions.cs`, `ContentPackOptions.cs`, `ContentListSourceGuard.cs`
+  - `Site/MarketingSite.cs`, `SitePage.cs`, `SitePartials.cs`, `SiteLayout.cs`
+  - `Pages/Startseite.cshtml`, `Pages/Leistung.cshtml`, `Pages/Shared/Site/_ServiceCards.cshtml`, `Pages/Shared/Site/_SiteHead.cshtml`
+  - `Program.cs`, `wwwroot/css/marketing.css`, `appsettings.json`
+- **Tool and tests:** `tools/RenoTrack.MediaPrep/` (4 files), `tests/RenoTrack.MediaPrep.Tests/` (4 files).
+- **Build and CI:** `RenoTrack.slnx`; `.github/workflows/ci.yml` (MediaPrep tests in the Linux job).
+
+**Differences from the design's file list:**
+1. **`_PageHeroText.cshtml` and `MediaDerivatives.cs`** are files beyond the design's list. The first keeps both hero variants saying the same thing. The second is the shared specification the tool links. The test helpers `MediaBytes.cs` and `MediaPacks.cs` are also new.
+2. **Resampling** is Mitchell cubic preceded by deterministic 2× box halvings, not a single cubic step. A single step over a large reduction aliases tile joints. The final filter is still Mitchell and the chain is still fixed (D106).
+3. **`Caption`** is validated but not rendered in 5a, as approved: the hero and service photos carry no caption, and 5b renders it.
+
+**Tests (measured, not derived)** — Release, one non-deterministic build (the known Application Control condition):
+
+| Project | Before | After | Delta |
+|---|---|---|---|
+| Website | 957 | **1,110** | **+153** |
+| MediaPrep (new) | — | **20** | **+20** |
+| Domain | 389 | 389 | — |
+| Application | 470 | 470 | — |
+| Infrastructure (LocalDB) | 412 | 412 | — |
+| Api (LocalDB) | 478 | 478 | — |
+
+- **Website +153 by class, filtered runs:** `MediaOptionsTests` 34, `ImageFileInspectorTests` 33, `MediaEndpointTests` 33, `PageMediaTests` 28, `MediaCatalogTests` 25.
+- **No existing test file was edited.** The Alpha fixture pack gained two photo entries, two references and `media/`: 20 synthetic derivatives generated by the real tool, with one item deliberately unlisted.
+- **Build:** 0 warnings, 0 errors.
+
+**Mutation checks** — 23, all caught; every file restored byte-identical and the full diff hash was unchanged:
+
+| # | Mutation | Failing |
+|---|---|---|
+| 1 | Endpoint falls back to combining the request name with the media directory | 8 |
+| 2 | Missing derivative skipped | 4 |
+| 3 | Inspector accepts APP1 (EXIF/XMP) | 4 |
+| 4 | Inspector accepts WebP XMP (flag and chunk) | 3 |
+| 5 | Trailing data after EOI accepted | 1 |
+| 6 | Alt text not required | 3 |
+| 7 | Hero lazy-loaded | 2 |
+| 8 | Card photos lose `loading="lazy"` | 3 |
+| 9 | `srcset` drops a width | 3 |
+| 10 | `width`/`height` omitted | 2 |
+| 11 | Unreferenced media allowed | 2 |
+| 12 | Unknown reference ignored | 3 |
+| 13 | Card photos when only some services have one | 8 |
+| 14 | Hero photo as a CSS background | 1 |
+| 15 | Token page inherits `og:image` | 1 |
+| 16 | Content type guessed from the request | 6 |
+| 17 | `og:image` relative | 2 |
+| 18 | `og:image` falls back to the hero everywhere | 4 |
+| 19 | Content hash dropped with immutable caching kept | 4 |
+| 20 | Byte budget not enforced | 4 |
+| 21 | Dimensions not checked | 1 |
+| 22 | Headline placed inside the photo column | 1 |
+| 23 | QA fix reverted: card chevron on the photo | 1 |
+
+**Browser QA (synthetic derivatives)** — `dotnet publish -c Release`, Production, headless Edge over the DevTools Protocol. Three fictional packs: Alpha (hero plus one of two services photographed, the real deployment's shape), all services photographed, and no photos.
+
+| Check | Result |
+|---|---|
+| Responsive images, 320–1920 px at 1× and 2× | Every `currentSrc` sufficient for its rendered width and never more than one size larger. Aspect exactly 3:2. WebP served. `width`/`height` 1600/1067 and alt text on every image. Hero `fetchpriority="high"` with no `loading`; cards `loading="lazy"`. 0 problems across all three packs. |
+| Hero layout | Photo beside the text from 1024 px, after the actions below; the headline never overlaps the photo. |
+| Layout shift before scrolling | ≤ 0.0007, the same with no photos (font swap). |
+| Coverage cases | Some services photographed: no card photos anywhere. All: every card photographed. None: no `<picture>`, no `og:image`, no `/medien/` request. |
+| `og:image` | Homepage and photographed service only; absolute canonical URL with hash; none on the overview, the unphotographed service, legal pages or token pages. |
+| Widths, 200% text, true 400% zoom | No overflow or clipping. 400% zoom: CSS viewport 310 px at `devicePixelRatio` 4; 16 Tab stops, none obscured or offscreen. |
+| Reduced motion | 0 transitions, animations or smooth scrolling. |
+| Print (PDF read back) | Hero photo omitted, text printed; card photos at most 8 cm, cards not split. |
+| Visual review | **Defect found and fixed:** the card chevron was drawn on the photo (CSS specificity). Pinned by a test and mutation 23. |
+| Security | Token page unchanged (`customer.css`, `no-store`, `noindex`, no marketing CSP, no photo, no `og:image`). Unlisted and probe `/medien/` names 404. |
+| Logs | Startup reports counts only (`2 photo(s) in 14 verified file(s)`). No token, probe, `SourceRef` or alt text in any server log. |
+
+Evidence (JSON, PDFs, screenshots) stays in the session scratchpad, uncommitted.
+
+**Open before Slice 5a can close:**
+- **Private real-media QA (S5-13) — not yet run.** It needs the owner's inputs:
+  - which photos are approved, and for which use (hero; which services);
+  - consent and privacy-checklist completion;
+  - the hero choice and alt texts;
+  - crop rectangles, and the source format (JPEG or HEIC).
+
+  None of these may be decided by the implementer.
+- **Budget freeze (S5-11) — blocked on the above.** The budgets remain provisional, and synthetic fixtures are not evidence. The procedure is `MEDIA_PREPARATION.md` §6.3; only aggregates will be recorded here.
+
+**Migrations:** none. **Packages:** SkiaSharp 4.152.0 and its Linux native assets, in the tool only. **Layers touched:** `RenoTrack.Website`, the new tool and the two test projects.
+
+**Documentation:**
+- `ARCHITECTURE_DECISIONS.md` **D106**;
+- new **`MEDIA_PREPARATION.md`**;
+- `CLAUDE.md` §25;
+- `CONTENT_PACK.md` §3.3 and §6;
+- `DEPLOYMENT_CONFIGURATION.md`;
+- `appsettings.json` (`//Media`, `//Site`);
+- this file, including the stale Slice 4 status; `PROJECT_STATE.md`.
+
+---
+
 ## 6. Open actions
 
 - **Narrow-screen `<details>` navigation:** to be built when there are several real primary navigation entries (Tech Lead decision at the Slice 3 gate). The homepage is the first entry and is a plain list.
@@ -626,3 +780,43 @@ Evidence (JSON, PDFs, screenshots) stays in the session scratchpad, uncommitted.
 
 - **Transfer company-specific records to the private content repository once it exists:** the design review's image inventory and classification, and the company-specific legal verification findings. These are deliberately not recorded here (D100).
 - **ADRs** for the content pack, marketing layout and script policy, the inquiry → Lead mapping, the anonymous-endpoint hardening, map consent, and the discoverability strategy. Each is written in the slice that implements it.
+
+---
+
+## 5f. Slice 5v — Visual system (D107)
+
+**Design:** the *Visual Direction Re-Alignment Gate*, V-1 to V-9, approved by the Tech Lead. Written after a review found the pages reading as an application rather than as a renovation company, with a reference site used as a benchmark for composition only — never for branding, copy, assets or its inaccessible patterns.
+
+**Delivered:**
+- **Theme roles (D107 Part 1).** `ThemeOptions` derives night, navy, accent-bright and accent-strong from the two configured colours; `/site/theme.css` publishes all six; the accent minimum rose to 4.5:1 against the derived dark surface.
+- **Composition.** Dark bands frame the page; warm off-white carries the reading; layered hero with an accent offset frame and a vertical overlap; the fact panel crossing the hero's lower edge from 1024 px; service cards with an index, the accent rule and the first three offerings; advantages as statements rather than boxes; process steps as large accent numerals.
+- **`CompanyIdentity:LogoOnDarkPath`** with `LogoPath`'s rules and its own key in every message.
+- **Band alternation** enforced by a test over class names *and* by painted-colour measurement in the browser.
+
+**Files — production (15):** `Content/ThemeOptions.cs`, `Content/CompanyIdentityOptions.cs`, `Site/ThemeStylesheet.cs`, `Site/SiteLayout.cs`, `Site/SitePartials.cs`, `wwwroot/css/marketing.css`, `Pages/Shared/Site/_SiteHeader.cshtml`, `_SiteFooter.cshtml`, `_ServiceCards.cshtml`, `_ContactSection.cshtml`, `_PageHeroText.cshtml`, **new** `_FactPanel.cshtml`, `Pages/Startseite.cshtml`, `Leistung.cshtml`, `Leistungen.cshtml`.
+
+**Media foundation untouched:** `MediaCatalog`, `MediaEndpoint`, `ImageFileInspector`, `MediaDerivatives`, `_Picture`, `MediaItemOptions` and `tools/RenoTrack.MediaPrep` are byte-identical to 5a. Only `PictureSizes.Hero`'s `sizes` string changed, because the hero's geometry did.
+
+**Tests (measured):** Website **1,110 → 1,135 (+25)** — `VisualSystemTests` 9 (new), `ThemeOptionsTests` 19 → 26, `CompanyIdentityOptionsTests` 19 → 28. Domain 389, Application 470, Infrastructure 412, Api 478, MediaPrep 20, all unchanged. Build: 0 warnings, 0 errors.
+
+**Prototype checkpoint (V-8):** three fictional packs × seven widths × four pages, plus 200 % text, true 400 % zoom, keyboard focus, reduced motion and print, against the published build — **0 findings** on the final run, after it found four defects in the slice and four in the harness itself (D107 Part 5). Six harness mutations, all caught.
+
+**Open:** the real-media QA (S5-13) and the budget freeze (S5-11) are unchanged by this slice and still need the owner's approvals.
+
+---
+
+## 5g. Slice 5h — Header / top toolbar (D108)
+
+**Design:** a component-level visual reproduction task, with an approved reference screenshot as the visual authority for this component and the company's own content, colours and routes.
+
+**Delivered:** a full-width night band, 92 px at ≥ 1024 px; an accent brand zone bleeding to the viewport's left edge with an angled edge drawn as a notch *over* it; uppercase navigation listing only the pages that exist; an inverted rectangular call to action carrying the phone number — the strongest action the application actually has.
+
+**Files (4):** `Pages/Shared/Site/_SiteHeader.cshtml`, `wwwroot/css/marketing.css`, `tests/.../SiteLayoutTests.cs`, `tests/.../HomePageTests.cs`.
+
+**Tests:** Website **1,135 → 1,136 (+1)** — the new test pins that the zone paints its own background and that the `clip-path` is on the pseudo-element, never on the element holding the link.
+
+**QA:** 0 findings across the three packs and seven widths; 18 unique Tab stops all with a visible ring; 14 requests, **none off-origin**; 202 token-page and marketing-guard tests green. Measured header geometry: band 92 px and zone 493 px at ≥ 1024 px, CTA 170 × 49 at 47 px from the right edge; two rows below 1024 px with the brand zone keeping its own height.
+
+**Three defects found and fixed during the slice:** the brand name's real background measuring 1.00:1; a one-pixel accent hairline at the clipped edge at 2× DPR; and the wrapped navigation row sitting against the viewport's left edge. The last two were visible only in screenshots.
+
+**Remaining differences from the reference, accepted:** no logo mark in the zone (no approved artwork for that surface); a single diagonal where the reference layers two; a one-line wordmark where the reference uses a two-line lockup (splitting a configured company name in code would be company-specific logic); and a two-row header at 768 px, where the brand's own width does not leave room for one row.

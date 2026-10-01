@@ -45,6 +45,7 @@
 | `CompanyIdentity:OpeningHoursNote` | No | What spans cannot say, e.g. "Samstag nach Vereinbarung". Shown to people; never published as machine-readable hours. |
 | `CompanyIdentity:ServiceArea:Places` / `Note` | No | Places are `{ Name, Kind }` with `Kind` `City` or `Region`, names unique |
 | `CompanyIdentity:LogoPath` | No | **Must be under `/brand/`**, e.g. `/brand/logo.svg`, with the file placed in a `brand` directory **beside the application — not in `wwwroot`** (see the note below). **An absolute or protocol-relative URL fails startup even over HTTPS** — a customer page loads nothing off-origin, because a third-party request would disclose which customer opened which quote and when. **A site-relative path outside `/brand/` fails too**, since nothing would serve it. **Set without `DisplayName` also fails startup**: the name is the image's alternative text. A path resolving to no file only warns — and the page then shows the **company name as the image's alternative text** where the logo belongs, on screen and in print, which looks exactly like a deployment with no logo configured. The startup warning is the only signal. |
+| `CompanyIdentity:LogoOnDarkPath` | No | The reversed logo for dark surfaces (**D107**), with exactly the same `/brand/` rules as `LogoPath` and its own key in every failure message. **Absent is a finished state, not a gap:** the marketing header and footer then show the company name alone. Do not supply the positive logo here to "fill it in" — a mark drawn in the brand's own colours loses its dark parts against a dark band, which renders as a broken image rather than as a brand. |
 
 \* **Required once the marketing site is enabled** (`Site:PublicBaseUrl` set, §2.5): `DisplayName`, `ContactPhone`, `ContactEmail` and the whole `Address`. Every identity text field refuses control characters and has a length limit.
 
@@ -81,14 +82,15 @@ The company's content is a **content pack**: a directory outside the application
 <ContentPack:RootPath>/
 ├─ site.json    required   may contain only: CompanyIdentity, Site
 ├─ legal.json   optional   may contain only: Legal
-└─ brand/       optional   served at /brand/ instead of the brand directory beside the application
+├─ brand/       optional   served at /brand/ instead of the brand directory beside the application
+└─ media/       optional   photo derivatives; only files Site:Media lists are served, at /medien/ (D106)
 ```
 
 - **The pack is content, never configuration.** A section in a pack file outside its allowed roots — `Logging`, `PublicApi`, `TrustedForwarders`, `ConnectionStrings`, `Jwt`, `Email`, `TokenLink`, `AllowedHosts`, `ContentPack`, the other file's section, even a top-level `"//"` comment — **fails startup** naming the file and section. Product settings stay in the application's own configuration.
 - **Precedence for content:** command line > environment variables > **pack** > user-secrets > `appsettings*.json`. An operator can still correct one value with an environment variable without editing the company's repository.
-- **A list comes from one source.** `Site:Services`, `Site:Home:Advantages`, `Site:Home:Process`, `CompanyIdentity:OpeningHours` and `CompanyIdentity:ServiceArea:Places` supplied by the pack *and* anything else fails startup: configuration merges lists entry by entry and would silently mix them. Remove the stray copy — typically in a developer's `appsettings.Development.json`.
+- **A list comes from one source.** `Site:Services`, `Site:Media`, `Site:Home:Advantages`, `Site:Home:Process`, `CompanyIdentity:OpeningHours` and `CompanyIdentity:ServiceArea:Places` supplied by the pack *and* anything else fails startup: configuration merges lists entry by entry and would silently mix them. Remove the stray copy — typically in a developer's `appsettings.Development.json`.
 - **Changes take effect on restart.** Pack files are not watched.
-- **Nothing in the pack but `brand/` is served.**
+- **Nothing in the pack but `brand/` and the listed, verified files in `media/` is served.** `media/` is never mounted as a directory: a file there that `Site:Media` does not list answers 404. Without a pack, the same applies to a `media/` directory beside the application.
 
 | Key | Required? | Behaviour |
 |---|---|---|
@@ -101,6 +103,8 @@ The company's content is a **content pack**: a directory outside the application
 | `Site:ServicesPage:MetaTitle` | When enabled | The `/leistungen` overview's `<title>`, used verbatim (text ≤ 70). **No fallback**, like `Site:Home:MetaTitle` (D105). |
 | `Site:ServicesPage:Headline` / `Intro` | No | Text ≤ 90 / ≤ 160. Absent headline ⇒ the `h1` is "Leistungen"; absent intro ⇒ no lead and no meta description. |
 | `Site:Services[]:MetaTitle` | When enabled | Each service page's `<title>`, used verbatim (text ≤ 70). Every missing one is named in the single startup message (D105). |
+| `Site:Media` | No | List of `{ Id, Alt, Caption, SourceRef, HasSocialImage }` (D106). Every entry's derivatives must be in the pack's `media/` directory, produced by `tools/RenoTrack.MediaPrep`. **Startup verifies each one** (exists, exact size, format, byte budget, no EXIF/GPS/XMP/IPTC/comments) **and refuses to start** naming the key and file. Every entry must be referenced; every reference must name an entry. Served only at `/medien/{file}`, only for listed files, with `Cache-Control: public, max-age=31536000, immutable` and a content-hash `?v=`. See `CONTENT_PACK.md` §3.3 and `MEDIA_PREPARATION.md`. |
+| `Site:Home:HeroImage` / `Site:Services[]:Image` | No | A `Site:Media` id. Absent ⇒ that page's text-only hero. Service cards show photos only when every service has an `Image`. |
 | `Site:Services[]:Headline` / `MetaDescription` / `Sections` | No | Text ≤ 90 / ≤ 160; `Sections` none or 1–4 `{ Heading ≤ 80, Paragraphs[1–4 × ≤ 600] }`. Offerings are limited to 12. **All page titles, and all supplied descriptions, must be unique** — a duplicate fails startup naming both keys. See `CONTENT_PACK.md` §3.2. |
 
 ---
@@ -155,6 +159,7 @@ Both applications serve URLs whose path **is** a customer credential (`/angebot/
 - [ ] **`AllowedHosts`** names exactly the canonical host and its `www.` counterpart (D103). The Website redirects only that one derived alias to the canonical origin and leaves every other host alone, so refusing unknown hosts is `AllowedHosts`' job. The TLS certificate covers **both** hosts (an `http://www…` request takes two hops), and the reverse proxy passes the original `Host` header — `X-Forwarded-Host` is deliberately not trusted.
 - [ ] `Site:PublicBaseUrl` is the canonical origin the site is served on, and names the **same** origin as the API's `TokenLink:PublicBaseUrl` — the two applications cannot check each other.
 - [ ] `Legal:Impressum` and `Legal:Datenschutz` carry real text — **FR-1.4 is open until they do.**
+- [ ] `CompanyIdentity:LogoOnDarkPath`, if set, resolves to a file actually present in the `brand` directory, and the artwork is the **reversed** variant. A positive mark here is accepted by validation and renders as fragments on the dark band — check it by eye, not by startup output.
 - [ ] `CompanyIdentity:LogoPath` resolves to a file actually present in the `brand` directory beside the application. A wrong path only warns, and the page then shows the company name in the logo's place. That is indistinguishable from "no logo" by eye, so check `GET /brand/<file>` answers 200 rather than looking at the page. The `brand` directory is resolved against the content root, which is the project directory under `dotnet run` and the publish directory when published.
 - [ ] `Logging:LogLevel:Microsoft.AspNetCore` is `Warning` or quieter in **both** applications (see §4a).
 - [ ] Event logs on hosts that ran a pre-D101 build have been reviewed. They may hold customer tokens, and clearing them is an operator decision.

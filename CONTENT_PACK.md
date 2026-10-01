@@ -46,6 +46,7 @@ A file must be valid JSON with an object at the top level and no duplicate keys 
 | `ContactPhone` | text | International form: `+`, country code, digit groups separated by single spaces, 8–15 digits. **Required for a marketing site.** |
 | `ContactEmail` | text ≤ 254 | Exactly one plain address. **Required for a marketing site.** |
 | `LogoPath` | text | Under `/brand/`, e.g. `/brand/logo.svg`; the file goes in the pack's `brand/`. Requires `DisplayName`. |
+| `LogoOnDarkPath` | text | Optional (Slice 5v, **D107**). The reversed variant for dark surfaces — the marketing footer. Same `/brand/` rules as `LogoPath`, named by its own key when it fails. **Absent is a finished state:** the company name alone is the brand treatment. The accent brand zone in the header gets no mark at all (**D108**), because a mark in the brand's own colours loses whichever parts match its surface. |
 | `Address.StreetAddress` | text ≤ 100 | All four address parts or none. **Required for a marketing site.** |
 | `Address.PostalCode` | text ≤ 10 | Letters, digits, spaces, hyphens. |
 | `Address.Locality` | text ≤ 80 | |
@@ -72,7 +73,9 @@ A file must be valid JSON with an object at the top level and no duplicate keys 
 | `Services[].MetaDescription` | text ≤ 160 | Optional. The service page's meta description and `og:description`. Absent: none is rendered. `Summary` is never used for this, because code does not shorten company text. |
 | `Services[].Sections[]` | list | Optional: none, or **1–4** blocks `{ "Heading": text ≤ 80, "Paragraphs": [ 1–4 × text ≤ 600 ] }`, in order. They describe the service and its typical uses on its page. Absent: no descriptive blocks. |
 | `Theme.PrimaryColor` | `#RRGGBB` | Optional (Slice 2, D103). Must reach **4.5:1 against white** — it carries white button and link text. Absent: a neutral product default. |
-| `Theme.AccentColor` | `#RRGGBB` | Optional. Must reach **3:1 against the effective primary** — used for decoration, borders and large text only. Absent: a neutral product default. |
+| `Theme.AccentColor` | `#RRGGBB` | Optional. Must reach **4.5:1 against the derived dark surface** (**D107**, raised from 3:1): it now fills the primary button and carries that button's label. Absent: a neutral product default. |
+
+**Two values, six published roles (D107).** From these two colours the application derives the dark band, a second dark band, accent text for dark surfaces and accent text for light ones, and publishes all six in `/site/theme.css`. The derivation is deterministic and every pairing is contrast-checked at startup, so a company supplies two colours and the whole visual system follows.
 
 Colours are served as the generated `/site/theme.css`; a pack never supplies CSS, and a colour that fails its contrast minimum fails startup naming the key.
 
@@ -114,6 +117,33 @@ Every service is also linked from the footer of every page.
 - **The service area is the company's**, from `CompanyIdentity:ServiceArea`, shown on every service page. There is no per-service area and there are no pages per town.
 - **Nested lists** (`Offerings`, `Sections`, `Paragraphs`) are part of `Site:Services` and must come from the same single configuration source.
 
+### 3.3 `Site:Media` and photo references (Slice 5a, D106)
+
+The pack's `media/` directory holds **finished derivatives only**, produced by `tools/RenoTrack.MediaPrep` (see `MEDIA_PREPARATION.md`). Never put source photos there.
+
+```
+<ContentPack:RootPath>/media/{Id}-480.webp   {Id}-960.webp   {Id}-1600.webp
+                             {Id}-480.jpg    {Id}-960.jpg    {Id}-1600.jpg    ({Id}-og.jpg)
+```
+
+| Key | Type | Rules |
+|---|---|---|
+| `Media[].Id` | text ≤ 60 | Lowercase ASCII letters and digits, single hyphens; unique. Describes what the photo shows. Its derivative file names are built from it. **A replacement photo gets a new id.** |
+| `Media[].Alt` | text ≤ 150 | **Required.** Alt text describes the actual image for accessibility, and also gives search engines and other machine consumers useful context. It is not a keyword field. |
+| `Media[].Caption` | text ≤ 200 | Optional; must not repeat `Alt`. Rendered by the projects gallery (Slice 5b), not by the hero or service photos. |
+| `Media[].SourceRef` | text ≤ 40 | **Required.** An opaque reference into the company's private approval register (lowercase ASCII, digits, hyphens). Never rendered, never logged. |
+| `Media[].HasSocialImage` | bool | `true` when `{Id}-og.jpg` exists. A page using this photo then declares it as its `og:image`. |
+| `Home.HeroImage` | media id | Optional. The homepage hero's photo. Absent: the text-only hero. |
+| `Services[].Image` | media id | Optional. The service page hero's photo. Absent: that service's text-only hero. |
+
+**Rules the application enforces:**
+- **Startup verifies every derivative of every listed photo** and refuses to run if one is missing, over its byte budget, the wrong format or size, or carries any metadata (EXIF including GPS, XMP, IPTC, comments, appended data).
+- **Only listed files are served**, at `/medien/`. A file in `media/` that no entry lists answers 404.
+- **Every listed photo must be used** by `Home.HeroImage` or a service's `Image`, and every reference must name a listed photo. A listed but unused photo fails startup, because listing it publishes it.
+- **Card photos are all-or-nothing.** Service cards show photos only when *every* service has an `Image`. Otherwise every card stays text-only, on every page.
+- **No fallback `og:image`.** A page without its own photo with a social image declares none.
+- **`Media` is a list** and must come from one configuration source.
+
 ## 4. `legal.json` → `Legal`
 
 Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Sections": [ { "Heading", "Paragraphs": [ { "Text", "LinkText", "LinkUrl" } ] } ] }`. `LinkText` and `LinkUrl` come together; link schemes are `http`, `https`, `mailto`, `tel`, or a site-relative path. A document with no content is a 404, not an empty page. See `DEPLOYMENT_CONFIGURATION.md` §2.3.
@@ -130,6 +160,7 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
     "ContactPhone": "+49 000 1234567",
     "ContactEmail": "kontakt@beispielbetrieb.test",
     "LogoPath": "/brand/logo.svg",
+    "LogoOnDarkPath": "/brand/logo-invers.svg",
     "Address": { "StreetAddress": "Teststraße 1", "PostalCode": "00000", "Locality": "Testort", "CountryCode": "DE" },
     "OpeningHours": [
       { "Days": [ "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" ], "Opens": "08:00", "Closes": "17:00" }
@@ -201,3 +232,12 @@ Unchanged from D100: `Legal.Impressum` and `Legal.Datenschutz`, each `{ "Section
     - no prices, "kostenlos", "Festpreis" or discounts, and no response-time promises;
     - no superlatives, rankings, ratings, review counts, years in business or project counts.
   - **Slugs are plain ASCII forms of the service name** (`waende`, `innenausbau`), chosen once and kept.
+- **Photos (D106) — checked in review and in the private approval register, because code cannot check it:**
+  - **Only owner-approved photographs of the company's own work.** No stock, no AI-generated image, no rendering presented as work.
+  - **The privacy checklist in `MEDIA_PREPARATION.md` §2 is completed for every photo** before it gets an id: no identifiable person without recorded consent, no house number, number plate, sign, document or other detail that identifies a customer or a property.
+  - **Alt text describes the actual image for accessibility, and also gives search engines and other machine consumers useful context. It is not a keyword field.** No place names, company name or service list added to it.
+  - **Ids and captions state no customer, place, street or date** unless the owner has confirmed it and it is safe to publish.
+  - **A service without an approved photo has no `Image`.** Its text-only layout is complete. Never borrow another service's photo to fill the gap, because it would show work the page is not about.
+  - **A replacement photo is a new id.** Remove the old entry and its files.
+
+The §5 example deliberately lists no photos, because a pack with photos needs their derivatives in `media/`. §3.3 shows the shape.

@@ -2840,3 +2840,189 @@ Nothing may be invented, and nothing may link to a page that answers 404.
 - **A section heading widened the page.** At 200% text and 375 px, "Leistungsumfang" in the `inline-block` `.page-section-title` was wider than the viewport. `hyphens: auto` did not break it, because hyphenation depends on the browser having a dictionary. The heading now has `max-width: 100%` and `overflow-wrap: anywhere`.
 - **A long service name widened the footer.** With the five-service fictional pack, 200% text at 375 px overflowed through the new footer services column: a bare `1fr` grid track cannot shrink below its longest word. The one-column track is now `minmax(0, 1fr)`, and footer links wrap.
 - **Accepted, not changed:** a very long single-word service name can break mid-word in a narrow footer column at wide screens. Real service names are short, and the alternative is overflow.
+
+## D106 — Photos: Verified Derivatives, Served by Allowlist, Prepared Offline
+
+**Phase 13 Slice 5a (media foundation).** Approved at the Slice 5 gate, decisions S5-1 to S5-15, with the Tech Lead's two corrections: byte budgets frozen only after real-media validation (S5-11), and the alt-text wording. Slice 5b (projects) is designed but not part of this decision.
+
+**Problem:** the site needs authentic company photography, which is what makes a renovation company's website credible. It must stay:
+- **Truthful:** only owner-approved photos of the company's own work.
+- **Private:** source photos carry GPS coordinates and may show people, house numbers or customers' homes.
+- **Honest about coverage:** strong material exists for one service, little or none for the others.
+- **Reusable:** no company's photo or approval record belongs in the product repository.
+
+### Part 1 — The boundary: source, register, derivative (S5-4, S5-9)
+
+- **Source photos never enter any repository and the application never reads them.** An offline tool, `tools/RenoTrack.MediaPrep`, turns each approved source into published derivatives. It runs on an operator's machine against the company's private content repository.
+- **Approval, consent and the privacy checklist live in a private register.** The pack carries only `SourceRef`, an opaque reference into it, which is shape-checked, never rendered and never logged. The application cannot know whether an approval is real, and does not claim to.
+- **The pack's `media/` holds derivatives only**, named `{Id}-{480|960|1600}.{webp|jpg}` and optionally `{Id}-og.jpg`. A replacement photo is a new id.
+
+**Tool:**
+- **Stack and output:** SkiaSharp 4.152.0 pinned exactly; the Linux native assets are for CI. Output is byte-reproducible per platform.
+- **Pipeline:**
+  1. decode to sRGB;
+  2. **apply EXIF orientation first**;
+  3. crop to the operator's explicit rectangle (3:2 content, 1200:630 social; one pixel of rounding tolerated);
+  4. downscale only, by 2× box halvings then one Mitchell cubic resample;
+  5. encode WebP lossy quality 80 and JPEG quality 82, 4:2:0 baseline, from pixels with no colour space, so no ICC profile or metadata is written;
+  6. verify every file with the Website's own inspector.
+- **Safeguards:** it refuses to overwrite a file and refuses to enlarge. **It never fits a byte budget by itself:** an over-budget file is written, reported, and the tool exits with code 3.
+
+**Alternatives considered:**
+- **Documented external commands** (libvips/ImageMagick plus exiftool): manual and not reproducible.
+- **ImageSharp:** split licence.
+- **Runtime resizing:** a request-time dependency and attack surface for no benefit.
+
+### Part 2 — Nothing published unverified (S5-3, S5-5, S5-10, S5-11)
+
+- **`MediaDerivatives.cs`** is the single derivative specification: 480 × 320, 960 × 640 and 1600 × 1067 (3:2) in WebP and JPEG, 1200 × 630 JPEG social, and per-derivative byte budgets. It is linked into the tool, not copied.
+- **`ImageFileInspector.cs`** is a hand-written, allowlist-shaped parser, with no image library in the product:
+  - **JPEG:** allows only JFIF APP0, ICC APP2, quantisation/Huffman tables, restart interval, frames SOF0–2 and scans. It refuses APP1 (EXIF, XMP), APP3–15 (IPTC, Photoshop), comments, other coding processes and **any byte after EOI**.
+  - **WebP:** allows exactly one VP8/VP8L bitstream, with ALPH/ICCP only inside VP8X. It refuses EXIF/XMP chunks (declared or not), the EXIF/XMP/animation flags, unknown chunks and a RIFF size that does not match the file.
+  - **GPS lives inside EXIF, so refusing EXIF entirely closes accidental location leaks without parsing it.**
+- **`MediaCatalog.Load`**, at startup, for every derivative of every listed item checks that the file:
+  - exists under the media directory;
+  - is within its byte budget (checked before reading);
+  - passes inspection;
+  - matches its format and exact size.
+
+  Any failure **stops startup** naming the key and file. It computes a 16-hex content hash per file.
+- **Content rules** (`SiteOptions`):
+  - ids are well-formed and unique;
+  - alt text is required;
+  - a caption may not repeat the alt text;
+  - `SourceRef` is required and opaque;
+  - every `Home:HeroImage` / `Services[]:Image` names a listed photo;
+  - **every listed photo is referenced**, because listing publishes;
+  - `Site:Media` comes from one configuration source.
+- **Byte budgets are provisional** — 1600 ≤ 350 KB, 960 ≤ 160 KB, 480 ≤ 60 KB, social ≤ 250 KB (1 KB = 1,024 bytes). They are evidence-based performance budgets, **frozen only after validation against the real owner-approved media set**, per `MEDIA_PREPARATION.md` §6.3: measure, inspect visually, resolve globally, never by degrading one photo. The evidence and final values are recorded in this decision when that validation is done (see *Pending*).
+
+### Part 3 — Serving: an allowlist, not a mount (S5-2, S5-12)
+
+- `GET/HEAD /medien/{datei}` is mapped only when the site is enabled. The name is looked up in the catalog's ordinal dictionary, and **a request never builds a filesystem path**: unlisted files on disk, the pack's own files, case variants of a file name and every encoded traversal answer 404 (rendered by the site 404, which echoes nothing).
+- The content type comes from the verified derivative, never the request.
+- **Caching:** `Cache-Control: public, max-age=31536000, immutable` with an ETag. It is safe because every rendered URL carries `?v=` plus the content hash, so a silently overwritten file still gets a new URL. The query itself is not checked.
+- **Logging:** nothing is logged per request. The startup summary reports counts only.
+- **Rejected:** `UseStaticFiles` over `media/`, the `/brand/` pattern, which would publish anything placed in the directory.
+
+### Part 4 — Pages (S5-6, S5-7, S5-8)
+
+- **`_Picture`:** a WebP `<source>` and a JPEG `<img>`, three widths each, `sizes` from `PictureSizes`, `width="1600" height="1067"`, encoded alt text.
+  - **Hero:** `fetchpriority="high"`, no `loading` attribute, no preload.
+  - **Everything else:** `loading="lazy"`.
+  - Both use `decoding="async"`.
+- **Photos in CSS:** never a CSS background, never cropped by CSS — no `object-fit`, no `aspect-ratio`, no fixed height.
+- **Split hero** (homepage `Home:HeroImage`, service page `Services[]:Image`):
+  - the text column (`_PageHeroText`, shared with the text-only hero) comes first;
+  - the photo sits beside it from 1024 px, in a 1.1fr : 1fr grid with a 3rem gap, and follows the actions below that;
+  - **text never sits on the photo**;
+  - **without a photo, the text-only hero is unchanged**: a finished layout with no placeholder.
+- **Cards:** photos only when **every** service has one (`ServiceCardImagesEnabled`), identically on the homepage, the overview and "Weitere Leistungen". The photo sits above the heading, outside the link, and is not focusable.
+- **`og:image`:** only the page's own photo with a social derivative, as an absolute canonical URL with type, width, height and alt. **No fallback.** The overview, legal pages, 404 and customer token pages declare none.
+- **Print:** the hero photo is not printed; card photos print at most 8 cm tall and never split.
+
+### Part 5 — What deliberately did not change
+
+- CSP (`img-src 'self'` already allowed same-origin photos).
+- Token pages and `_CustomerLayout`.
+- Logging rules and navigation.
+- No JavaScript, CDN, third-party request or migration; no project outside `RenoTrack.Website` except the tool and its tests.
+- **No real photo in the repository:** fixture media are synthetic test graphics generated by the real tool.
+
+### Pending before Slice 5a closes
+
+- **Private real-media QA (S5-13):** owner-approved derivatives prepared with the pinned tool, browser QA against them, visual inspection, size measurement.
+- **Freezing the budgets and encoding settings (S5-11)** from that evidence. The aggregates and final values are recorded here and in `MEDIA_PREPARATION.md` §6.
+
+**Found while implementing:**
+- **A single cubic resample over a large reduction aliases fine repeating detail**, such as tile joints. The approved "one fixed filter (Mitchell cubic)" is therefore preceded by deterministic 2× box halvings. This refines the design without replacing it: the final resample is still Mitchell, and the whole chain is still fixed.
+- **ASP.NET route literals match case-insensitively and ignore a trailing slash.** `/Medien/x.jpg` and `/medien/x.jpg/` reach the endpoint. They still serve only the exact listed file, because the file name is an ordinal key, and a test pins exactly that.
+- **The first synthetic fixture pattern (a 40 px grid) exceeded the 960 JPEG budget.** The test graphic was made less dense rather than the budget changed: synthetic images say nothing about real photos, and S5-11 reserves budget decisions for real-media evidence.
+- **`<picture>` markup** was pinned exactly by regular-expression tests, including every URL's content hash, rather than by fragments.
+
+**Found in browser QA, before closure** (published build, headless Edge over the DevTools Protocol, synthetic fixture derivatives):
+- **The card chevron sat on the photo.** `.page-card-with-image::before` lost to the general `.page-card-linked::before`, which has the same specificity and comes later in the file, so the decoration was drawn on the photo. Every test was green; only a screenshot showed it. The rule now names both classes. It is pinned by a test and by a mutation that reverts it.
+- **Verified clean** at 320–1920 px and 1× and 2× pixel density, on three packs (hero plus one service photo, every service photographed, no photos):
+  - every `currentSrc` is sufficient for its rendered width and never more than one size larger;
+  - the rendered aspect is exactly 3:2 and WebP is served;
+  - the split hero places the photo beside the text from 1024 px and after the actions below that, never under the headline;
+  - no CSS background images, no horizontal overflow, and layout shift before scrolling ≤ 0.0007 (with or without photos, so from font swap, not images).
+- **Accessibility and print:** 200% text and true 400% zoom show no overflow or clipping, and no Tab stop is hidden behind the call bar. Reduced motion shows no transitions or animations. Print, read back from PDF, omits the hero photo and bounds card photos without splitting them.
+- **Security and logging:** token pages are unchanged; unlisted and probe media names answer 404; the server logs contain no token, probe, `SourceRef` or alt text.
+- **Lazy loading:** card photos inside the browser's lazy-load margin are fetched before scrolling. That is the browser honouring `loading="lazy"`, not eager loading.
+
+---
+
+## D107 — The Visual System: Two Configured Colours, Several Validated Surface Roles, and Bands That Must Alternate
+
+**Phase 13 Slice 5v (visual system).** Approved as the *Visual Direction Re-Alignment Gate*, decisions V-1 to V-9, after a Tech Lead review found the site reading as "a technical Razor website with company content" rather than as a renovation company. A reference site was used as a benchmark for composition, confidence and section rhythm — never for branding, copy, assets or its inaccessible patterns (parallax, text on photography, JavaScript filters, unverifiable testimonials).
+
+**Problem:** the pages built in Slices 2–5a were correct and accessible, and looked like an application. The causes were structural rather than cosmetic: one dark colour used on two bands, a near-invisible accent, pure white as the default surface, boxed everything, and a flat alternation of white and warm bands.
+
+### Part 1 — Surface roles are derived in C#, not in CSS (V-2)
+
+The company still configures exactly two colours (`Site:Theme:PrimaryColor`, `AccentColor`). `ThemeOptions` derives four more roles from them and `/site/theme.css` publishes all six:
+
+| Role | Derivation | Used for |
+|---|---|---|
+| `--brand-night` | primary mixed 40 % towards black | header, hero, footer, one mid band |
+| `--brand-navy` | the primary itself | the second dark band, so two never touch |
+| `--brand-accent-bright` | accent lightened until ≥ 7:1 on night | accent **text** on a dark surface |
+| `--brand-accent-strong` | accent darkened until ≥ 4.5:1 on **sand** | accent **text** on a light surface |
+
+- **Derived in C#, deliberately not with CSS `color-mix()`.** A derived colour that carries text has to be contrast-checked at startup exactly like a configured one, and CSS cannot report a failure. The walk is in fixed 2 % steps, so the same two colours always generate the same stylesheet — which the content hash in the stylesheet's URL assumes.
+- **The accent minimum rose from 3:1 to 4.5:1**, measured against the derived night surface. The accent was decoration when D103 set 3:1; it now fills the primary button and carries that button's night-coloured label. Contrast is symmetric, so one check covers both.
+- **`--brand-accent-strong` is measured against the darker of the two light surfaces (sand `#EAE2D5`), not the lighter one.** Deriving against stone alone produced **4.11:1** on the breadcrumb bar — measured at the prototype checkpoint, not predicted. A colour that clears sand clears stone.
+- **Stone and sand are product neutrals, not brand colours.** They have to sit under every company's palette.
+
+### Part 2 — The composition (V-1)
+
+- **Dark bands frame the page** — header, hero, one mid band, the contact band, the footer — and warm off-white carries the reading. Pure white is a card surface, no longer the page's default.
+- **The layered hero:** text column first, photo beside it from 1024 px in a wider container, an accent offset frame behind the photo, and the photo crossing into the section below. **Text never sits on a photograph** (D106, unchanged). The no-photo hero remains a finished layout.
+  - **The overlap is vertical by decision.** A horizontal bleed to the viewport edge needs `100vw`, which includes the scrollbar and overflows by its width wherever one is shown.
+- **The fact panel** — phone, email, availability, service area — crosses the hero's lower edge from 1024 px and is an ordinary block below that. Its heading is visually hidden, because the contact band and the footer state the same facts in full and a second visible "Kontakt" heading would compete with the real one. Every cell is a pack fact, omitted whole when absent (D100).
+- **Service cards** carry an index numeral, the accent rule, the name, the summary and **the first three offerings** — the pack's own words, which is what makes a card read as work offered rather than as a label. This supersedes Slice 4's decision to keep offerings off the card.
+  - **The card's footer line is an element in flow**, after the photo, the heading and the text. Slice 5a fixed a chevron drawn on the photo by out-specifying a selector (D106, mutation 23); 5v removes the possibility instead, because document order cannot be lost to a CSS ordering accident.
+- **Uppercase is reserved** for small labels — the hero's service-area eyebrow, fact labels, footer headings, navigation. German compounds set uppercase at display size hyphenate badly and read poorly, so headings stay sentence case.
+- **No invented German copy.** The bronze rule that opens each section is a drawn decoration, not an eyebrow word: product chrome is neutral vocabulary, and marketing voice is the company's to write.
+
+### Part 3 — Bands must alternate, and that is enforced
+
+No two adjacent bands may paint the same surface; consecutive prose sections are one band, because they continue one reading surface. Where the rule would be broken — the process band and the contact band were both navy — the later band steps from navy to night.
+
+**This was found by measuring painted colours in a browser, while the test that reads class names passed:** it classified `surface-dark surface-navy` as night. The test now checks the specific surface first, and the browser harness checks the painted colours as well. Two checks, because each missed what the other caught.
+
+### Part 4 — `CompanyIdentity:LogoOnDarkPath` (V-4, V-5)
+
+An optional second logo path with `LogoPath`'s rules, named by its own key in every failure message. **No dark-variant asset means the company name alone is the brand treatment** — a finished design, not a fallback. A mark drawn in the brand's own colours loses whichever parts match its surface; recolouring a raster file is impossible and redrawing a vector one would be inventing the company's mark. The product invents no brand asset, exactly as it invents no company name.
+
+### Part 5 — What the prototype checkpoint found (V-8)
+
+Three fictional packs — no photos, hero only, all photos — across seven widths, plus 200 % text, true 400 % zoom, keyboard focus, reduced motion and print, against the published build. It found **four defects in the slice's own work**, none of which any unit test could see:
+
+1. The hero's eyebrow at **2.65:1** and the process steps' text at **1.18:1**: `.surface-dark X` rules did not cover `.page-hero` and `.page-contact`, which paint their own surfaces. Fixed by naming all three dark bands in one selector group, so the next dark band cannot miss a rule.
+2. The breadcrumb link at **4.11:1** (Part 1).
+3. Two adjacent navy bands (Part 3).
+4. The surface-classification slip in the test that was supposed to prevent (3).
+
+**And four defects in the QA harness itself**, each of which would have produced a green run that measured nothing: a viewport emulation that silently did not apply; an unstyled page passing QA because the published app was started from the wrong working directory, so `MapStaticAssets` served every static file as 200 with zero bytes; a print check that ran at a width where the element it checked was already hidden; and `focus()` reporting no focus ring on everything, because `:focus-visible` depends on the input modality.
+
+**The rule that follows:** a QA harness states its own preconditions as assertions — the viewport it asked for, and that the stylesheet actually applied — and is mutation-tested before its green run is believed. Six mutations, all caught.
+
+---
+
+## D108 — The Header: Composed to an Approved Reference, With the Angle Drawn Behind the Link
+
+**Phase 13 Slice 5h (header / top toolbar).** A component-by-component visual reproduction: a reference screenshot was the visual authority for this one component, with the company's own content, colours and routes.
+
+**The composition:** a full-width near-black band; a brand zone painted in the accent, bleeding to the viewport's left edge and cut by an angled edge; the navigation and one prominent call to action on the right. The band is **92 px** at ≥ 1024 px, which is the reference's own height.
+
+- **The band carries no container.** The brand zone has to reach the viewport's left edge, which a centred container cannot do; only the right-hand group is inset by the page gutter.
+- **The angle is a band-coloured notch drawn over the zone, never a `clip-path` on the zone itself.** Two reasons, both measured rather than assumed:
+  1. a `clip-path` on an element containing a link **cuts that link's focus ring off at the diagonal** — a WCAG 2.4.7 failure that reads as a styling detail;
+  2. painting the accent on a pseudo-element leaves the brand name's real background the night band, which measures **1.00:1**. It looked right only because the pseudo-element happened to paint.
+- **The notch overlaps the zone's edge by one pixel.** A `clip-path` is rasterised against the pseudo-element's own box, which left a one-pixel accent hairline down the band at 2× device pixel ratio. Found in the screenshots; invisible to every geometry check.
+- **No mark is drawn in the brand zone**, and this is stricter than D107's rule: the zone is painted in the accent, so the positive mark loses its accent parts there exactly as the dark one loses its dark parts on a dark band. `LogoOnDarkPath` stays a dark-surface asset and renders in the footer.
+- **The call to action is the phone number** — the strongest action this application actually has. No button is drawn for a feature that does not exist, and the navigation lists only pages that exist (D104, unchanged).
+- **The header's button is inverted** — a light rectangle with `--brand-accent-strong` text — rather than the accent-filled button the page body uses (D107). Header-scoped by selector, and the derivation guarantees the pairing clears 4.5:1.
+- **Narrow screens:** the row wraps and the brand zone keeps its own height, rather than the brand being squeezed into a one-word column (D104's rule, unchanged). The wrapped action row stays right-aligned and carries the page gutter — it sat against the viewport's left edge until the screenshots showed it; nothing overflowed, so no measurement caught it.
