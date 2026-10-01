@@ -67,6 +67,66 @@ public class LeadTests
         Assert.Throws<ArgumentException>(() => Lead.Create(name, phone, email, LeadSource.Website));
     }
 
+    // ---- Field lengths (Phase 13 Slice 7) ------------------------------
+    // The limits are lifetime invariants — a stored row can never exceed its own column — so they
+    // are guarded in Create with the rest of the validation, never in the constructor EF Core calls
+    // when it materialises a row (CLAUDE.md §2).
+
+    [Fact]
+    public void Create_AcceptsEveryFieldAtItsLimit()
+    {
+        var lead = Lead.Create(
+            new string('n', Lead.MaxNameLength),
+            new string('p', Lead.MaxPhoneLength),
+            new string('e', Lead.MaxEmailLength),
+            LeadSource.Website,
+            new string('a', Lead.MaxAddressLength),
+            new string('x', Lead.MaxNotesLength));
+
+        Assert.Equal(Lead.MaxNameLength, lead.Name.Length);
+        Assert.Equal(Lead.MaxPhoneLength, lead.Phone.Length);
+        Assert.Equal(Lead.MaxEmailLength, lead.Email.Length);
+        Assert.Equal(Lead.MaxAddressLength, lead.Address!.Length);
+        Assert.Equal(Lead.MaxNotesLength, lead.Notes!.Length);
+    }
+
+    [Fact]
+    public void Create_RejectsANameOneCharacterPastItsLimit() =>
+        Assert.Throws<ArgumentException>(() =>
+            Lead.Create(new string('n', Lead.MaxNameLength + 1), ValidPhone, ValidEmail, LeadSource.Website));
+
+    [Fact]
+    public void Create_RejectsAPhoneOneCharacterPastItsLimit() =>
+        Assert.Throws<ArgumentException>(() =>
+            Lead.Create(ValidName, new string('p', Lead.MaxPhoneLength + 1), ValidEmail, LeadSource.Website));
+
+    [Fact]
+    public void Create_RejectsAnEmailOneCharacterPastItsLimit() =>
+        Assert.Throws<ArgumentException>(() =>
+            Lead.Create(ValidName, ValidPhone, new string('e', Lead.MaxEmailLength + 1), LeadSource.Website));
+
+    [Fact]
+    public void Create_RejectsAnAddressOneCharacterPastItsLimit() =>
+        Assert.Throws<ArgumentException>(() =>
+            Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Website, new string('a', Lead.MaxAddressLength + 1)));
+
+    [Fact]
+    public void Create_RejectsNotesOneCharacterPastTheirLimit() =>
+        Assert.Throws<ArgumentException>(() =>
+            Lead.Create(ValidName, ValidPhone, ValidEmail, LeadSource.Website, notes: new string('x', Lead.MaxNotesLength + 1)));
+
+    /// <summary>
+    /// The limit applies to what is stored, and what is stored is trimmed — so surrounding
+    /// whitespace must not push an otherwise-valid value over its own column.
+    /// </summary>
+    [Fact]
+    public void Create_MeasuresLengthAfterTrimming()
+    {
+        var lead = Lead.Create($"  {new string('n', Lead.MaxNameLength)}  ", ValidPhone, ValidEmail, LeadSource.Website);
+
+        Assert.Equal(Lead.MaxNameLength, lead.Name.Length);
+    }
+
     // ---- Status transitions --------------------------------------------
     // Each transition method must succeed only when Lead is currently in its documented
     // "From" status (StateMachine.md §1.3), and reject every other status with a message

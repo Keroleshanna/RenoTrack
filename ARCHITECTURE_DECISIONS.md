@@ -3026,3 +3026,43 @@ Three fictional packs — no photos, hero only, all photos — across seven widt
 - **The call to action is the phone number** — the strongest action this application actually has. No button is drawn for a feature that does not exist, and the navigation lists only pages that exist (D104, unchanged).
 - **The header's button is inverted** — a light rectangle with `--brand-accent-strong` text — rather than the accent-filled button the page body uses (D107). Header-scoped by selector, and the derivation guarantees the pairing clears 4.5:1.
 - **Narrow screens:** the row wraps and the brand zone keeps its own height, rather than the brand being squeezed into a one-word column (D104's rule, unchanged). The wrapped action row stays right-aligned and carries the page gutter — it sat against the viewport's left edge until the screenshots showed it; nothing overflowed, so no measurement caught it.
+
+---
+
+## D109 — The Anonymous Lead Intake: Its Own Throttle, Its Own Limits, and a Reply That Discloses Nothing
+
+**Phase 13 Slice 7.** `POST /api/v1/leads` is the only endpoint in this API that is **anonymous and writes**. Every other anonymous route reads. It closes the three gaps `PHASE13_PROGRESS.md` §3.4 recorded, and it is a product boundary rather than website work: it is how a Lead reaches RenoTrack from *any* website, including one this project did not build.
+
+### Part 1 — A separate rate-limit policy, not the public one
+
+`LeadIntakeRateLimitOptions` adds a second named policy (`lead-intake`, **5 submissions per 10 minutes**, the same client partition as D65), applied with `[EnableRateLimiting]` to the contact-form action alone.
+
+- **Why not reuse `public`:** that policy protects the token-link surface, which a real customer uses repeatedly in one sitting. This one protects a form a real customer submits once. One bucket would let form spam throttle a customer reading their own quote, and the reverse. A test pins that exhausting one leaves the other answering.
+- **Why a tighter limit than D65's:** an unthrottled anonymous writer is how a public form becomes a way to fill a company's pipeline with rubbish and the Admin's inbox with notifications about it (FR-9.2).
+- **`Retry-After` reports the rejected policy's window**, not the first policy's. The shared rejection handler previously read one window for every policy, which would have told a throttled form submitter to come back in one minute instead of ten.
+- **The partition is the connection's address**, so the limit is per *client* only where the deployment names its proxies in `TrustedForwarders` (**D97**, already implemented in the API). Unconfigured behind a proxy, five submissions close the form for everyone. That is a deployment prerequisite, now listed as one.
+  - **This is not theoretical:** adding the policy immediately broke eleven unrelated API tests, because `TestServer` supplies no address and the whole suite shares one bucket. The test factory raises the limit exactly as it already did for D65 — and that failure is the honest preview of a misconfigured deployment.
+
+### Part 2 — Field limits are the entity's constants, read by three layers
+
+`Lead` gains `MaxNameLength` (200), `MaxPhoneLength` (50), `MaxEmailLength` (320), `MaxAddressLength` (500) and `MaxNotesLength` (2000). The validator, `Lead.Create`'s own guards and the EF Core configuration all read them.
+
+- **The defect:** the lengths existed only as literals in the schema, so an over-long value passed every guard and failed at the database — an ordinary bad request answered as a **500 with a stack trace** rather than a field-keyed 400.
+- **Why constants rather than three copies:** two definitions drift. One cannot.
+- **A maximum length is a lifetime invariant**, so the guards sit in `Create` with the rest and never in the constructor EF Core calls when materialising a row (CLAUDE.md §2). Length is measured **after trimming**, because trimming is what the stored value will be.
+- **No migration:** the values are unchanged, so the model is unchanged.
+- The limits bind on the Admin's manual-entry path too, because the 500 was the same defect there.
+
+### Part 3 — The anonymous reply is 201 and nothing else (Q17, resolved)
+
+It previously returned the whole `LeadDto` and a `Location` header.
+
+- **The `Id` is sequential**, so returning it to an anonymous caller discloses how many enquiries the company has ever received — a business figure, handed to anyone who submits a form.
+- `Status` and `AssignedInspectorId` are internal workflow state with no meaning to a submitter.
+- The `Location` named `GET /api/v1/leads/{id}`, **a route that caller cannot open**, while disclosing that same id.
+- The Website already discards the body (`PHASE13_PROGRESS.md` §3.3), so nothing is lost.
+- **The Admin's manual-entry route is unchanged** and still returns the full DTO with a working `Location`: that caller is authenticated and goes on to work with the Lead it just created. The `Location` test moved there with its claim intact.
+
+### What this slice deliberately does not add
+
+Anti-spam measures (honeypot, minimum fill time) belong to the Website in Slice 8; no CAPTCHA; no de-duplication (two identical submissions still create two Leads, and a test pins it). **No per-site API key**: issuing, revoking and administering credentials for third-party sites is its own decision, and it will be needed before a company's existing website is connected directly.

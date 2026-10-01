@@ -272,16 +272,26 @@ public sealed class LeadReadEndpointsTests(RenoTrackApiFactory factory)
 
     // ---------- Slice 5's deferred Location header ----------
 
+    /// <summary>
+    /// <b>Moved from the anonymous contact form to the Admin's manual entry (Slice 7).</b> The claim
+    /// this test was written for — that a created Lead's <c>Location</c> points somewhere real,
+    /// which is why Slice 5 deferred the header until <c>GetById</c> existed — is unchanged. What
+    /// changed is which route may carry it: the anonymous form now answers 201 with no body and no
+    /// <c>Location</c>, because that header would name a route its caller cannot open while
+    /// disclosing the Lead's sequential id. The authenticated caller, who goes on to work with the
+    /// Lead, still gets both.
+    /// </summary>
     [Fact]
-    public async Task Creating_a_lead_now_returns_a_location_header_pointing_at_the_new_resource()
+    public async Task Creating_a_lead_as_an_admin_returns_a_location_header_pointing_at_the_new_resource()
     {
-        using var client = factory.CreateClient();
+        using var admin = await AuthenticatedClientAsync(RenoTrackApiFactory.AdminEmail, RenoTrackApiFactory.AdminPassword);
 
-        var response = await client.PostAsJsonAsync("/api/v1/leads", new
+        var response = await admin.PostAsJsonAsync("/api/v1/leads/manual", new
         {
             name = "Location Header",
             phone = "+49 151 55555555",
             email = "location@example.de",
+            address = "Teststraße 5, 40213 Düsseldorf",
         });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -293,8 +303,28 @@ public sealed class LeadReadEndpointsTests(RenoTrackApiFactory factory)
         Assert.EndsWith($"/{id}", location.ToString());
 
         // The header must point somewhere real — the whole reason it was deferred out of Slice 5.
-        using var admin = await AuthenticatedClientAsync(RenoTrackApiFactory.AdminEmail, RenoTrackApiFactory.AdminPassword);
         Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync(location)).StatusCode);
+    }
+
+    /// <summary>
+    /// The counterpart claim, pinned where it now lives: the anonymous form discloses nothing about
+    /// the Lead it created (Slice 7, Q17).
+    /// </summary>
+    [Fact]
+    public async Task Creating_a_lead_anonymously_discloses_neither_an_id_nor_a_location()
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/v1/leads", new
+        {
+            name = "No Disclosure",
+            phone = "+49 151 66666666",
+            email = "no-disclosure@example.de",
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Null(response.Headers.Location);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
     }
 
     // ---------- helpers ----------

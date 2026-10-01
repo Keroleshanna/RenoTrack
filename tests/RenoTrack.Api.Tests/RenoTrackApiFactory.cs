@@ -66,6 +66,14 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         // rejection deliberately.
         builder.UseSetting($"{PublicRateLimitOptions.SectionName}:{nameof(PublicRateLimitOptions.PermitLimit)}", "10000");
 
+        // The contact form's own policy (Slice 7), raised for exactly the same reason and in exactly
+        // the same way. At its production limit of five per ten minutes the sixth Lead created by
+        // any test in this collection would be a 429 — which is precisely what happened when the
+        // policy was first added, and is also the honest preview of a deployment that puts the API
+        // behind a proxy without naming it in TrustedForwarders.
+        // LeadIntakeRateLimitEndpointTests overrides it back down to exercise rejection deliberately.
+        builder.UseSetting($"{LeadIntakeRateLimitOptions.SectionName}:{nameof(LeadIntakeRateLimitOptions.PermitLimit)}", "10000");
+
         // Migrate, because this fixture needs the Identity roles seeded and, as of D63, normal
         // startup no longer seeds them — Verify would fail on a database that has never been
         // initialized. This is a real requirement of the harness, not routing the test lifecycle

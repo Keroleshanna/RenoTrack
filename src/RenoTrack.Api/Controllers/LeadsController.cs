@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using RenoTrack.Api.Leads.Dtos;
+using RenoTrack.Api.RateLimiting;
 using RenoTrack.Application.Common;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Leads.Commands.AssignLeadInspector;
@@ -66,8 +68,10 @@ public sealed class LeadsController(
     /// </remarks>
     [HttpPost]
     [AllowAnonymous]
-    [ProducesResponseType<LeadDto>(StatusCodes.Status201Created)]
+    [EnableRateLimiting(LeadIntakeRateLimitOptions.PolicyName)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> Create(CreateLeadRequest request, CancellationToken cancellationToken)
     {
         var command = new CreateLeadCommand(
@@ -80,11 +84,17 @@ public sealed class LeadsController(
             request.Notes,
             CreatedByUserId: null);
 
-        var lead = await createLeadHandler.HandleAsync(command, cancellationToken);
+        await createLeadHandler.HandleAsync(command, cancellationToken);
 
-        // Now that GetById exists (Slice 6), this carries a real Location header — deferred from
-        // Slice 5 precisely because a Location pointing at a route that 404s is worse than none.
-        return CreatedAtAction(nameof(GetById), new { id = lead.Id }, lead);
+        // Created, and nothing more (Phase 13 Slice 7, Q17). The anonymous caller is a contact form:
+        // it needs to know the enquiry was accepted, and it has no business knowing the Lead's
+        // sequential id — which discloses how many enquiries the company has ever received — nor its
+        // status or assigned inspector. There is no Location header either: it would name
+        // GET /api/v1/leads/{id}, a route this caller cannot open, while disclosing that same id.
+        //
+        // The Admin's manual-entry route below is unchanged and still returns the whole DTO, because
+        // that caller is authenticated and goes on to work with the Lead it just created.
+        return StatusCode(StatusCodes.Status201Created);
     }
 
     /// <summary>

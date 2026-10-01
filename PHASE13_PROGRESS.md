@@ -23,7 +23,7 @@
 | **5h** | Header / top toolbar composed to the approved reference — **D108** | ✅ implemented and committed (§5g) |
 | 5b | Projects (`/projekte`, teaser, service-page projects) | ⏸ designed (S5-14), not started |
 | 6 | About + FAQ + **running-prototype visual checkpoint** (before any integration) | ⏸ |
-| 7 | API hardening of anonymous `POST /api/v1/leads` (backend) | ⏸ |
+| **7** | API hardening of anonymous `POST /api/v1/leads` (backend) — **D109** | ✅ **done** (§5h) — the one slice taken out of the parking, because it is a product boundary |
 | 8 | Inquiry flow (`/angebot-anfragen`, → Lead) | ⏸ |
 | 9 | Contact form + click-to-load map | ⏸ |
 | 10 | Search & AI discoverability (JSON-LD, sitemap, robots, crawl suite) | ⏸ |
@@ -88,7 +88,7 @@
 - No price is calculated or shown anywhere. No customer confirmation email (not documented, §11). No uploads in V1.
 - Abuse controls: antiforgery, honeypot, signed minimum fill time, Website-side rate limit, and API-side hardening (Slice 7). Submitted personal data is never logged (pinned by a log-capture test).
 
-### 3.4 Slice 7 — known gaps on the anonymous Lead endpoint
+### 3.4 Slice 7 — known gaps on the anonymous Lead endpoint — **all three closed (D109)**
 1. `POST /api/v1/leads` is **not rate-limited** (only `PublicController` is).
 2. `CreateLeadCommandValidator` has **no maximum lengths**, so input exceeding the schema (e.g. `Notes` > 2000) fails at the database as a 500 instead of a 400.
 3. The anonymous response returns the **full `LeadDto`** (sequential `Id`, `Status`, `AssignedInspectorId`). Whether to drop the body is open question Q17.
@@ -155,7 +155,7 @@
 | Slice | Questions |
 |---|---|
 | 5 | Photo approval and provenance, consent of people shown, missing photos for some services, logo (vector trace, OG image) |
-| 7 | **Q17** — drop the anonymous `LeadDto` response body |
+| ~~7~~ | ~~**Q17** — drop the anonymous `LeadDto` response body~~ — **resolved in Slice 7 (D109): dropped.** 201, no body, no `Location` |
 | 8 | **Q11** email mandatory · **Q12** response-time wording · **Q13** multiple services per inquiry |
 | 9 | **Q24** map embed vs. link-only |
 | 10 | **Q27** unverified FAQ topics · **Q28** AI *training* crawlers |
@@ -820,3 +820,25 @@ Evidence (JSON, PDFs, screenshots) stays in the session scratchpad, uncommitted.
 **Three defects found and fixed during the slice:** the brand name's real background measuring 1.00:1; a one-pixel accent hairline at the clipped edge at 2× DPR; and the wrapped navigation row sitting against the viewport's left edge. The last two were visible only in screenshots.
 
 **Remaining differences from the reference, accepted:** no logo mark in the zone (no approved artwork for that surface); a single diagonal where the reference layers two; a one-line wordmark where the reference uses a two-line lockup (splitting a configured company name in code would be company-specific logic); and a two-row header at 768 px, where the brand's own width does not leave room for one row.
+
+---
+
+## 5h. Slice 7 — Hardening the anonymous Lead intake (D109)
+
+**Why this one slice came out of the parking:** it is not website work. `POST /api/v1/leads` is how a Lead reaches RenoTrack from *any* website — the company's existing one, one built by someone else, or one built from this content pack. Every way a customer company can be served depends on it.
+
+**Delivered — the three gaps in §3.4, all closed:**
+
+1. **Its own rate-limit policy.** `LeadIntakeRateLimitOptions` (`RateLimiting:LeadIntake`, 5 per 10 minutes per client, same partition as D65), applied to the contact-form action alone. Separate bucket from the token-link surface, and `Retry-After` now reports the rejected policy's window rather than the first policy's.
+2. **Field limits as `Lead`'s own constants**, read by the validator, the Domain guard and the EF configuration. An over-long value is now a field-keyed **400**, not a 500 at the database. No migration — the values are unchanged.
+3. **The anonymous reply is 201 with no body and no `Location`** (**Q17**, resolved). The sequential id, the status and the assigned inspector are no longer disclosed to an anonymous caller. The Admin's manual-entry route is unchanged.
+
+**Files — production (8):** `Domain/Entities/Lead.cs`; `Application/Leads/Commands/CreateLead/CreateLeadCommandValidator.cs`; `Infrastructure/Persistence/Configurations/LeadConfiguration.cs`; `Api/RateLimiting/LeadIntakeRateLimitOptions.cs` (new), `RateLimitingRegistration.cs`, `Api/Program.cs`, `Api/Controllers/LeadsController.cs`, `Api/appsettings.json`.
+
+**Tests:** Api **478 → 489 (+11)**, measured. Domain gains **7** cases (389 → **396 expected**): its local run is refused by the Windows Application Control condition `PROJECT_STATE.md` records, so the figure is confirmed by CI rather than locally. Application 470, Infrastructure 412 and Website 1,136 unchanged, measured. Build 0 warnings, 0 errors.
+
+**Found while implementing:** adding the policy broke **eleven unrelated API tests at once**, because `TestServer` supplies no client address and the whole suite shares one partition. The test factory raises the limit exactly as it already did for D65 — and that failure is the honest preview of a deployment that puts the API behind a proxy without naming it in `TrustedForwarders`. Which is why that configuration is now a line in the deployment checklist rather than a remark.
+
+**A correction to this file's own premise.** While designing this slice I assumed the API had no trusted-forwarder support and proposed building it. It already has it: `src/RenoTrack.Api/Security/TrustedForwardersOptions.cs`, wired in `Program.cs`, from **D97**. `NEXT_STEPS.md` had said so plainly — the remaining work is deployment configuration, not code.
+
+**Still not built, deliberately:** anti-spam controls (Website, Slice 8), no CAPTCHA, no de-duplication, and **no per-site API key** — which will be needed before a third party's website posts here directly, and deserves its own decision.
