@@ -1,5 +1,13 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-01 — Phase 13 Slice 7 (anonymous Lead intake hardening, D109) is implemented on `feature/phase-13-slice-7-lead-intake`.** The one slice taken out of the parking, because it is a product boundary rather than website work: it is how a Lead reaches RenoTrack from any website, including one this project did not build.
+> - **Its own rate-limit policy:** `RateLimiting:LeadIntake`, 5 submissions per 10 minutes per client, a separate bucket from the token-link surface so neither can throttle the other. `Retry-After` reports the rejected policy's own window.
+> - **Field limits are `Lead`'s constants**, read by the validator, the Domain guard and the EF configuration alike. An over-long value is a field-keyed 400 instead of a 500 at the database. No migration.
+> - **The anonymous reply is 201 with no body and no `Location`** (Q17 resolved): no sequential id, no status, no assigned inspector. The Admin's manual-entry route is unchanged.
+> - **Tests:** Api **489** (+11, measured). Domain gains **7** new cases (389 → **396 expected**) — the local run is refused by the Windows Application Control condition this file already records, so that figure is confirmed by CI, not locally. Application 470, Infrastructure 412, Website 1,136 and MediaPrep 20 are unchanged and were measured. 0 warnings, 0 errors.
+> - **Deployment prerequisite, now in the checklist:** `TrustedForwarders` must name the real proxy, or every visitor shares one bucket and five submissions close the contact form for everyone.
+> - **Next:** **Phase 14 — PDF generation** for Angebot and Invoice (BR-5 / §14 UStG), which is what makes the product legally sellable.
+
 > **2026-10-01 — Phase 13 (Public Website) is PARKED BY DECISION after Slices 5a, 5v and 5h, all committed on `feature/phase-13-public-website`.** The Product Owner's call: finish RenoTrack itself first, then approach a company about its site. Nothing here is failing, and nothing company-specific was built — what exists is a site template driven by the content pack, so resuming means supplying a pack rather than writing code for a company.
 > - **5a (D106):** media foundation — offline preparation tool, byte-level verification at startup, `/medien/` allowlist, split hero and card photos, `og:image`. **Real-media QA (S5-13) and the byte-budget freeze (S5-11) remain open; both need the owner's approvals.**
 > - **5v (D107):** the visual system — six surface roles derived from two configured colours and contrast-checked at startup, dark bands framing the page, the layered hero, the fact panel, card treatment, and a band-alternation rule enforced by two independent checks.

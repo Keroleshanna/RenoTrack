@@ -17,11 +17,14 @@ public sealed class LeadConfiguration : IEntityTypeConfiguration<Lead>
         builder.ToTable("Leads");
         builder.HasKey(l => l.Id);
 
-        builder.Property(l => l.Name).IsRequired().HasMaxLength(200);
-        builder.Property(l => l.Phone).IsRequired().HasMaxLength(50);
-        builder.Property(l => l.Email).IsRequired().HasMaxLength(320);
-        builder.Property(l => l.Address).HasMaxLength(500);
-        builder.Property(l => l.Notes).HasMaxLength(2000);
+        // Lead's own constants, not repeated literals: the validator and the Domain guard read the
+        // same values, so a request that passes validation always fits the column (Slice 7). The
+        // numbers are unchanged, so this is not a schema change.
+        builder.Property(l => l.Name).IsRequired().HasMaxLength(Lead.MaxNameLength);
+        builder.Property(l => l.Phone).IsRequired().HasMaxLength(Lead.MaxPhoneLength);
+        builder.Property(l => l.Email).IsRequired().HasMaxLength(Lead.MaxEmailLength);
+        builder.Property(l => l.Address).HasMaxLength(Lead.MaxAddressLength);
+        builder.Property(l => l.Notes).HasMaxLength(Lead.MaxNotesLength);
 
         // ERD.md: Source/Status stored as string enums for readability in raw SQL during support/debugging.
         builder.Property(l => l.Source).HasConversion<string>().HasMaxLength(20);

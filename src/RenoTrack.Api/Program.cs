@@ -50,7 +50,7 @@ builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 
 // Abuse protection for the anonymous token-link surface (Architecture.md §12, D65). Scoped to the
 // public controller by an opt-in named policy, so no internal route can inherit it by accident.
-builder.Services.AddPublicRateLimiting(builder.Configuration);
+builder.Services.AddApiRateLimiting(builder.Configuration);
 
 // The trust boundary D65 declined to invent, supplied by D97 now that the Website renders the
 // customer page server-side. Built here so a malformed proxy entry fails startup rather than

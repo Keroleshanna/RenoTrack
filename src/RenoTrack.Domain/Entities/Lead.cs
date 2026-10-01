@@ -19,6 +19,39 @@ namespace RenoTrack.Domain.Entities;
 /// </summary>
 public sealed class Lead
 {
+    /// <summary>
+    /// The maximum lengths of a Lead's text fields — one definition, read by the Application layer's
+    /// validator and by the EF Core configuration that creates the columns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>They live here because the entity owns them, and because two definitions drift.</b> Before
+    /// Phase 13 Slice 7 the lengths existed only as literals in the schema, so an over-long value
+    /// passed every guard and failed at the database: a plain bad request surfaced as a 500 with a
+    /// stack trace rather than a field-keyed 400. The validator, the Domain guard and the column now
+    /// read the same constants, so no layer can disagree with another about what fits.
+    /// </para>
+    /// <para>
+    /// <b>A maximum length is a lifetime invariant</b> (CLAUDE.md §2): a stored row can never exceed
+    /// its own column, so checking it in <see cref="Create"/> can never make a persisted Lead
+    /// unreadable — unlike a time-dependent condition, which is why these guards sit in the factory
+    /// with the rest and never in the constructor EF Core calls.
+    /// </para>
+    /// </remarks>
+    public const int MaxNameLength = 200;
+
+    /// <inheritdoc cref="MaxNameLength"/>
+    public const int MaxPhoneLength = 50;
+
+    /// <summary>320 characters: the longest address RFC 5321 allows (64 local + @ + 255 domain).</summary>
+    public const int MaxEmailLength = 320;
+
+    /// <inheritdoc cref="MaxNameLength"/>
+    public const int MaxAddressLength = 500;
+
+    /// <inheritdoc cref="MaxNameLength"/>
+    public const int MaxNotesLength = 2000;
+
     public int Id { get; private set; }
     public string Name { get; private set; }
     public string Phone { get; private set; }
@@ -43,6 +76,16 @@ public sealed class Lead
         CreatedAt = DateTime.UtcNow;
     }
 
+    private static void EnsureFits(string? value, int maximumLength, string parameterName)
+    {
+        if (value is not null && value.Length > maximumLength)
+        {
+            throw new ArgumentException(
+                $"Lead {parameterName} must be at most {maximumLength} characters.",
+                parameterName);
+        }
+    }
+
     /// <summary>
     /// Creates a new Lead in the <see cref="LeadStatus.New"/> state. Covers both creation
     /// paths in Sequence Diagram.md — §1 (public website form, Address typically absent) and
@@ -60,7 +103,20 @@ public sealed class Lead
         if (string.IsNullOrWhiteSpace(email))
             throw new ArgumentException("Lead email is required.", nameof(email));
 
-        return new Lead(name.Trim(), phone.Trim(), email.Trim(), address?.Trim(), notes?.Trim(), source);
+        // Measured after trimming, because trimming is what the stored value will be.
+        var trimmedName = name.Trim();
+        var trimmedPhone = phone.Trim();
+        var trimmedEmail = email.Trim();
+        var trimmedAddress = address?.Trim();
+        var trimmedNotes = notes?.Trim();
+
+        EnsureFits(trimmedName, MaxNameLength, nameof(name));
+        EnsureFits(trimmedPhone, MaxPhoneLength, nameof(phone));
+        EnsureFits(trimmedEmail, MaxEmailLength, nameof(email));
+        EnsureFits(trimmedAddress, MaxAddressLength, nameof(address));
+        EnsureFits(trimmedNotes, MaxNotesLength, nameof(notes));
+
+        return new Lead(trimmedName, trimmedPhone, trimmedEmail, trimmedAddress, trimmedNotes, source);
     }
 
     /// <summary>
