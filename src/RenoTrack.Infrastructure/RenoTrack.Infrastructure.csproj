@@ -15,6 +15,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.10" />
+    <PackageReference Include="PDFsharp-MigraDoc" Version="6.2.4" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
   </ItemGroup>
 
@@ -23,5 +24,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!--
+    The document fonts, embedded rather than deployed beside the application: a missing file would
+    otherwise surface as a failed invoice instead of a failed build (D110). Liberation Sans, SIL OFL
+    1.1, with the licence text committed beside them.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Documents\Fonts\LiberationSans-Regular.ttf" />
+    <EmbeddedResource Include="Documents\Fonts\LiberationSans-Bold.ttf" />
+  </ItemGroup>
 
 </Project>

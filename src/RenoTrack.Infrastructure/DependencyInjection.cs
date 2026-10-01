@@ -12,6 +12,7 @@ using RenoTrack.Application.Inspections;
 using RenoTrack.Application.Invoices;
 using RenoTrack.Application.Leads;
 using RenoTrack.Application.Projects;
+using RenoTrack.Infrastructure.Documents;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
@@ -135,6 +136,18 @@ public static class DependencyInjection
         services.AddScoped<ITokenLinkService, TokenLinkService>();
 
         AddEmail(services, configuration, tokenLinkOptions);
+
+        // The issuing company's own legal identity, required on every invoice (BR-5, §14 UStG).
+        // Validated eagerly for malformed values, but *absence* is not malformed: an incomplete
+        // identity must not take an otherwise healthy deployment offline over a document nobody has
+        // requested yet. It refuses at generation instead, naming the missing keys (D110).
+        var companyLegalIdentity = configuration.GetSection(CompanyLegalIdentityOptions.SectionName)
+            .Get<CompanyLegalIdentityOptions>() ?? new CompanyLegalIdentityOptions();
+        companyLegalIdentity.Validate();
+        services.AddSingleton(companyLegalIdentity);
+
+        // Documents are rendered from an embedded font, so the generator is stateless and shared.
+        services.AddSingleton<IPdfGenerator, MigraDocPdfGenerator>();
 
         return services;
     }

@@ -3066,3 +3066,52 @@ It previously returned the whole `LeadDto` and a `Location` header.
 ### What this slice deliberately does not add
 
 Anti-spam measures (honeypot, minimum fill time) belong to the Website in Slice 8; no CAPTCHA; no de-duplication (two identical submissions still create two Leads, and a test pins it). **No per-site API key**: issuing, revoking and administering credentials for third-party sites is its own decision, and it will be needed before a company's existing website is connected directly.
+
+---
+
+## D110 — PDF Generation: a Document Model, an Embedded Font, and an Identity the System Refuses to Invent
+
+**Phase 14 Slice 1 (foundation and the Angebot document).** The roadmap described this phase as "replace the PDF placeholders". Reading the code first showed it is more than that, and the first finding is recorded in Part 4 because it changes what the Invoice half of this phase has to build.
+
+### Part 1 — The library: MigraDoc/PDFsharp, not HTML→PDF
+
+`Architecture.md` §4 anticipated "server-side HTML→PDF". That is changed here, deliberately, and §4 is updated with it:
+
+| Route | Why not |
+|---|---|
+| **Headless browser** (Puppeteer/Playwright) | Ships a browser into the deployment — hundreds of megabytes, system libraries on Linux, a sandbox to manage and a process to supervise, for two documents a day |
+| **QuestPDF** | The friendliest API of the three, and its Community licence is free only below a revenue threshold. **RenoTrack is a product to be sold to companies**, so that threshold is an obligation inherited by whoever buys it |
+| **iText** | AGPL or commercial — the same objection, more sharply |
+| **MigraDoc/PDFsharp 6.2.4** | **MIT**, pure managed code, no native dependency, no browser, identical on the Linux and Windows CI jobs |
+
+A document model also suits the content better than HTML would: an Angebot is a table of priced lines, not a web page, and the Website's own styling has no business deciding what a legal document looks like.
+
+### Part 2 — PDFsharp resolves no font on its own, and that is load-bearing
+
+Measured, not assumed: with no resolver, rendering fails with *"The font 'Courier New' cannot be resolved for predefined error font"* — **on Windows as readily as on Linux**. A generator that depends on fonts the host happens to have installed is one that renders differently, or not at all, per machine.
+
+So `EmbeddedFontResolver` answers **every** family request with **Liberation Sans**, embedded in the Infrastructure assembly as `EmbeddedResource`:
+
+- **SIL OFL 1.1**, the same licence as the Website's Figtree, with the text committed beside the files. Metric-compatible with Arial, which is what German business correspondence is usually set in.
+- **Embedded, not deployed beside the application**: a missing file would otherwise surface as a failed invoice rather than a failed build.
+- **Not the brand font.** Figtree ships as WOFF2, which PDFsharp cannot read, and its Google Fonts form is a variable font. A legal document in a neutral, metric-familiar face is no loss.
+- Italic maps to the upright face: no template uses italics, and mapping beats embedding a third file.
+
+**Byte-for-byte determinism was measured and is absent** — a PDF embeds its creation time, so two renders of the same document differ. Tests therefore assert on the **text read back out of the file** (PdfPig, test-only, Apache-2.0), which also proves the font resolved: unresolved text does not come back as text at all.
+
+### Part 3 — The boundary: a document model, and bytes
+
+- `IPdfGenerator` lives in `Application.Common.Interfaces` with **one named method per document type**, the same shape as `IEmailSender` and for the same reason.
+- It takes an `AngebotDocument` — a dedicated document model in `Application.Common.Documents`, never the Domain entity and never a feature DTO (the rule §11 sets for notifications). A reader of that record knows exactly what the customer will see.
+- **Every figure arrives already formatted.** BR-11's rounding is the Domain's, and a renderer that re-derives a total is a second opinion about what the company charges — D78's rule, applied to paper.
+- **It returns bytes and stores nothing.** Where a document is kept, and whether it is kept at all, is the caller's decision — and for an invoice it is a legal one (an issued invoice is archived as sent, never re-derived from data that may since have changed).
+
+### Part 4 — The company's legal identity, and what the Invoice still lacks
+
+`CompanyLegalIdentityOptions` (`CompanyLegalIdentity`) carries the issuing company's legal name, address and **tax number or VAT identification number** — §14 UStG accepts either, so validation requires at least one.
+
+- **No value is committed and none is invented** (D100). A fabricated tax identity on a legal document sent to a real customer is worse than any placeholder this project has refused so far.
+- **Absence warns at startup and refuses at generation, naming every missing key.** Failing startup would take a healthy deployment offline over a document nobody has asked for; printing around the gap would publish a legally deficient invoice.
+- **Bank details are deliberately absent:** §14 does not require them, and payment instructions nobody verified are worse than none.
+
+**The finding that shapes the rest of this phase:** the Invoice aggregate **cannot produce a §14-compliant document today**. It stores net, VAT and gross amounts — and no description, no quantity and **no VAT rate** (Phase 8 computed the per-rate split to derive the totals and discarded it). `ERD.md` predicted exactly this trigger for `InvoiceLines`. The approved resolution is the narrower one: the Invoice gains **one description and one VAT rate**, not a line collection, because a partial invoice against a Project does not correspond to the Angebot's lines anyway. That is the next slice, and **whether the resulting document satisfies §14 is a legal reviewer's judgement, not this project's** (SRS §5, Q20).
