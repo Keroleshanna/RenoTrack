@@ -1,0 +1,22 @@
+@model RenoTrack.Website.Site.HeroTextModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@*
+    The hero's text (D104, D105; shared since D106): the page's one h1, its lead, the service area and the contact
+    actions. Used unchanged by the text-only hero and by the split hero, so text never sits on a photo and the two
+    layouts always say the same thing.
+
+    Slice 5v (D107) sets the service area above the headline as the hero's eyebrow. It is the same company fact in
+    the same words — the label that opens the page, rather than a line trailing after the lead.
+*@
+@if (Company.ServiceArea.HasPlaces)
+{
+    <p class="page-eyebrow page-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+}
+<h1 id="@Model.HeadingId" class="page-hero-title">@Model.Headline</h1>
+@if (Model.Lead is not null)
+{
+    <p class="page-hero-lead">@Model.Lead</p>
+}
+<partial name="@SiteLayout.HeroActions" model="Model.Actions" />

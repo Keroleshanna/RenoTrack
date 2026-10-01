@@ -19,6 +19,13 @@ public static class SiteLayout
     public const string ContactSection = "/Pages/Shared/Site/_ContactSection.cshtml";
     public const string HeroActions = "/Pages/Shared/Site/_HeroActions.cshtml";
 
+    /// <summary>The company's facts, crossing the hero's lower edge on wide screens (Slice 5v, <b>D107</b>).</summary>
+    public const string FactPanel = "/Pages/Shared/Site/_FactPanel.cshtml";
+
+    /// <summary>Photo partials (<b>D106</b>).</summary>
+    public const string Picture = "/Pages/Shared/Site/_Picture.cshtml";
+    public const string HeroText = "/Pages/Shared/Site/_PageHeroText.cshtml";
+
     /// <summary>The customer layout, which a shared page keeps when its endpoint is not a marketing page.</summary>
     public const string CustomerLayout = "_CustomerLayout";
 

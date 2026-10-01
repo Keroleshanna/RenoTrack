@@ -71,15 +71,48 @@ public sealed class SiteLayoutTests(MarketingSiteFixture site) : IClassFixture<M
 
     // ---- Company facts from the pack ------------------------------------------
 
+    /// <summary>
+    /// The header's brand treatment is the company name as text, and the call to action is the phone number.
+    /// <para>
+    /// <b>No mark is drawn in the brand zone (Slice 5h).</b> The zone is painted in the accent colour, so a logo
+    /// drawn in the brand's own colours loses whichever parts match its surface — the dark parts on a dark band,
+    /// the accent parts on this one. The configured reversed asset stays a dark-surface asset and appears in the
+    /// footer; the positive one, which would lose its dark parts against either, appears nowhere on the page.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task The_header_carries_the_name_as_text_a_decorative_logo_and_the_phone()
+    public async Task The_header_carries_the_name_as_text_and_the_phone_with_no_mark_on_the_accent_zone()
     {
         var html = await Impressum();
+        var header = html[html.IndexOf("<header", StringComparison.Ordinal)..html.IndexOf("</header>", StringComparison.Ordinal)];
 
-        Assert.Contains($"<span class=\"site-brand-name\">{MarketingSiteFixture.CompanyName}</span>", html, StringComparison.Ordinal);
-        Assert.Contains("<img class=\"site-brand-logo\" src=\"/brand/logo.svg\" alt=\"\"", html, StringComparison.Ordinal);
+        Assert.Contains($"<span class=\"site-brand-name\">{MarketingSiteFixture.CompanyName}</span>", header, StringComparison.Ordinal);
+        Assert.DoesNotContain("<img", header, StringComparison.Ordinal);
+        Assert.DoesNotContain("/brand/logo.svg", html, StringComparison.Ordinal);
+        // The reversed asset is a dark-surface asset: the footer draws it, the header does not.
+        Assert.Contains("<img class=\"site-footer-logo\" src=\"/brand/logo-invers.svg\" alt=\"\"", html, StringComparison.Ordinal);
         // HtmlEncoder escapes "+" unconditionally; a browser decodes it back (see CompanyIdentityRenderingTests).
-        Assert.Contains("href=\"tel:&#x2B;490001111111\"", html, StringComparison.Ordinal);
+        Assert.Contains("href=\"tel:&#x2B;490001111111\"", header, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The angled edge of the brand zone is drawn behind it, never by clipping the zone: a clip-path on an element
+    /// containing a link cuts that link's focus ring off at the diagonal, which is a WCAG 2.4.7 failure that reads
+    /// as a styling detail (Slice 5h).
+    /// </summary>
+    [Fact]
+    public async Task The_brand_zones_angle_is_drawn_behind_it_and_never_clips_the_link()
+    {
+        using var client = site.Client();
+
+        var css = (await client.GetStringAsync("/css/marketing.css")).ReplaceLineEndings("\n");
+        var zone = css[css.IndexOf(".site-brand-zone {", StringComparison.Ordinal)..];
+
+        Assert.DoesNotContain("clip-path", zone[..zone.IndexOf('}')], StringComparison.Ordinal);
+        Assert.Matches("\\.site-brand-zone::after \\{[^}]*clip-path: polygon\\(", css);
+        // The zone paints the accent itself, so the brand name's contrast is a real pairing rather than one that
+        // depends on a pseudo-element having painted (measured 1.00:1 when it did not).
+        Assert.Matches("\\.site-brand-zone \\{\\s*background: var\\(--color-accent\\);", css);
     }
 
     [Fact]

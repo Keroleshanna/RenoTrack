@@ -2,45 +2,62 @@
 @using RenoTrack.Website.Site
 @inject CompanyIdentityOptions Company
 @*
-    The logo is decorative here (alt=""): the company name sits beside it as real text. That differs from
-    _CustomerLayout, where the logo replaces the name, because the web logo carries no wordmark (D103).
+    The marketing header (D103; re-aligned in Slice 5v, D107; composed to the approved reference in Slice 5h).
+
+    Composition: a brand zone bleeding to the left edge of the viewport, cut off by an angled edge, then the
+    navigation and one prominent call to action on the right of a near-black band.
+
+    The angle is drawn by a decorative pseudo-element behind the zone, never by clipping the zone itself: a
+    clip-path on an element that contains a link would cut that link's focus ring off at the diagonal.
+
+    The logo is decorative when it appears (alt=""): the company name sits beside it as real text. That differs
+    from _CustomerLayout, where the logo replaces the name, because the web logo carries no wordmark (D103).
+
+    **No logo is drawn in the brand zone, by rule.** The zone is painted in the accent colour, so a mark drawn in
+    the brand's own colours loses whichever parts match it — the dark parts against a dark band, the accent parts
+    against this one. Until the owner approves artwork for a known surface, the company name alone is the brand
+    treatment (V-4/V-5), which is a finished design rather than a fallback. CompanyIdentity:LogoOnDarkPath stays
+    the configured asset for dark surfaces and is used by the footer.
 
     The brand links to the homepage (D104); the name text gives the link its accessible name.
 
     The primary navigation renders only when SiteNavigation has entries, which are pages that exist. It is a plain
     list at every width: the narrow-screen <details> disclosure arrives when there are several real entries (D104).
+
+    The call to action is the phone number, which is the strongest action this application actually has today. No
+    button is drawn for a feature that does not exist.
 *@
 @{
     var currentPath = Context.Request.Path.Value ?? "/";
 }
 <header class="site-header">
-    <div class="site-container site-header-inner">
-        <a class="site-brand" href="/">
-            @if (Company.HasLogo)
-            {
-                <img class="site-brand-logo" src="@Company.LogoPath" alt="" width="48" height="48" />
-            }
-            <span class="site-brand-name">@Company.DisplayName</span>
-        </a>
-
-        @if (SiteNavigation.Primary.Count > 0)
-        {
-            <nav class="site-nav" aria-label="Hauptnavigation">
-                <ul class="site-nav-list">
-                    @foreach (var item in SiteNavigation.Primary)
-                    {
-                        var isCurrent = string.Equals(currentPath, item.Href, StringComparison.Ordinal);
-                        <li><a class="site-nav-link" href="@item.Href" aria-current="@(isCurrent ? "page" : null)">@item.Text</a></li>
-                    }
-                </ul>
-            </nav>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(Company.ContactPhone))
-        {
-            <a class="site-button site-header-call" href="@SiteFormatting.TelHref(Company.ContactPhone)">
-                <span class="site-visually-hidden">Anrufen: </span>@Company.ContactPhone
+    <div class="site-header-inner">
+        <div class="site-brand-zone">
+            <a class="site-brand" href="/">
+                <span class="site-brand-name">@Company.DisplayName</span>
             </a>
-        }
+        </div>
+
+        <div class="site-header-actions">
+            @if (SiteNavigation.Primary.Count > 0)
+            {
+                <nav class="site-nav" aria-label="Hauptnavigation">
+                    <ul class="site-nav-list">
+                        @foreach (var item in SiteNavigation.Primary)
+                        {
+                            var isCurrent = string.Equals(currentPath, item.Href, StringComparison.Ordinal);
+                            <li><a class="site-nav-link" href="@item.Href" aria-current="@(isCurrent ? "page" : null)">@item.Text</a></li>
+                        }
+                    </ul>
+                </nav>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(Company.ContactPhone))
+            {
+                <a class="site-button site-header-call" href="@SiteFormatting.TelHref(Company.ContactPhone)">
+                    <span class="site-visually-hidden">Anrufen: </span>@Company.ContactPhone
+                </a>
+            }
+        </div>
     </div>
 </header>

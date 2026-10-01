@@ -496,8 +496,10 @@ public sealed class ServicePageTests(MarketingSiteFixture site) : IClassFixture<
         var css = (await client.GetStringAsync("/css/marketing.css")).ReplaceLineEndings("\n");
         var print = css[css.IndexOf("@media print", StringComparison.Ordinal)..];
 
-        Assert.Matches("\\.site \\.page-breadcrumb-link,\\s*\\.site a\\.page-card-link,\\s*\\.site a\\.page-more-link\\s*\\{\\s*color: #000000 !important;", print);
-        Assert.Matches("\\.page-card-linked::before\\s*\\{\\s*display: none;", print);
+        Assert.Matches("\\.site \\.page-breadcrumb-link,\\s*\\.site a\\.page-card-link,\\s*\\.site a\\.page-more-link,", print);
+        // Drawn decorations are screen affordances and cost ink: the hero's offset frame, the section rule, the card
+        // index rule, the card's arrow and the "more" arrow (Slice 5v, D107).
+        Assert.Matches("\\.page-card-go::after,\\s*\\.page-more-link::after \\{\\s*display: none !important;", print);
         Assert.Matches("\\.page-breadcrumb-bar\\s*\\{\\s*background: none;", print);
         Assert.Contains(".page-actions {\n        display: block !important;", print, StringComparison.Ordinal);
         Assert.Contains(".page-print-only {\n        display: inline;", print, StringComparison.Ordinal);
@@ -517,7 +519,10 @@ public sealed class ServicePageTests(MarketingSiteFixture site) : IClassFixture<
         rule = rule[..rule.IndexOf('}')];
 
         Assert.Contains("overflow-wrap: anywhere;", rule, StringComparison.Ordinal);
-        Assert.Contains("max-width: 100%;", rule, StringComparison.Ordinal);
+        // Slice 5v measures the heading in characters rather than percent, so a long line wraps before it runs out
+        // of measure; a single long word still breaks, which is what the QA defect was about.
+        Assert.Contains("max-width: 20ch;", rule, StringComparison.Ordinal);
+        Assert.Contains("hyphens: auto;", css[css.IndexOf(".page-section-title,", StringComparison.Ordinal)..][..200], StringComparison.Ordinal);
     }
 
     /// <summary>

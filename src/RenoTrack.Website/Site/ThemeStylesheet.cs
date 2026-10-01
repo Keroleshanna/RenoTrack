@@ -25,10 +25,16 @@ public sealed class ThemeStylesheet
 
     public ThemeStylesheet(ThemeOptions theme)
     {
+        // Two configured colours, several validated roles (D107): marketing.css consumes the roles and never
+        // re-derives one, so no surface can end up with a contrast nobody checked.
         Content =
             ":root {\n" +
             $"    --brand-primary: {theme.EffectivePrimaryColor};\n" +
             $"    --brand-accent: {theme.EffectiveAccentColor};\n" +
+            $"    --brand-night: {theme.EffectiveNightColor};\n" +
+            $"    --brand-navy: {theme.EffectiveNavyColor};\n" +
+            $"    --brand-accent-bright: {theme.EffectiveAccentBrightColor};\n" +
+            $"    --brand-accent-strong: {theme.EffectiveAccentStrongColor};\n" +
             "}\n";
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(Content));

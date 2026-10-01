@@ -59,12 +59,20 @@ public sealed class PageSemanticsTests(MarketingSiteFixture site) : IClassFixtur
     }
 
     /// <summary>The approved outlines, pinned exactly — the service cards are h3 under the homepage's h2 and h2 on
-    /// the overview, and "Weitere Leistungen" nests its cards one level below itself.</summary>
+    /// the overview, and "Weitere Leistungen" nests its cards one level below itself.
+    /// <para>
+    /// Two changes in Slice 5v (<b>D107</b>): the fact panel adds a visually hidden h2 ("Kontakt auf einen Blick")
+    /// straight after the h1, and the footer's legal column became a labelled nav in the bottom bar, which removes
+    /// one h2 from the end of every page. The panel's heading is hidden rather than absent because a landmark
+    /// section needs an accessible name, and it is hidden rather than visible because the contact band and the
+    /// footer state the same facts in full — two visible "Kontakt" headings would compete.
+    /// </para>
+    /// </summary>
     [Theory]
-    [InlineData("/", "1 2 3 3 2 3 3 3 2 3 3 3 3 2 3 2 2 2 2 2")]
-    [InlineData("/leistungen", "1 2 2 2 3 2 2 2 2 2")]
-    [InlineData("/leistungen/test-leistung-eins", "1 2 2 2 2 3 2 3 2 2 2 2 2")]
-    [InlineData("/leistungen/test-leistung-zwei", "1 2 2 3 2 3 2 2 2 2 2")]
+    [InlineData("/", "1 2 2 3 3 2 3 3 3 2 3 3 3 3 2 3 2 2 2 2")]
+    [InlineData("/leistungen", "1 2 2 2 2 3 2 2 2 2")]
+    [InlineData("/leistungen/test-leistung-eins", "1 2 2 2 2 2 3 2 3 2 2 2 2")]
+    [InlineData("/leistungen/test-leistung-zwei", "1 2 2 2 3 2 3 2 2 2 2")]
     public async Task Each_page_keeps_its_approved_heading_outline(string path, string outline)
     {
         using var client = site.Client();

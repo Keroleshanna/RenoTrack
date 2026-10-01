@@ -92,7 +92,7 @@ public sealed class ServicesOverviewPageTests(MarketingSiteFixture site) : IClas
     }
 
     [Fact]
-    public async Task Every_service_is_a_linked_h2_card_in_pack_order_with_its_summary_but_not_its_offerings()
+    public async Task Every_service_is_a_linked_h2_card_in_pack_order_with_its_summary_and_first_offerings()
     {
         var main = MainContent(await Overview());
 
@@ -102,7 +102,8 @@ public sealed class ServicesOverviewPageTests(MarketingSiteFixture site) : IClas
         Assert.True(first < second);
         Assert.Equal(2, Html.Count(main, "<li class=\"page-card page-card-linked\">"));
         Assert.Contains("<p class=\"page-card-text\">Eine erfundene Leistung für automatisierte Tests (Testdaten).</p>", main, StringComparison.Ordinal);
-        Assert.DoesNotContain("Erstes erfundenes Angebot", main, StringComparison.Ordinal);
+        // Superseded by Slice 5v (D107): a card carries the first three offerings, here the pack's two.
+        Assert.Contains("<li class=\"page-card-offering\">Erstes erfundenes Angebot</li>", main, StringComparison.Ordinal);
     }
 
     /// <summary>One link per card, named by the service alone — no repeated "Mehr erfahren".</summary>

@@ -3,12 +3,15 @@
 @using RenoTrack.Website.Site
 @inject CompanyIdentityOptions Company
 @*
-    "Kontakt aufnehmen" (D104, shared since D105): phone, email, opening hours and notes, every fact from the content
-    pack and every unconfigured one omitted whole.
+    "Kontakt aufnehmen" (D104, shared since D105; re-drawn as the conversion band in Slice 5v, D107): phone, email,
+    opening hours and notes, every fact from the content pack and every unconfigured one omitted whole.
+
+    A dark band closed by an accent rule, because this is where the page asks for the call. The number is set as a
+    headline and is a tel: link at every width — the fixed call bar is the phone *button* on narrow screens (D103),
+    which is a different thing from the number being readable and tappable here.
 
     The heading id comes from the calling page, so aria-labelledby resolves and no id repeats. The heading is an h2 and
     its sub-heading an h3 on every page that uses it: each caller places it as a top-level section of its main content.
-    Its phone button stays visible at every width, because it sits in the page flow rather than fixed on screen.
 *@
 @{
     var phone = Company.ContactPhone!;
@@ -16,38 +19,46 @@
     var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
     var hasHoursNote = !string.IsNullOrWhiteSpace(Company.OpeningHoursNote);
     var hasAreaNote = !string.IsNullOrWhiteSpace(Company.ServiceArea.Note);
+    var hasPanel = hours.Count > 0 || hasHoursNote || hasAreaNote;
 }
 <section class="page-section page-contact" aria-labelledby="@Model.HeadingId">
-    <div class="site-container">
-        <h2 id="@Model.HeadingId" class="page-section-title">Kontakt aufnehmen</h2>
-        <div class="page-actions">
-            <a class="site-button" href="@SiteFormatting.TelHref(phone)">
+    <div class="site-container page-contact-grid">
+        <div class="page-contact-main">
+            <h2 id="@Model.HeadingId" class="page-section-title">Kontakt aufnehmen</h2>
+            <a class="page-contact-phone" href="@SiteFormatting.TelHref(phone)">
                 <span class="site-visually-hidden">Anrufen: </span>@phone
             </a>
-            <a class="site-button page-button-secondary" href="@SiteFormatting.MailtoHref(email, Model.MailSubject)">E-Mail schreiben<span class="page-print-only">: @email</span></a>
+            <div class="page-actions">
+                <a class="site-button page-button-outline" href="@SiteFormatting.MailtoHref(email, Model.MailSubject)">E-Mail schreiben<span class="page-print-only">: @email</span></a>
+            </div>
         </div>
 
-        @if (hours.Count > 0 || hasHoursNote)
+        @if (hasPanel)
         {
-            <h3 class="page-contact-heading">Öffnungszeiten</h3>
-            @if (hours.Count > 0)
-            {
-                <ul class="page-hours">
-                    @foreach (var line in hours)
+            <div class="page-contact-panel">
+                @if (hours.Count > 0 || hasHoursNote)
+                {
+                    <h3 class="page-contact-heading">Öffnungszeiten</h3>
+                    @if (hours.Count > 0)
                     {
-                        <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                        <ul class="page-hours">
+                            @foreach (var line in hours)
+                            {
+                                <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                            }
+                        </ul>
                     }
-                </ul>
-            }
-            @if (hasHoursNote)
-            {
-                <p class="page-contact-note">@Company.OpeningHoursNote</p>
-            }
-        }
+                    @if (hasHoursNote)
+                    {
+                        <p class="page-contact-note">@Company.OpeningHoursNote</p>
+                    }
+                }
 
-        @if (hasAreaNote)
-        {
-            <p class="page-contact-note">@Company.ServiceArea.Note</p>
+                @if (hasAreaNote)
+                {
+                    <p class="page-contact-note">@Company.ServiceArea.Note</p>
+                }
+            </div>
         }
     </div>
 </section>

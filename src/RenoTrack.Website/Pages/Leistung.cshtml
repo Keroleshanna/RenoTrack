@@ -27,37 +27,55 @@
         new("Leistungen", MarketingSite.ServicesPath),
         new(service.Name!),
     ];
-    var heroActions = new HeroActionsModel(subject);
+    var heroText = new HeroTextModel("page-title", headline!, service.Summary, new HeroActionsModel(subject));
     var contact = new ContactSectionModel(HeadingId: "kontakt", MailSubject: subject);
+
+    var serviceImage = Marketing.ImageFor(service);
+    ViewData.SetSocialImage(serviceImage);
 }
 @*
     One service's page (Phase 13 Slice 4, D105). Every word of company copy comes from the content pack.
 
-    Order: breadcrumb → hero → "Leistungsumfang" → descriptive sections → (approved photos, Slice 5) → contact →
+    Order: breadcrumb → hero → "Leistungsumfang" → descriptive sections → (projects, Slice 5b) → contact →
     "Weitere Leistungen". Optional blocks are omitted whole, heading included.
 
     Heading outline: h1 (hero) → h2 "Leistungsumfang" → h2 per section → h2 "Kontakt aufnehmen" → h3
     "Öffnungszeiten" → h2 "Weitere Leistungen" → h3 per other service.
 
+    The service's photo (Slice 5a, D106) sits in the hero beside the text from 1024 px and after the actions below it,
+    never under the text. A service without a photo keeps the text-only hero: a finished layout, with no placeholder.
+
     The service area is the company's (CompanyIdentity:ServiceArea), never a per-service claim; there are no city
-    pages. No image, placeholder or empty frame before Slice 5, no price, rating, counter, script or style attribute.
+    pages. No price, rating, counter, script or style attribute.
 *@
 
 <partial name="@SiteLayout.Breadcrumb" model="breadcrumb" />
 
-<section class="page-hero" aria-labelledby="page-title">
-    <div class="site-container">
-        <h1 id="page-title" class="page-hero-title">@headline</h1>
-        <p class="page-hero-lead">@service.Summary</p>
-        @if (Company.ServiceArea.HasPlaces)
-        {
-            <p class="page-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
-        }
-        <partial name="@SiteLayout.HeroActions" model="heroActions" />
-    </div>
-</section>
+@if (serviceImage is null)
+{
+    <section class="page-hero" aria-labelledby="page-title">
+        <div class="site-container">
+            <partial name="@SiteLayout.HeroText" model="heroText" />
+        </div>
+    </section>
+}
+else
+{
+    <section class="page-hero page-hero-split" aria-labelledby="page-title">
+        <div class="site-container page-hero-grid">
+            <div class="page-hero-text">
+                <partial name="@SiteLayout.HeroText" model="heroText" />
+            </div>
+            <div class="page-hero-media">
+                <partial name="@SiteLayout.Picture" model="new PictureModel(serviceImage, PictureSizes.Hero, PictureLoading.Priority)" />
+            </div>
+        </div>
+    </section>
+}
 
-<section class="page-section" aria-labelledby="leistungsumfang">
+<partial name="@SiteLayout.FactPanel" />
+
+<section class="page-section surface-stone" aria-labelledby="leistungsumfang">
     <div class="site-container">
         <h2 id="leistungsumfang" class="page-section-title">Leistungsumfang</h2>
         <ul class="page-checklist">
@@ -73,7 +91,7 @@
 {
     var block = service.Sections[index];
     var blockId = $"abschnitt-{index + 1}";
-    <section class="page-section page-section-text" aria-labelledby="@blockId">
+    <section class="page-section page-section-text surface-paper" aria-labelledby="@blockId">
         <div class="site-container">
             <div class="page-prose">
                 <h2 id="@blockId" class="page-prose-title">@block.Heading</h2>
@@ -90,8 +108,12 @@
 
 @if (others.Count > 0)
 {
-    <section class="page-section page-section-warm" aria-labelledby="weitere-leistungen">
-        <div class="site-container">
+    @*
+        "Weitere Leistungen" is the page's dark band: the contact band above it is the navy surface, so this one is
+        the night surface and the two never read as one (D107).
+    *@
+    <section class="page-section surface-dark" aria-labelledby="weitere-leistungen">
+        <div class="site-container site-container-wide">
             <h2 id="weitere-leistungen" class="page-section-title">Weitere Leistungen</h2>
             <partial name="@SiteLayout.ServiceCards" model="new ServiceCardsModel(others, headingLevel: 3)" />
         </div>

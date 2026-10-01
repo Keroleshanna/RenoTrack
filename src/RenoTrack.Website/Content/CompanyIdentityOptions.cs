@@ -63,6 +63,25 @@ public sealed class CompanyIdentityOptions
     public string? LogoPath { get; init; }
 
     /// <summary>
+    /// The logo variant drawn for a dark surface — the marketing header and footer (Slice 5v, <b>D107</b>).
+    /// Optional, with the same <see cref="LogoPathPrefix"/> rules as <see cref="LogoPath"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A positive logo is not usable on a dark band, and guessing is worse than omitting.</b> A mark drawn in
+    /// a dark brand colour on transparency loses its dark parts entirely against the header, leaving disconnected
+    /// fragments that read as a broken image rather than as a brand. Recolouring one in CSS is not possible for a
+    /// raster file and would be a redrawing of the company's mark for a vector one.
+    /// </para>
+    /// <para>
+    /// <b>Absent means the header and footer show the company name alone</b>, which is a finished design, not a
+    /// fallback (Slice 5v gate, V-4/V-5). The reversed asset is owner-approved artwork; this product invents no
+    /// brand asset, exactly as it invents no company name.
+    /// </para>
+    /// </remarks>
+    public string? LogoOnDarkPath { get; init; }
+
+    /// <summary>
     /// The one URL prefix a configured logo may use.
     /// </summary>
     /// <remarks>
@@ -86,6 +105,9 @@ public sealed class CompanyIdentityOptions
         !string.IsNullOrWhiteSpace(ContactEmail) || !string.IsNullOrWhiteSpace(ContactPhone);
 
     public bool HasLogo => !string.IsNullOrWhiteSpace(LogoPath);
+
+    /// <summary>Whether a reversed logo exists for the marketing site's dark header and footer (<b>D107</b>).</summary>
+    public bool HasLogoOnDark => !string.IsNullOrWhiteSpace(LogoOnDarkPath);
 
     // ---- Added in Phase 13 Slice 1 (D102): what the marketing site presents ------------------
     //
@@ -184,12 +206,18 @@ public sealed class CompanyIdentityOptions
 
     private void ValidateLogo()
     {
-        if (!HasLogo)
+        ValidateLogoPath(LogoPath, nameof(LogoPath));
+        ValidateLogoPath(LogoOnDarkPath, nameof(LogoOnDarkPath));
+    }
+
+    private void ValidateLogoPath(string? value, string key)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
             return;
         }
 
-        var path = LogoPath!.Trim();
+        var path = value.Trim();
 
         // "//cdn.example/logo.png" and "/\cdn.example/logo.png" both begin with '/' and both leave
         // this origin — the first is protocol-relative, and browsers normalise the backslash form to
@@ -201,7 +229,7 @@ public sealed class CompanyIdentityOptions
         if (!path.StartsWith('/') || isOffOrigin)
         {
             throw new InvalidOperationException(
-                $"Configuration '{SectionName}:{nameof(LogoPath)}' has value '{LogoPath}', which is not a " +
+                $"Configuration '{SectionName}:{key}' has value '{value}', which is not a " +
                 $"site-relative path. Expected a path under '{LogoPathPrefix}', e.g. " +
                 $"'{LogoPathPrefix}logo.svg'. An absolute or protocol-relative URL is refused even " +
                 "over HTTPS: a customer page loads nothing off-origin, because a third-party request " +
@@ -216,7 +244,7 @@ public sealed class CompanyIdentityOptions
         if (!path.StartsWith(LogoPathPrefix, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"Configuration '{SectionName}:{nameof(LogoPath)}' has value '{LogoPath}', which is not " +
+                $"Configuration '{SectionName}:{key}' has value '{value}', which is not " +
                 $"under '{LogoPathPrefix}'. Deployment-supplied assets are served from a 'brand' " +
                 "directory beside the application, because MapStaticAssets serves only files present " +
                 "at build time — a file added to wwwroot afterwards is on disk and still answers 404.");
@@ -227,7 +255,7 @@ public sealed class CompanyIdentityOptions
         if (!HasDisplayName)
         {
             throw new InvalidOperationException(
-                $"Configuration '{SectionName}:{nameof(LogoPath)}' is set without " +
+                $"Configuration '{SectionName}:{key}' is set without " +
                 $"'{SectionName}:{nameof(DisplayName)}'. The logo replaces the company name in the " +
                 "page header and uses it as the image's alternative text, so it cannot be announced " +
                 "without one; supply the name or remove the logo.");

@@ -32,23 +32,30 @@
 
 <partial name="@SiteLayout.Breadcrumb" model="breadcrumb" />
 
+@*
+    The overview writes its hero out rather than using _PageHeroText, because its headline and lead come from
+    ServicesPage rather than from a service. The order is the shared one (D107): service area, headline, lead,
+    actions.
+*@
 <section class="page-hero" aria-labelledby="page-title">
     <div class="site-container">
+        @if (Company.ServiceArea.HasPlaces)
+        {
+            <p class="page-eyebrow page-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+        }
         <h1 id="page-title" class="page-hero-title">@headline</h1>
         @if (overview.HasIntro)
         {
             <p class="page-hero-lead">@overview.Intro</p>
         }
-        @if (Company.ServiceArea.HasPlaces)
-        {
-            <p class="page-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
-        }
         <partial name="@SiteLayout.HeroActions" model="new HeroActionsModel()" />
     </div>
 </section>
 
-<div class="page-section">
-    <div class="site-container">
+<partial name="@SiteLayout.FactPanel" />
+
+<div class="page-section surface-stone">
+    <div class="site-container site-container-wide">
         <partial name="@SiteLayout.ServiceCards" model="new ServiceCardsModel(Marketing.Services, headingLevel: 2)" />
     </div>
 </div>

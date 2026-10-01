@@ -245,7 +245,7 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
     // ---- Services --------------------------------------------------------------
 
     [Fact]
-    public async Task Every_service_is_shown_in_pack_order_with_its_summary_but_not_its_offerings()
+    public async Task Every_service_is_shown_in_pack_order_with_its_summary_and_first_offerings()
     {
         var services = Section(await Home(), "home-services");
 
@@ -255,8 +255,11 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
         Assert.True(first >= 0 && second >= 0, "both services must be present");
         Assert.True(first < second);
         Assert.Contains("Eine erfundene Leistung für automatisierte Tests (Testdaten).", services, StringComparison.Ordinal);
-        Assert.DoesNotContain("Erstes erfundenes Angebot", services, StringComparison.Ordinal);
-        Assert.DoesNotContain("Drittes erfundenes Angebot", services, StringComparison.Ordinal);
+
+        // Slice 4 kept offerings off the card; Slice 5v puts the first three on it (D107, gate §7.1). They are the
+        // pack's own words, and they are what makes a card read as work offered rather than as a label.
+        Assert.Contains("<li class=\"page-card-offering\">Erstes erfundenes Angebot</li>", services, StringComparison.Ordinal);
+        Assert.Contains("<li class=\"page-card-offering\">Drittes erfundenes Angebot</li>", services, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -284,9 +287,12 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
     {
         var html = await Home();
 
+        // Advantages are statements, not boxes (Slice 5v, D107): a rule, a heading and a line, with no card around
+        // them. Boxing them was what made the homepage read as an application dashboard.
         var advantages = Section(html, "home-advantages");
-        Assert.Equal(3, Html.Count(advantages, "<li class=\"page-card\">"));
-        Assert.Contains("<h3 class=\"page-card-title\">Erster Testvorteil</h3>", advantages, StringComparison.Ordinal);
+        Assert.Equal(3, Html.Count(advantages, "<li class=\"page-feature\">"));
+        Assert.DoesNotContain("<li class=\"page-card\">", advantages, StringComparison.Ordinal);
+        Assert.Contains("<h3 class=\"page-feature-title\">Erster Testvorteil</h3>", advantages, StringComparison.Ordinal);
 
         var process = Section(html, "home-process");
         Assert.Contains("<ol class=\"home-steps\">", process, StringComparison.Ordinal);
@@ -495,10 +501,12 @@ public sealed partial class HomePageTests(MarketingSiteFixture site) : IClassFix
 
         var css = await client.GetStringAsync("/css/marketing.css");
         var inner = css[css.IndexOf(".site-header-inner {", StringComparison.Ordinal)..];
-        var brand = css[css.IndexOf(".site-brand {", StringComparison.Ordinal)..];
+        // Slice 5h moved the growing element from .site-brand to the brand zone that contains it; the rule this
+        // test exists for is unchanged — the row wraps, and the brand keeps its own width rather than collapsing.
+        var zone = css[css.IndexOf(".site-brand-zone {", StringComparison.Ordinal)..];
 
         Assert.Contains("flex-wrap: wrap;", inner[..inner.IndexOf('}')], StringComparison.Ordinal);
-        Assert.Contains("flex: 1 1 10rem;", brand[..brand.IndexOf('}')], StringComparison.Ordinal);
+        Assert.Contains("flex: 1 1 auto;", zone[..zone.IndexOf('}')], StringComparison.Ordinal);
     }
 
     // ---- Routing ---------------------------------------------------------------------

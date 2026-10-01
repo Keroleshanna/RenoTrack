@@ -14,9 +14,21 @@ namespace RenoTrack.Website.Content;
 /// </para>
 /// <para>
 /// <b>Contrast is checked at startup, not hoped for.</b> The primary colour carries white button text and
-/// link text, so it must reach 4.5:1 against white. The accent is used only for decoration, borders and
-/// large text on the primary, so it must reach 3:1 against the effective primary. A company whose brand
-/// colour fails that is told at startup, naming the key, rather than shipping unreadable buttons.
+/// link text, so it must reach 4.5:1 against white. A company whose brand colour fails that is told at
+/// startup, naming the key, rather than shipping unreadable buttons.
+/// </para>
+/// <para>
+/// <b>Two inputs, several surface roles (Slice 5v, <b>D107</b>).</b> The visual system needs more surfaces
+/// than two colours name: a near-black band for the header, hero and footer, a second dark band so two dark
+/// sections never touch, accent text readable on a dark surface, and accent text readable on a light one.
+/// Those are <em>derived</em> here, in C#, rather than with CSS <c>color-mix()</c>, for one reason: a derived
+/// colour that carries text must be contrast-checked at startup exactly like a configured one, and CSS cannot
+/// report a failure. The company still supplies exactly two values.
+/// </para>
+/// <para>
+/// <b>The accent minimum rose from 3:1 to 4.5:1 (D107).</b> It used to be decoration, borders and large text
+/// only; it now fills the primary button, whose label is <see cref="EffectiveNightColor"/>. Contrast is
+/// symmetric, so that single check covers both the button's fill and its label.
 /// </para>
 /// <para>
 /// Absent values fall back to neutral product defaults, which are not any company's colours.
@@ -31,7 +43,35 @@ public sealed partial class ThemeOptions
     public const string DefaultAccentColor = "#C8D3DE";
 
     internal const double MinimumPrimaryContrastOnWhite = 4.5;
-    internal const double MinimumAccentContrastOnPrimary = 3.0;
+
+    /// <summary>The accent fills buttons labelled in the night colour, so it carries text (<b>D107</b>).</summary>
+    internal const double MinimumAccentContrastOnNight = 4.5;
+
+    /// <summary>What accent text on a dark surface must reach: body-text contrast with headroom.</summary>
+    internal const double TargetAccentBrightContrastOnNight = 7.0;
+
+    /// <summary>What accent text on a warm light surface must reach.</summary>
+    internal const double TargetAccentStrongContrastOnStone = 4.5;
+
+    /// <summary>
+    /// The warm off-white the light sections use. A product neutral, deliberately not a brand colour: it has to
+    /// sit under every company's palette.
+    /// </summary>
+    internal const string StoneColor = "#F5F1EA";
+
+    /// <summary>
+    /// The second, darker light surface (the alternate band and the breadcrumb bar), and what
+    /// <see cref="EffectiveAccentStrongColor"/> is measured against.
+    /// </summary>
+    /// <remarks>
+    /// <b>The darker of the two light surfaces is the one that decides.</b> Deriving accent text against stone
+    /// alone produced 4.11:1 on the breadcrumb bar — measured at the Slice 5v prototype checkpoint, not predicted.
+    /// A colour that clears 4.5:1 here clears it on stone as well.
+    /// </remarks>
+    internal const string SandColor = "#EAE2D5";
+
+    /// <summary>How far the night surface is mixed towards black from the primary colour.</summary>
+    private const double NightMixTowardsBlack = 0.40;
 
     public string? PrimaryColor { get; init; }
 
@@ -42,6 +82,40 @@ public sealed partial class ThemeOptions
 
     /// <summary>The accent colour in use: the configured one, or the product default. Upper case.</summary>
     public string EffectiveAccentColor => Normalise(AccentColor) ?? DefaultAccentColor;
+
+    /// <summary>
+    /// The near-black band behind the header, the hero and the footer: the primary mixed towards black
+    /// (<b>D107</b>). Derived rather than configured, so a company still supplies two colours.
+    /// </summary>
+    public string EffectiveNightColor => MixTowardsBlack(EffectivePrimaryColor, NightMixTowardsBlack);
+
+    /// <summary>
+    /// The second dark band, which is the primary itself. Two dark sections never touch (the page alternates
+    /// between this and <see cref="EffectiveNightColor"/>), and the primary already reaches 4.5:1 against white,
+    /// so it is dark enough to carry white text.
+    /// </summary>
+    public string EffectiveNavyColor => EffectivePrimaryColor;
+
+    /// <summary>
+    /// Accent <em>text</em> on a dark surface: the accent lightened until it reaches
+    /// <see cref="TargetAccentBrightContrastOnNight"/> against <see cref="EffectiveNightColor"/>. An accent that
+    /// already reaches it is used unchanged.
+    /// </summary>
+    public string EffectiveAccentBrightColor =>
+        Reach(EffectiveAccentColor, EffectiveNightColor, TargetAccentBrightContrastOnNight, towards: "#FFFFFF");
+
+    /// <summary>
+    /// Accent <em>text</em> on a light surface: the accent darkened until it reaches
+    /// <see cref="TargetAccentStrongContrastOnStone"/> against <see cref="SandColor"/>, the darker of the two
+    /// light surfaces — so it clears the target on both.
+    /// </summary>
+    /// <remarks>
+    /// This role exists because a mid-tone brand accent is unreadable as small text on a warm off-white — the
+    /// deployment bronze measures 2.78:1 there — while being exactly right as a button fill on a dark band. One
+    /// value cannot do both, and the page needs both.
+    /// </remarks>
+    public string EffectiveAccentStrongColor =>
+        Reach(EffectiveAccentColor, SandColor, TargetAccentStrongContrastOnStone, towards: "#000000");
 
     /// <exception cref="InvalidOperationException">A colour is malformed or fails its contrast minimum.</exception>
     internal void Validate(string path)
@@ -60,12 +134,15 @@ public sealed partial class ThemeOptions
                 $"{MinimumPrimaryContrastOnWhite:0.0}:1 is required, because it carries white button text and link text.");
         }
 
-        var accentOnPrimary = ContrastRatio(EffectiveAccentColor, EffectivePrimaryColor);
-        if (accentOnPrimary < MinimumAccentContrastOnPrimary)
+        // Against the derived night surface, not the primary: the accent fills the primary button, which sits on
+        // the dark bands and is labelled in the night colour (D107).
+        var accentOnNight = ContrastRatio(EffectiveAccentColor, EffectiveNightColor);
+        if (accentOnNight < MinimumAccentContrastOnNight)
         {
             throw new InvalidOperationException(
-                $"Configuration '{accentKey}' has a contrast of {accentOnPrimary:0.00}:1 against the primary colour; " +
-                $"at least {MinimumAccentContrastOnPrimary:0.0}:1 is required.");
+                $"Configuration '{accentKey}' has a contrast of {accentOnNight:0.00}:1 against the dark surface " +
+                $"derived from the primary colour; at least {MinimumAccentContrastOnNight:0.0}:1 is required, " +
+                "because it fills the primary button and carries that button's label.");
         }
     }
 
@@ -75,6 +152,53 @@ public sealed partial class ThemeOptions
         var lighter = Math.Max(RelativeLuminance(first), RelativeLuminance(second));
         var darker = Math.Min(RelativeLuminance(first), RelativeLuminance(second));
         return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    /// <summary>
+    /// <paramref name="colour"/> moved towards <paramref name="towards"/> in fixed 2 % steps until it reaches
+    /// <paramref name="target"/> against <paramref name="background"/>, or the endpoint if it never does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Fixed steps, so the result is deterministic</b> — the same two configured colours always generate the
+    /// same stylesheet, which is what the content hash on <c>/site/theme.css</c> assumes.
+    /// </para>
+    /// <para>
+    /// <b>The endpoint can always satisfy the targets in use</b>: white on the night surface exceeds 15:1 and
+    /// black on the stone surface exceeds 18:1, both far above what is asked for here. Returning the endpoint
+    /// rather than throwing is therefore not a silent failure — it is the last step of the same walk.
+    /// </para>
+    /// </remarks>
+    private static string Reach(string colour, string background, double target, string towards)
+    {
+        for (var step = 0; step <= 50; step++)
+        {
+            var candidate = Mix(colour, towards, step * 0.02);
+            if (ContrastRatio(candidate, background) >= target)
+            {
+                return candidate;
+            }
+        }
+
+        return Normalise(towards)!;
+    }
+
+    private static string MixTowardsBlack(string colour, double amount) => Mix(colour, "#000000", amount);
+
+    /// <summary>Channel-wise linear blend of two <c>#RRGGBB</c> colours, rounded to the nearest byte.</summary>
+    private static string Mix(string from, string to, double amount)
+    {
+        static int Channel(string hex, int offset) =>
+            int.Parse(hex.AsSpan(offset, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+
+        var mixed = new[] { 1, 3, 5 }.Select(offset =>
+        {
+            var start = Channel(from, offset);
+            var end = Channel(to, offset);
+            return (int)Math.Round(start + ((end - start) * amount), MidpointRounding.AwayFromZero);
+        });
+
+        return "#" + string.Concat(mixed.Select(value => value.ToString("X2", CultureInfo.InvariantCulture)));
     }
 
     private static double RelativeLuminance(string hex)
