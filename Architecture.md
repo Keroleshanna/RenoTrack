@@ -94,7 +94,7 @@ This mirrors standard Clean Architecture and keeps business rules (Angebot total
 | Customer access | Custom Token-Link mechanism (not a full auth system) | Matches the "no customer accounts in v1" decision; simpler and more appropriate than issuing real accounts for one-time decisions |
 | Email | SMTP or a transactional provider (e.g. SendGrid) behind an `IEmailSender` interface | Swappable without touching business logic |
 | File Storage | Local disk (v1) behind an `IFileStorage` interface | Swappable for Azure Blob/S3 later with zero change to calling code |
-| PDF Generation | Server-side HTML→PDF (e.g. a .NET PDF library) for Angebot/Invoice documents | Needed for email attachments and downloads |
+| PDF Generation | **MigraDoc/PDFsharp (MIT), composing a document model — not HTML→PDF** (**D110**, Phase 14). Every HTML route either ships a browser into the deployment or carries a revenue-triggered licence inherited by each company this product is sold to. An embedded font (Liberation Sans, OFL 1.1) travels with the build, because PDFsharp resolves none on its own | Needed for email attachments and downloads |
 
 ---
 

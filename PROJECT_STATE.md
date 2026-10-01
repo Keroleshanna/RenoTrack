@@ -1,5 +1,13 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-01 — Phase 14 Slice 1 (PDF foundation and the Angebot document, D110) is implemented on `feature/phase-14-pdf-generation`.** Not committed to `main`.
+> - **Library:** MigraDoc/PDFsharp 6.2.4 (**MIT**), composing a document model rather than rendering HTML — `Architecture.md` §4 updated in the same change. The alternatives either ship a browser into the deployment or carry a revenue-triggered licence inherited by every company this product is sold to.
+> - **Fonts:** PDFsharp resolves none on its own, on any OS — measured. Liberation Sans (OFL 1.1) is embedded in the Infrastructure assembly with its licence, and `EmbeddedFontResolver` answers every request.
+> - **Boundary:** `IPdfGenerator` takes an `AngebotDocument` whose figures are already formatted, and returns bytes. It stores nothing.
+> - **Company legal identity:** `CompanyLegalIdentity` configuration — never invented, absent warns, and generation refuses naming every missing key.
+> - **Tests:** `RenoTrack.Documents.Tests` (new, 9 cases, PdfPig text extraction) runs in CI's **Linux** job, because the font risk is cross-platform. **It could not be run locally** — Windows Application Control blocks `PdfSharp.System.dll` (`0x800711C7`), the same condition this file already records for other assemblies. **CI is the verification.**
+> - **The finding that shapes the rest of the phase:** the Invoice aggregate cannot produce a §14-compliant document today — it stores no description, no quantity and **no VAT rate**. The approved resolution is one description plus one VAT rate on the Invoice, not a line collection. That is the next slice, and legal sign-off remains the company's (SRS §5).
+
 > **2026-10-01 — Phase 13 Slice 7 (anonymous Lead intake hardening, D109) is implemented on `feature/phase-13-slice-7-lead-intake`.** The one slice taken out of the parking, because it is a product boundary rather than website work: it is how a Lead reaches RenoTrack from any website, including one this project did not build.
 > - **Its own rate-limit policy:** `RateLimiting:LeadIntake`, 5 submissions per 10 minutes per client, a separate bucket from the token-link surface so neither can throttle the other. `Retry-After` reports the rejected policy's own window.
 > - **Field limits are `Lead`'s constants**, read by the validator, the Domain guard and the EF configuration alike. An over-long value is a field-keyed 400 instead of a 500 at the database. No migration.

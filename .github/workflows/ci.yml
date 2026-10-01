@@ -31,12 +31,17 @@ jobs:
       # run here at all (D56).
       # RenoTrack.MediaPrep.Tests (Phase 13 Slice 5a, D106) needs no database either. The offline photo tool uses
       # SkiaSharp, whose Linux native library comes from SkiaSharp.NativeAssets.Linux.NoDependencies.
-      - name: Test (Domain, Application, Website, MediaPrep)
+      # RenoTrack.Documents.Tests (Phase 14, D110) needs no database either, and belongs here for a
+      # reason beyond convenience: PDFsharp resolves no font on its own, so the generator carries an
+      # embedded font and its own resolver. That risk is cross-platform, and this is the job that
+      # runs on Linux.
+      - name: Test (Domain, Application, Website, MediaPrep, Documents)
         run: |
           dotnet test tests/RenoTrack.Domain.Tests/RenoTrack.Domain.Tests.csproj --no-build --configuration Release
           dotnet test tests/RenoTrack.Application.Tests/RenoTrack.Application.Tests.csproj --no-build --configuration Release
           dotnet test tests/RenoTrack.Website.Tests/RenoTrack.Website.Tests.csproj --no-build --configuration Release
           dotnet test tests/RenoTrack.MediaPrep.Tests/RenoTrack.MediaPrep.Tests.csproj --no-build --configuration Release
+          dotnet test tests/RenoTrack.Documents.Tests/RenoTrack.Documents.Tests.csproj --no-build --configuration Release
 
   # RenoTrack.Infrastructure.Tests deliberately runs against real SQL Server LocalDB, never EF
   # Core InMemory or SQLite (D40) — LocalDB doesn't enforce the unique constraints, FKs, or
