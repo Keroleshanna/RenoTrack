@@ -23,6 +23,7 @@ internal static class ContentListSourceGuard
     internal static readonly IReadOnlyList<string> ListSections =
     [
         $"{SiteOptions.SectionName}:{nameof(SiteOptions.Services)}",
+        $"{SiteOptions.SectionName}:{nameof(SiteOptions.Media)}",
         $"{SiteOptions.SectionName}:{nameof(SiteOptions.Home)}:{nameof(HomePageOptions.Advantages)}",
         $"{SiteOptions.SectionName}:{nameof(SiteOptions.Home)}:{nameof(HomePageOptions.Process)}",
         $"{CompanyIdentityOptions.SectionName}:{nameof(CompanyIdentityOptions.OpeningHours)}",

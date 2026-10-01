@@ -42,6 +42,18 @@ public sealed class ContentPackOptions
         IsConfigured ? ResolvedRootPath : contentRootPath,
         CompanyIdentityOptions.BrandAssetsDirectoryName);
 
+    /// <summary>
+    /// The published photo derivatives' directory (Slice 5a, D106): the pack's <c>media/</c> when a pack is
+    /// configured, otherwise <c>media/</c> beside the application. Never mounted as a directory — only files the
+    /// validated manifest names are served (<c>MediaCatalog</c>).
+    /// </summary>
+    public string MediaRootFor(string contentRootPath) => Path.Combine(
+        IsConfigured ? ResolvedRootPath : contentRootPath,
+        MediaDirectoryName);
+
+    /// <summary>The name of the directory holding published photo derivatives.</summary>
+    public const string MediaDirectoryName = "media";
+
     /// <exception cref="InvalidOperationException">The configured path is unusable as a pack.</exception>
     public void Validate()
     {

@@ -41,4 +41,21 @@ public static class SitePage
     public static void SetFullWidth(this ViewDataDictionary viewData) => viewData[FullWidthKey] = true;
 
     public static bool IsFullWidth(this ViewDataDictionary viewData) => viewData[FullWidthKey] is true;
+
+    private const string SocialImageKey = "SitePage.SocialImage";
+
+    /// <summary>
+    /// Declares the page's own photo as its <c>og:image</c> (<b>D106</b>, S5-8) — only when that photo has a social
+    /// derivative. There is no site-wide fallback: a page without its own photo declares none.
+    /// </summary>
+    public static void SetSocialImage(this ViewDataDictionary viewData, MediaImage? image)
+    {
+        if (image?.Social is not null)
+        {
+            viewData[SocialImageKey] = image;
+        }
+    }
+
+    /// <summary>The page's social image, whose <see cref="MediaImage.Social"/> is never <c>null</c>.</summary>
+    public static MediaImage? SocialImage(this ViewDataDictionary viewData) => viewData[SocialImageKey] as MediaImage;
 }

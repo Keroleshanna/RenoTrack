@@ -19,12 +19,26 @@ public sealed class MarketingSite
 
     private readonly Dictionary<string, ServiceOptions> servicesBySlug;
 
+    /// <summary>A snapshot without photos: every page keeps its text-only layout.</summary>
     public MarketingSite(SiteOptions site)
+        : this(site, MediaCatalog.Empty)
+    {
+    }
+
+    public MarketingSite(SiteOptions site, MediaCatalog media)
     {
         CanonicalOrigin = site.CanonicalOrigin;
         Home = site.Home;
         ServicesPage = site.ServicesPage;
         Services = site.Services;
+        Media = media;
+
+        HeroImage = site.Home.HasHeroImage ? media.Image(site.Home.HeroImage) : null;
+
+        // S5-7: card photos are all-or-nothing across the whole site. One photographed card beside four text cards
+        // looks broken and implies the other services have nothing to show.
+        ServiceCardImagesEnabled = site.Services.Count > 0
+            && site.Services.All(service => service.HasImage && media.Image(service.Image) is not null);
 
         // Ordinal and case-sensitive by construction (D105): a slug is looked up exactly as the company wrote it —
         // never case-folded, transliterated, fuzzy-matched or replaced by another service. Slugs are validated
@@ -43,6 +57,19 @@ public sealed class MarketingSite
 
     /// <summary>The services, in the order the content pack lists them.</summary>
     public IReadOnlyList<ServiceOptions> Services { get; }
+
+    /// <summary>The verified photos (D106).</summary>
+    public MediaCatalog Media { get; }
+
+    /// <summary>The homepage hero's photo, or <c>null</c> for the text-only hero.</summary>
+    public MediaImage? HeroImage { get; }
+
+    /// <summary>Whether service cards show photos: only when every service has one (S5-7).</summary>
+    public bool ServiceCardImagesEnabled { get; }
+
+    /// <summary>The service's photo, or <c>null</c> for its text-only hero.</summary>
+    public MediaImage? ImageFor(ServiceOptions service) =>
+        service.HasImage ? Media.Image(service.Image) : null;
 
     /// <summary>The service with exactly this slug, or <c>null</c>. There is no fallback.</summary>
     public ServiceOptions? FindService(string? slug) =>

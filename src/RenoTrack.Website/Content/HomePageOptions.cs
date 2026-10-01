@@ -41,7 +41,15 @@ public sealed class HomePageOptions
     /// <summary>How a job proceeds, in order. Empty: section omitted.</summary>
     public IReadOnlyList<HomeItemOptions> Process { get; init; } = [];
 
+    /// <summary>
+    /// The <c>Site:Media</c> id of the hero photo (Slice 5a, D106). Absent: the text-only hero, which is a finished
+    /// layout in its own right, not a fallback.
+    /// </summary>
+    public string? HeroImage { get; init; }
+
     public bool HasMetaTitle => !ContentText.IsBlank(MetaTitle);
+
+    public bool HasHeroImage => !ContentText.IsBlank(HeroImage);
 
     public bool HasHeadline => !ContentText.IsBlank(Headline);
 
@@ -53,6 +61,9 @@ public sealed class HomePageOptions
         ValidateOptionalText(MetaTitle, $"{path}:{nameof(MetaTitle)}", MaxMetaTitleLength);
         ValidateOptionalText(Headline, $"{path}:{nameof(Headline)}", MaxHeadlineLength);
         ValidateOptionalText(Subheadline, $"{path}:{nameof(Subheadline)}", MaxSubheadlineLength);
+
+        // Only blank-ness here; whether the id names a listed photo is SiteOptions' check.
+        ValidateOptionalText(HeroImage, $"{path}:{nameof(HeroImage)}", MediaItemOptions.MaxIdLength);
 
         ValidateItems(Advantages, $"{path}:{nameof(Advantages)}");
         ValidateItems(Process, $"{path}:{nameof(Process)}");

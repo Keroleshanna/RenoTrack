@@ -47,6 +47,12 @@ public sealed class SiteOptions
     /// </summary>
     public ServicesPageOptions ServicesPage { get; init; } = new();
 
+    /// <summary>
+    /// The approved photos the site may publish (added in Phase 13 Slice 5a, D106). Validated whenever supplied;
+    /// every entry must be used by a page, and every page reference must name an entry.
+    /// </summary>
+    public IReadOnlyList<MediaItemOptions> Media { get; init; } = [];
+
     public bool IsEnabled => !ContentText.IsBlank(PublicBaseUrl);
 
     /// <summary>
@@ -71,6 +77,8 @@ public sealed class SiteOptions
         Home.Validate($"{SectionName}:{nameof(Home)}");
 
         ServicesPage.Validate($"{SectionName}:{nameof(ServicesPage)}");
+
+        ValidateMedia();
 
         // Every page's title and description must be its own (D105, S4-5): two pages sharing one compete with
         // each other in a result list and tell a reader nothing about which is which.
@@ -147,6 +155,73 @@ public sealed class SiteOptions
             throw new InvalidOperationException(
                 $"Configuration '{key}' has value '{PublicBaseUrl}', but must be an origin only — scheme and host, " +
                 "with no path, query, fragment or user information.");
+        }
+    }
+
+    /// <summary>
+    /// Shape, uniqueness and references (D106). Messages name keys, never ids or text.
+    /// </summary>
+    /// <remarks>
+    /// <b>An unreferenced entry fails (S5-10).</b> Every listed photo's derivatives are publicly served, so a photo
+    /// that sits in the list without a page using it would be published without anyone having decided to show it.
+    /// </remarks>
+    private void ValidateMedia()
+    {
+        var mediaKey = $"{SectionName}:{nameof(Media)}";
+
+        for (var index = 0; index < Media.Count; index++)
+        {
+            Media[index].Validate($"{mediaKey}:{index}");
+        }
+
+        var firstIndexById = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < Media.Count; index++)
+        {
+            if (!firstIndexById.TryAdd(Media[index].Id!, index))
+            {
+                throw new InvalidOperationException(
+                    $"Configurations '{mediaKey}:{firstIndexById[Media[index].Id!]}:{nameof(MediaItemOptions.Id)}' and " +
+                    $"'{mediaKey}:{index}:{nameof(MediaItemOptions.Id)}' have the same id. Every photo needs its own.");
+            }
+        }
+
+        var referenced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (key, id) in MediaReferences())
+        {
+            if (!firstIndexById.ContainsKey(id))
+            {
+                throw new InvalidOperationException(
+                    $"Configuration '{key}' names a photo that '{mediaKey}' does not list.");
+            }
+
+            referenced.Add(id);
+        }
+
+        for (var index = 0; index < Media.Count; index++)
+        {
+            if (!referenced.Contains(Media[index].Id!))
+            {
+                throw new InvalidOperationException(
+                    $"Configuration '{mediaKey}:{index}' is not used by any page. Every listed photo is published, so " +
+                    "a photo no page shows must be removed from the list rather than left there.");
+            }
+        }
+    }
+
+    /// <summary>Every place a page names a photo, as (key, id). Absent references are skipped.</summary>
+    private IEnumerable<(string Key, string Id)> MediaReferences()
+    {
+        if (!ContentText.IsBlank(Home.HeroImage))
+        {
+            yield return ($"{SectionName}:{nameof(Home)}:{nameof(HomePageOptions.HeroImage)}", Home.HeroImage!.Trim());
+        }
+
+        for (var index = 0; index < Services.Count; index++)
+        {
+            if (!ContentText.IsBlank(Services[index].Image))
+            {
+                yield return ($"{SectionName}:{nameof(Services)}:{index}:{nameof(ServiceOptions.Image)}", Services[index].Image!.Trim());
+            }
         }
     }
 

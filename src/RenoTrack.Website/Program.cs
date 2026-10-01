@@ -88,11 +88,18 @@ builder.Services.AddRazorPages(options =>
     }
 });
 
+// Every published photo derivative, verified byte by byte before the site may start (D106): it must exist, stay within
+// its budget, match its format and exact size, and carry no EXIF, XMP, IPTC or other metadata. Only files this catalog
+// lists are ever served. Loaded only for an enabled site; a token-only deployment has no photos and no /medien/.
+var mediaCatalog = site.IsEnabled
+    ? MediaCatalog.Load(site, contentPack.MediaRootFor(builder.Environment.ContentRootPath))
+    : MediaCatalog.Empty;
+
 // A startup snapshot, so marketing pages render from the values the pipeline was composed with rather than
 // re-reading options per request.
 if (site.IsEnabled)
 {
-    builder.Services.AddSingleton(new MarketingSite(site));
+    builder.Services.AddSingleton(new MarketingSite(site, mediaCatalog));
 }
 
 var themeStylesheet = new ThemeStylesheet(site.Theme);
@@ -216,6 +223,13 @@ app.MapRazorPages()
 
 ThemeStylesheet.Map(app, themeStylesheet);
 
+// Photos: an allowlist of verified derivatives, never a directory mount (D106, S5-2). The requested name is a key in
+// the catalog, so no request can reach a file the manifest does not list.
+if (site.IsEnabled)
+{
+    MediaEndpoint.Map(app, mediaCatalog);
+}
+
 // Marketing metadata must never reach a route whose URL is a customer credential. Checked against the endpoints
 // actually built, by route parameter, so it also covers token routes nobody has written yet (D103).
 MarketingPageGuard.EnsureNoTokenRoutes(MarketingPageGuard.EndpointsOf(app));
@@ -264,10 +278,13 @@ if (companyIdentity.HasLogo)
 if (contentPack.IsConfigured)
 {
     app.Logger.LogInformation(
-        "Content pack loaded from '{PackRoot}': marketing site {SiteState}, {ServiceCount} service(s).",
+        "Content pack loaded from '{PackRoot}': marketing site {SiteState}, {ServiceCount} service(s), {PhotoCount} " +
+        "photo(s) in {FileCount} verified file(s).",
         contentPack.ResolvedRootPath,
         site.IsEnabled ? "enabled" : "disabled",
-        site.Services.Count);
+        site.Services.Count,
+        mediaCatalog.ImageCount,
+        mediaCatalog.FileCount);
 }
 
 if (!site.IsEnabled)

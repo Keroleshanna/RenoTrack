@@ -19,6 +19,7 @@
     var description = ViewData.Description();
     var indexable = ViewData.IsIndexable();
     var canonical = Marketing.CanonicalUrlFor(Context.Request.Path);
+    var socialImage = ViewData.SocialImage();
 }
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -46,6 +47,15 @@ else
 @if (description is not null)
 {
     <meta property="og:description" content="@description" />
+}
+@if (socialImage?.Social is { } social)
+{
+    @* Absolute, on the canonical origin, with the content hash; only the page's own photo, never a fallback (D106). *@
+    <meta property="og:image" content="@(Marketing.CanonicalOrigin + social.Url)" />
+    <meta property="og:image:type" content="@social.ContentType" />
+    <meta property="og:image:width" content="@MediaDerivatives.Social.Width" />
+    <meta property="og:image:height" content="@MediaDerivatives.Social.Height" />
+    <meta property="og:image:alt" content="@socialImage.Alt" />
 }
 <link rel="preload" href="/fonts/figtree/figtree-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="~/css/marketing.css" asp-append-version="true" />

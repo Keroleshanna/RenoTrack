@@ -56,7 +56,15 @@ public sealed partial class ServiceOptions
     /// <summary>Descriptive text blocks on the service page. Empty: none rendered.</summary>
     public IReadOnlyList<ServiceSectionOptions> Sections { get; init; } = [];
 
+    /// <summary>
+    /// The <c>Site:Media</c> id of this service's photo (Slice 5a, D106). Absent: the service page keeps its
+    /// text-only hero, and no service card on the site shows a photo (S5-7).
+    /// </summary>
+    public string? Image { get; init; }
+
     public bool HasMetaTitle => !ContentText.IsBlank(MetaTitle);
+
+    public bool HasImage => !ContentText.IsBlank(Image);
 
     public bool HasHeadline => !ContentText.IsBlank(Headline);
 
@@ -112,6 +120,9 @@ public sealed partial class ServiceOptions
         ContentText.ValidateOptional(MetaTitle, $"{path}:{nameof(MetaTitle)}", MaxMetaTitleLength);
         ContentText.ValidateOptional(Headline, $"{path}:{nameof(Headline)}", MaxHeadlineLength);
         ContentText.ValidateOptional(MetaDescription, $"{path}:{nameof(MetaDescription)}", MaxMetaDescriptionLength);
+
+        // Only blank-ness here; whether the id names a listed photo is SiteOptions' check.
+        ContentText.ValidateOptional(Image, $"{path}:{nameof(Image)}", MediaItemOptions.MaxIdLength);
 
         if (Sections.Count > MaxSections)
         {
