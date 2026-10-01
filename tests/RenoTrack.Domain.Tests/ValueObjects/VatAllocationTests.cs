@@ -6,8 +6,9 @@ namespace RenoTrack.Domain.Tests.ValueObjects;
 /// <summary>
 /// The externally important properties first: the totals reconcile exactly, BR-11 rounding holds,
 /// the Angebot's rate mix is preserved subject to cent rounding, the result is deterministic, and a
-/// zero target never divides. Which rate group absorbs a residual cent is rounding machinery and is
-/// pinned only through those properties, not asserted as policy.
+/// zero target never divides. Since Phase 14 Slice 2 the per-rate lines are stored on the Invoice
+/// and printed on its document (D111), so which rate group absorbs a residual cent is visible — it
+/// is pinned below as the fixed function of the input it has always been.
 /// </summary>
 public class VatAllocationTests
 {
@@ -259,5 +260,70 @@ public class VatAllocationTests
 
             Assert.Equal(target, allocation.NetAmount + allocation.VatAmount);
         }
+    }
+    // ---- The per-rate lines (Phase 14 Slice 2, D111) ---------------------
+
+    [Fact]
+    public void LinesAreOnePerRateInRateOrder()
+    {
+        var allocation = VatAllocation.ProportionalTo(MixedRates, Money.FromExact(5_000.00m));
+
+        Assert.Equal(
+            [VatRate.Reduced, VatRate.Standard],
+            allocation.Lines.Select(line => line.Rate).ToArray());
+    }
+
+    /// <summary>The totals are the lines' own sums, for every target — never a second calculation.</summary>
+    [Fact]
+    public void TheTotalsAreTheSumsOfTheLines()
+    {
+        for (var cents = 1; cents <= 2_000; cents += 7)
+        {
+            var allocation = VatAllocation.ProportionalTo(MixedRates, Money.FromExact(cents / 100m));
+
+            Assert.Equal(Money.Sum(allocation.Lines.Select(l => l.NetAmount)), allocation.NetAmount);
+            Assert.Equal(Money.Sum(allocation.Lines.Select(l => l.VatAmount)), allocation.VatAmount);
+        }
+    }
+
+    [Fact]
+    public void AllocatingTheWholeAngebotGrossReproducesEachRatesFigures()
+    {
+        var allocation = VatAllocation.ProportionalTo(MixedRates, Money.FromExact(24_870.00m));
+
+        Assert.Equal(
+            MixedRates.OrderBy(l => l.Rate).Select(l => (l.Rate, l.NetAmount, l.VatAmount)),
+            allocation.Lines.Select(l => (l.Rate, l.NetAmount, l.VatAmount)));
+    }
+
+    [Fact]
+    public void AZeroTargetHasNoLines()
+    {
+        Assert.Empty(VatAllocation.ProportionalTo(MixedRates, Money.Zero).Lines);
+    }
+
+    /// <summary>
+    /// The residual cent lands on the group with the largest gross (ties to the higher rate). One
+    /// cent across four near-equal groups rounds every share to zero; the whole cent goes to the
+    /// 19 % group, the largest at 119.00.
+    /// </summary>
+    [Fact]
+    public void AResidualCentLandsOnTheLargestGrossGroup()
+    {
+        VatBreakdownLine[] allRates =
+        [
+            Line(VatRate.Zero, 100.00m, 0m),
+            Line(VatRate.Reduced, 100.00m, 7.00m),
+            Line(VatRate.Sixteen, 100.00m, 16.00m),
+            Line(VatRate.Standard, 100.00m, 19.00m),
+        ];
+
+        var allocation = VatAllocation.ProportionalTo(allRates, Money.FromExact(0.01m));
+
+        var standard = Assert.Single(allocation.Lines, l => l.Rate == VatRate.Standard);
+        Assert.Equal(Money.FromExact(0.01m), standard.NetAmount + standard.VatAmount);
+        Assert.All(
+            allocation.Lines.Where(l => l.Rate != VatRate.Standard),
+            l => Assert.Equal(Money.Zero, l.NetAmount + l.VatAmount));
     }
 }

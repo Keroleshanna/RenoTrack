@@ -19,6 +19,11 @@ namespace RenoTrack.Application.Projects.Dtos;
 /// <c>Payments</c>. CLAUDE.md §7: a field is added when a real use case returns it, not before.
 /// </para>
 /// <para>
+/// <b><c>Description</c> was added in Phase 14 Slice 2 (D111)</b>, because once an invoice states
+/// what it bills for, several invoices against one Project are told apart by it rather than by
+/// number alone. A pre-Slice-2 row carries an empty string, rendered as nothing.
+/// </para>
+/// <para>
 /// <b>This is the internal <see cref="InvoiceStatus"/>, not the public one.</b> The Project detail
 /// read is a staff surface; <c>PublicInvoiceStatus</c> exists to *withhold* internal states from a
 /// customer and has no business here.
@@ -34,4 +39,5 @@ public sealed record ProjectInvoiceDto(
     string InvoiceNumber,
     decimal GrossAmount,
     InvoiceStatus Status,
-    DateTime DueDate);
+    DateTime DueDate,
+    string Description);

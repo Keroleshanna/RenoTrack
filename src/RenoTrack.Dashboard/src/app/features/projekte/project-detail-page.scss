@@ -96,3 +96,40 @@
     width: 100%;
   }
 }
+
+// A document number is read and quoted whole; the description column beside it (Phase 14 Slice 2)
+// must not be able to break it across lines, which browser QA showed it did at a narrow width.
+.invoice-number {
+  white-space: nowrap;
+}
+
+// Phase 14 Slice 2 (D111): the invoice's own description, which may be long. It wraps at word
+// boundaries and keeps the Admin's line breaks. `break-word`, not `anywhere`: `anywhere` lowers the
+// column's minimum width to a single character, and browser QA showed the table then crushing the
+// text into mid-word breaks. The minimum width makes a narrow screen scroll the table (inside
+// .rt-table-wrap) instead.
+.invoice-description {
+  min-width: 12rem;
+  max-width: 28rem;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.service-period {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+
+  // A legend carries the browser's own inline padding; without this it sits 2px in from the
+  // labels above and below it.
+  legend {
+    padding: 0;
+  }
+}
+
+.service-period__dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--rt-space-3);
+}

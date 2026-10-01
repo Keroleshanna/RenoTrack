@@ -61,7 +61,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     }
 
     private static Invoice NewInvoice(int projectId) =>
-        Invoice.Create(projectId, $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow.AddDays(14), Net, Vat, Gross);
+        TestInvoices.AtStandardRate(projectId, $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow.AddDays(14), Gross.Amount);
 
     // ---- Round trip ----------------------------------------------------
 
@@ -99,9 +99,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     public async Task AllThreeAmountsRoundTripAtFullPrecision()
     {
         var projectId = await SeedProjectAsync();
-        var invoice = Invoice.Create(
-            projectId, $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow,
-            Money.FromExact(10_378.15m), Money.FromExact(1_967.52m), Money.FromExact(12_345.67m));
+        var invoice = TestInvoices.AtStandardRate(projectId, $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow, 12_345.67m);
 
         await using var context = fixture.CreateContext();
         context.Invoices.Add(invoice);
@@ -110,12 +108,12 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
         var stored = await context.Database
             .SqlQuery<decimal>($"SELECT NetAmount AS Value FROM Invoices WHERE Id = {invoice.Id}")
             .SingleAsync();
-        Assert.Equal(10_378.15m, stored);
+        Assert.Equal(10_374.51m, stored);
 
         stored = await context.Database
             .SqlQuery<decimal>($"SELECT VatAmount AS Value FROM Invoices WHERE Id = {invoice.Id}")
             .SingleAsync();
-        Assert.Equal(1_967.52m, stored);
+        Assert.Equal(1_971.16m, stored);
 
         stored = await context.Database
             .SqlQuery<decimal>($"SELECT GrossAmount AS Value FROM Invoices WHERE Id = {invoice.Id}")
@@ -159,13 +157,13 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
         await using (var writeContext = fixture.CreateContext())
         {
             writeContext.Invoices.Add(
-                Invoice.Create(projectId, number, DateTime.UtcNow, Net, Vat, Gross));
+                TestInvoices.AtStandardRate(projectId, number, DateTime.UtcNow, Gross.Amount));
             await writeContext.SaveChangesAsync();
         }
 
         await using var duplicateContext = fixture.CreateContext();
         duplicateContext.Invoices.Add(
-            Invoice.Create(await SeedProjectAsync(), number, DateTime.UtcNow, Net, Vat, Gross));
+            TestInvoices.AtStandardRate(await SeedProjectAsync(), number, DateTime.UtcNow, Gross.Amount));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => duplicateContext.SaveChangesAsync());
     }
@@ -194,7 +192,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     {
         await using var context = fixture.CreateContext();
         context.Invoices.Add(
-            Invoice.Create(999_999_999, $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow, Net, Vat, Gross));
+            TestInvoices.AtStandardRate(999_999_999, $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow, Gross.Amount));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
     }
@@ -299,9 +297,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     public async Task PaymentAmountRoundTripsAtFullPrecision()
     {
         var adminId = await SeedUserAsync();
-        var invoice = Invoice.Create(
-            await SeedProjectAsync(), $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow,
-            Money.FromExact(10_378.15m), Money.FromExact(1_967.52m), Money.FromExact(12_345.67m));
+        var invoice = TestInvoices.AtStandardRate(await SeedProjectAsync(), $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow, 12_345.67m);
         invoice.Send();
         invoice.MarkPaid(PaymentMethod.Cash, DateTime.UtcNow, adminId);
 

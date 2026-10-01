@@ -55,11 +55,9 @@ public class SendInvoiceCommandHandlerTests
         _projectRepository.Seed(
             Project.Create(customer.Id, angebotId: 3, Money.FromExact(25_673.36m)), ProjectId);
 
-        var net = Money.RoundedPerBR11(gross / 1.19m);
         return _invoiceRepository.Seed(
-            Invoice.Create(
-                ProjectId, "RE-2026-00017", DateTime.UtcNow.AddDays(14),
-                net, Money.FromExact(gross) - net, Money.FromExact(gross)),
+            TestInvoices.AtStandardRate(
+                ProjectId, "RE-2026-00017", DateTime.UtcNow.AddDays(14), gross),
             InvoiceId);
     }
 
@@ -177,7 +175,7 @@ public class SendInvoiceCommandHandlerTests
             Customer.Create(leadId: 1, "M. Klein", "m.klein@example.com", "0176 1234567"));
         _projectRepository.Seed(Project.Create(customer.Id, 3, Money.Zero), ProjectId);
         _invoiceRepository.Seed(
-            Invoice.Create(ProjectId, "RE-2026-00018", DateTime.UtcNow, Money.Zero, Money.Zero, Money.Zero),
+            TestInvoices.AtStandardRate(ProjectId, "RE-2026-00018", DateTime.UtcNow, 0m),
             InvoiceId);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -218,7 +216,7 @@ public class SendInvoiceCommandHandlerTests
             Customer.Create(leadId: 1, "M. Klein", "m.klein@example.com", "0176 1234567"));
         _projectRepository.Seed(Project.Create(customer.Id, 3, Money.Zero), ProjectId);
         _invoiceRepository.Seed(
-            Invoice.Create(ProjectId, "RE-2026-00018", DateTime.UtcNow, Money.Zero, Money.Zero, Money.Zero),
+            TestInvoices.AtStandardRate(ProjectId, "RE-2026-00018", DateTime.UtcNow, 0m),
             InvoiceId);
 
         await Assert.ThrowsAsync<InvalidOperationException>(

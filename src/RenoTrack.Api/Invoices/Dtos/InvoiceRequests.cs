@@ -3,8 +3,21 @@ using RenoTrack.Domain.Enums;
 namespace RenoTrack.Api.Invoices.Dtos;
 
 /// <summary>
-/// The body of <c>POST /api/v1/projects/{projectId}/invoices</c> — exactly the two fields Sequence
-/// Diagram §8 sends (<c>{ grossAmount, dueDate }</c>) and Wireframe E2 collects.
+/// The body of <c>POST /api/v1/projects/{projectId}/invoices</c> — the two fields Sequence Diagram
+/// §8 sends (<c>{ grossAmount, dueDate }</c>) and Wireframe E2 collects, plus the description and
+/// optional service period Phase 14 Slice 2 added for the Invoice document (D111, BR-5).
+///
+/// <para>
+/// <b>No VAT rate, VAT amount, net amount or VAT line is accepted, deliberately (D111).</b> The Admin
+/// decides how much this invoice bills (<c>grossAmount</c>, FR-8.1's splitting); the Invoice
+/// aggregate decides how that splits by rate, from the originating Angebot. A client that sends any
+/// such field has it ignored by model binding — it is neither stored nor echoed, and a test pins it.
+/// </para>
+/// <para>
+/// <c>Description</c> is nullable here only so that an absent field and a blank one reach the same
+/// validator rule and produce the same field-keyed 400, rather than one of them being caught earlier
+/// by model binding with a different message.
+/// </para>
 ///
 /// <para>
 /// A strict subset of <c>CreateInvoiceCommand</c>, which is what justifies the record existing at
@@ -17,7 +30,12 @@ namespace RenoTrack.Api.Invoices.Dtos;
 /// reserved one or reuse a voided one, which BR-9 forbids outright.
 /// </para>
 /// </summary>
-public sealed record CreateInvoiceRequest(decimal GrossAmount, DateTime DueDate);
+public sealed record CreateInvoiceRequest(
+    decimal GrossAmount,
+    DateTime DueDate,
+    string? Description,
+    DateOnly? ServicePeriodStart,
+    DateOnly? ServicePeriodEnd);
 
 /// <summary>
 /// The body of <c>POST /api/v1/invoices/{id}/mark-paid</c> — exactly the two fields Sequence Diagram

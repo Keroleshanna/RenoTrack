@@ -215,4 +215,39 @@ public sealed class DependencyInjectionTests
 
         Assert.IsType<NotificationDeliveryQueries>(queries);
     }
+
+    /// <summary>
+    /// D111 Part 6: the invoice calendar's Europe/Berlin zone is resolved while
+    /// <c>AddApplication()</c> composes the container — registered as an already-built instance, not
+    /// a factory — so a host without the zone's data fails at startup rather than on the first
+    /// invoice. If this registration ever became lazy, that guarantee would silently disappear.
+    /// </summary>
+    [Fact]
+    public void InvoiceCalendar_is_resolved_while_the_container_is_composed()
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+
+        var descriptor = Assert.Single(services, d => d.ServiceType == typeof(InvoiceCalendar));
+
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+        Assert.IsType<InvoiceCalendar>(descriptor.ImplementationInstance);
+        Assert.Null(descriptor.ImplementationFactory);
+    }
+
+    /// <summary>
+    /// The invoice handler's clock in the real composition is the system clock — the fake one exists
+    /// only in tests (D111 Part 6) — and the calendar resolves from the full container.
+    /// </summary>
+    [Fact]
+    public void The_real_container_provides_the_system_clock_and_the_invoice_calendar()
+    {
+        using var provider = BuildProvider();
+
+        Assert.Same(TimeProvider.System, provider.GetRequiredService<TimeProvider>());
+        Assert.Equal(
+            new DateOnly(2027, 1, 1),
+            provider.GetRequiredService<InvoiceCalendar>()
+                .DateOf(new DateTime(2026, 12, 31, 23, 30, 0, DateTimeKind.Utc)));
+    }
 }

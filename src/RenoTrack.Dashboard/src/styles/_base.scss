@@ -149,6 +149,11 @@ body {
 // content — so `overflow-x: auto` alone never engages and the *page* scrolls sideways instead of the
 // table. Found on a 375px viewport with a line-item table, not by reading the CSS.
 .rt-table-wrap {
+  // The containing block for anything absolutely positioned inside a table — the visually-hidden
+  // column labels in particular. Without it they escape this scroll container and widen the whole
+  // page on a phone, which pushed every open dialog off-screen (found in Phase 14 Slice 2's browser
+  // QA; the page was already 4px too wide at 375px before that slice's extra column).
+  position: relative;
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;

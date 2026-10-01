@@ -17,27 +17,44 @@ namespace RenoTrack.Domain.Entities;
 /// <see cref="Void"/> is a status change rather than a deletion.
 /// </para>
 /// <para>
-/// <b>Amounts arrive pre-split; this aggregate does not compute them.</b> SRS FR-8.2 requires a
-/// VAT breakdown "consistent with the originating Angebot's rates", which is knowledge of a
-/// different aggregate and therefore out of reach here (CLAUDE.md §2). The Application layer
-/// performs the allocation (Slice 3) and passes the three resulting totals. What this aggregate
-/// *does* enforce is that they are coherent: <see cref="NetAmount"/> + <see cref="VatAmount"/>
-/// must equal <see cref="GrossAmount"/> exactly, which needs no external knowledge and is the
-/// invariant any allocation arithmetic has to satisfy.
+/// <b>This aggregate calculates its own VAT split (Phase 14 Slice 2, D111).</b> SRS FR-8.2 requires
+/// a VAT breakdown "consistent with the originating Angebot's rates". The Admin chooses only how
+/// much this invoice bills (<see cref="GrossAmount"/>, FR-8.1's splitting); the caller passes the
+/// originating Angebot's rate mix as plain values, and <see cref="Create"/> splits the gross across
+/// it with <see cref="VatAllocation"/>. No caller can supply a net amount, a VAT amount, a rate or a
+/// line. Reading the Angebot remains the Application layer's job (CLAUDE.md §2 — this type cannot
+/// load another aggregate); deciding what the Invoice charges at each rate is this one's.
 /// </para>
 /// <para>
-/// <b>There is no <c>SentAt</c>, and no per-rate VAT detail.</b> ERD.md's <c>Invoices</c> table
-/// defines exactly the columns modelled below; adding a send timestamp (which <c>Angebot</c> has
-/// and this does not) or storing the per-rate lines would be inventing schema. The per-rate split
-/// is computed to derive the header totals and is deliberately not persisted — <c>InvoiceLine</c>
-/// is documented in ERD.md as an *optional* finer breakdown and is deferred out of Phase 8, on
-/// ERD.md's own statement that "an Invoice can exist with just header-level Net/VAT/Gross amounts
-/// if lines aren't needed".
+/// <b><see cref="VatLines"/> are stored, and <see cref="NetAmount"/>/<see cref="VatAmount"/> are
+/// their sums.</b> The Invoice document must state "applicable VAT rate(s) and VAT amount(s)"
+/// (BR-5), and one Invoice may carry several rates (BR-6). Phase 8 computed this split and
+/// discarded it; it is kept now. A line is a calculated result, not ERD.md's deferred
+/// <c>InvoiceLine</c>: it has no description, quantity or price. The header totals stay stored
+/// columns, like <c>Angebot.NetTotal</c>, and cannot drift because nothing changes the lines after
+/// creation.
+/// </para>
+/// <para>
+/// <b><see cref="Description"/> and the optional service period are the Admin's</b>, set once at
+/// creation. There is no edit: an issued invoice is corrected by voiding it and issuing another
+/// (BR-9).
+/// </para>
+/// <para>
+/// <b>There is no <c>SentAt</c>.</b> ERD.md's <c>Invoices</c> table defines none (unlike
+/// <c>Angebote</c>), and adding one would be inventing schema.
 /// </para>
 /// </summary>
 public sealed class Invoice
 {
+    /// <summary>
+    /// The maximum length of <see cref="Description"/>, read by the Application validator, the
+    /// guard in <see cref="Create"/> and the EF configuration alike — one definition, so the three
+    /// cannot drift (D109's pattern, D111).
+    /// </summary>
+    public const int MaxDescriptionLength = 500;
+
     private readonly List<Payment> _payments = [];
+    private readonly List<InvoiceVatLine> _vatLines = [];
 
     public int Id { get; private set; }
     public int ProjectId { get; private set; }
@@ -50,14 +67,32 @@ public sealed class Invoice
     public Money GrossAmount { get; private set; }
     public string? VoidReason { get; private set; }
 
+    /// <summary>
+    /// What this invoice bills for, in the Admin's words. Required for every invoice created from
+    /// Slice 2 on. A row created before then holds an empty string — it was never asked for one,
+    /// and none is invented for it; the document assembler refuses such an invoice instead.
+    /// </summary>
+    public string Description { get; private set; }
+
+    /// <summary>The first day of the service period, when the Admin gave one. Never assumed.</summary>
+    public DateOnly? ServicePeriodStart { get; private set; }
+
+    /// <summary>The last day of the service period; only ever present together with a start.</summary>
+    public DateOnly? ServicePeriodEnd { get; private set; }
+
     public IReadOnlyList<Payment> Payments => _payments;
+
+    /// <summary>
+    /// One line per VAT rate this invoice bills at, ordered by rate, calculated by
+    /// <see cref="Create"/>. Empty for a zero-gross invoice, and for a row created before Slice 2.
+    /// </summary>
+    public IReadOnlyList<InvoiceVatLine> VatLines => _vatLines;
 
     /// <summary>
     /// Assignment only — every guard lives in <see cref="Create"/> (CLAUDE.md §2), so nothing
     /// re-runs when EF Core materialises a persisted row through this same private constructor.
-    /// Every guard there is a lifetime invariant in any case (ids, a non-blank number, non-negative
-    /// amounts that add up), none of them clock-dependent — which is the trap <c>TokenLink</c> fell
-    /// into and the reason this split is kept even where it currently costs nothing.
+    /// That matters concretely here: a row created before Slice 2 has an empty
+    /// <see cref="Description"/>, which <see cref="Create"/> would refuse, and must still load.
     /// </summary>
     private Invoice(
         int projectId,
@@ -66,7 +101,10 @@ public sealed class Invoice
         DateTime dueDate,
         Money netAmount,
         Money vatAmount,
-        Money grossAmount)
+        Money grossAmount,
+        string description,
+        DateOnly? servicePeriodStart,
+        DateOnly? servicePeriodEnd)
     {
         ProjectId = projectId;
         InvoiceNumber = invoiceNumber;
@@ -75,6 +113,9 @@ public sealed class Invoice
         NetAmount = netAmount;
         VatAmount = vatAmount;
         GrossAmount = grossAmount;
+        Description = description;
+        ServicePeriodStart = servicePeriodStart;
+        ServicePeriodEnd = servicePeriodEnd;
         Status = InvoiceStatus.Draft;
         VoidReason = null;
     }
@@ -84,69 +125,123 @@ public sealed class Invoice
     /// point. Sequence Diagram §8 is the flow.
     ///
     /// <para>
-    /// <b><see cref="IssueDate"/> is server-derived and deliberately not a parameter.</b> Sequence
-    /// Diagram §8's request body is <c>{ grossAmount, dueDate }</c> and Wireframe E2 collects
-    /// exactly those two fields, so the issue date is the moment the invoice comes into existence,
-    /// not a caller's choice.
+    /// <b>The VAT split is calculated here.</b> <paramref name="grossAmount"/> is the Admin's choice
+    /// of how much this invoice bills (FR-8.1); <paramref name="rateMix"/> is the originating
+    /// Angebot's per-rate breakdown, passed as values. <see cref="VatAllocation.ProportionalTo"/>
+    /// splits the gross across the mix and the resulting lines become <see cref="VatLines"/>; the
+    /// header net and VAT are their sums. <c>Net + VAT == Gross</c> therefore holds by construction,
+    /// and is still checked as a backstop.
     /// </para>
     /// <para>
-    /// The guards are self-guards only. That <paramref name="projectId"/> names a real Project in
-    /// an <c>Active</c>/<c>OnHold</c> state is checked by <c>CreateInvoiceCommand</c>
-    /// (StateMachine.md §5 assigns it there by name) and backed by a foreign key; that the amounts
-    /// reflect the originating Angebot's rate mix is the Application layer's job. What is checked
-    /// here needs nothing beyond the arguments themselves.
+    /// <b><see cref="IssueDate"/> is the server's issue instant, in UTC, passed as
+    /// <paramref name="issuedAt"/> — never a request field and never a client's choice</b>
+    /// (D111 Part 6). It used to be read here from <see cref="DateTime.UtcNow"/>. It became a parameter
+    /// so that the handler can read the clock exactly once and use that one instant for both the
+    /// invoice-number year and this date: two reads could straddle midnight on New Year's Eve and
+    /// number an invoice in one year while dating it in the next. It is stored as given; the calendar
+    /// date printed on the invoice is derived from it in the company's zone, not here.
     /// </para>
     /// <para>
-    /// <b><paramref name="dueDate"/> is not constrained</b> — not against the issue date, not
-    /// against anything. No requirement document places a rule on it, and adding one here would be
-    /// inventing policy rather than implementing it.
+    /// The guards are self-guards only. That <paramref name="projectId"/> names a real Project in an
+    /// <c>Active</c>/<c>OnHold</c> state is checked by <c>CreateInvoiceCommand</c> (StateMachine.md
+    /// §5), and so is the case of a positive gross against a zero-total Angebot — there, before the
+    /// invoice number is reserved (D66). The same case reaching here still fails, as a backstop.
+    /// </para>
+    /// <para>
+    /// <b><paramref name="dueDate"/> is not constrained</b>, and neither is the service period
+    /// against the issue or due date. No requirement document places a rule on either; the only
+    /// period rules are the shape ones below.
     /// </para>
     /// </summary>
+    /// <exception cref="ArgumentNullException">The gross, the rate mix or the description is null.</exception>
     /// <exception cref="ArgumentException">
-    /// The project id is not positive, the invoice number is blank, an amount is negative, or the
-    /// amounts do not add up.
+    /// The project id is not positive, the invoice number or description is blank, the issue instant
+    /// is not UTC, the description is too long, the gross is negative, the rate mix names a rate twice or cannot carry a positive
+    /// gross, the service period has an end without a start, or ends before it starts.
     /// </exception>
     public static Invoice Create(
         int projectId,
         string invoiceNumber,
+        DateTime issuedAt,
         DateTime dueDate,
-        Money netAmount,
-        Money vatAmount,
-        Money grossAmount)
+        Money grossAmount,
+        IReadOnlyList<VatBreakdownLine> rateMix,
+        string description,
+        DateOnly? servicePeriodStart,
+        DateOnly? servicePeriodEnd)
     {
         if (projectId <= 0)
             throw new ArgumentException("Project id must be positive.", nameof(projectId));
         if (string.IsNullOrWhiteSpace(invoiceNumber))
             throw new ArgumentException("Invoice number is required.", nameof(invoiceNumber));
 
-        ArgumentNullException.ThrowIfNull(netAmount);
-        ArgumentNullException.ThrowIfNull(vatAmount);
-        ArgumentNullException.ThrowIfNull(grossAmount);
+        // An instant, not a wall-clock reading: anything but UTC would be interpreted differently on
+        // every host. A lifetime invariant of the value as given, so it belongs here in the factory;
+        // a row read back from datetime2 is Unspecified and must still load (CLAUDE.md §2).
+        if (issuedAt.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("The issue instant must be UTC.", nameof(issuedAt));
 
-        if (netAmount.Amount < 0)
-            throw new ArgumentException("Net amount cannot be negative.", nameof(netAmount));
-        if (vatAmount.Amount < 0)
-            throw new ArgumentException("VAT amount cannot be negative.", nameof(vatAmount));
+        ArgumentNullException.ThrowIfNull(grossAmount);
+        ArgumentNullException.ThrowIfNull(rateMix);
+        ArgumentNullException.ThrowIfNull(description);
+
         if (grossAmount.Amount < 0)
             throw new ArgumentException("Gross amount cannot be negative.", nameof(grossAmount));
 
-        // The invariant every VAT allocation must satisfy, stated once, here — so an allocation
-        // that loses or invents a cent cannot reach the database. BR-11 rounds each per-rate part,
-        // and rounded parts do not automatically re-sum to the figure they were split from; making
-        // that the aggregate's guard is what forces the Application layer's residual handling to
-        // be deliberate rather than accidental.
-        if (netAmount + vatAmount != grossAmount)
+        // Two lines at one rate would print a VAT summary that counts that rate twice. The real
+        // caller passes Angebot.VatBreakdown, which is grouped by rate, so this cannot happen through
+        // it — the guard is for any other caller, and the database index is the backstop below this.
+        if (rateMix.Select(line => line.Rate).Distinct().Count() != rateMix.Count)
+            throw new ArgumentException("The VAT rate mix names a rate more than once.", nameof(rateMix));
+
+        var trimmedDescription = description.Trim();
+        if (trimmedDescription.Length == 0)
+            throw new ArgumentException("A description is required.", nameof(description));
+        if (trimmedDescription.Length > MaxDescriptionLength)
         {
             throw new ArgumentException(
-                $"Net ({netAmount.Amount}) plus VAT ({vatAmount.Amount}) must equal gross ({grossAmount.Amount}).",
+                $"A description may be at most {MaxDescriptionLength} characters.", nameof(description));
+        }
+
+        if (servicePeriodEnd is not null && servicePeriodStart is null)
+        {
+            throw new ArgumentException(
+                "A service period end requires a start.", nameof(servicePeriodEnd));
+        }
+        if (servicePeriodEnd < servicePeriodStart)
+        {
+            throw new ArgumentException(
+                "A service period cannot end before it starts.", nameof(servicePeriodEnd));
+        }
+
+        var allocation = VatAllocation.ProportionalTo(rateMix, grossAmount);
+
+        // The invariant every VAT allocation must satisfy. VatAllocation guarantees it and the
+        // totals are the lines' own sums, so this cannot fail today; it stays so that a future
+        // change to the allocation which loses or invents a cent can never reach the database.
+        if (allocation.NetAmount + allocation.VatAmount != grossAmount)
+        {
+            throw new ArgumentException(
+                $"Net ({allocation.NetAmount.Amount}) plus VAT ({allocation.VatAmount.Amount}) must equal gross ({grossAmount.Amount}).",
                 nameof(grossAmount));
         }
 
-        // No relationship between the due date and the issue date is enforced. It would be an
-        // undocumented business rule: no requirement document constrains a due date, so choosing
-        // one here would be this phase inventing policy rather than implementing it.
-        return new Invoice(
-            projectId, invoiceNumber.Trim(), DateTime.UtcNow, dueDate, netAmount, vatAmount, grossAmount);
+        var invoice = new Invoice(
+            projectId,
+            invoiceNumber.Trim(),
+            issuedAt,
+            dueDate,
+            allocation.NetAmount,
+            allocation.VatAmount,
+            grossAmount,
+            trimmedDescription,
+            servicePeriodStart,
+            servicePeriodEnd);
+
+        invoice._vatLines.AddRange(
+            allocation.Lines.Select(line => new InvoiceVatLine(line.Rate, line.NetAmount, line.VatAmount)));
+
+        return invoice;
     }
 
     /// <summary>

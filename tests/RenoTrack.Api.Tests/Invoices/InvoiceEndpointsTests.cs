@@ -36,7 +36,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
@@ -64,7 +64,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 297.50m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 297.50m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(250.00m, body.GetProperty("netAmount").GetDecimal());
@@ -79,7 +79,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
         var invoiceId = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
         using var scope = factory.Services.CreateScope();
@@ -103,7 +103,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Null(response.Headers.Location);
@@ -125,7 +125,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await inspector.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Empty(await response.Content.ReadAsStringAsync());
@@ -139,7 +139,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await anonymous.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -153,7 +153,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             "/api/v1/projects/999999999/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -166,9 +166,139 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = -1.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = -1.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    // ---- Phase 14 Slice 2: description, service period, VAT lines (D111) ----
+
+    /// <summary>
+    /// The created invoice carries what the Admin stated and what the Invoice aggregate calculated:
+    /// the description, the service period as calendar dates, and one VAT line per rate of the
+    /// originating Angebot (here only 19 %). 297.50 is the seeded Angebot's whole gross.
+    /// </summary>
+    [Fact]
+    public async Task The_created_invoice_carries_its_description_service_period_and_vat_lines()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new
+            {
+                grossAmount = 297.50m,
+                dueDate = DateTime.UtcNow.AddDays(14),
+                description = "  Malerarbeiten Erdgeschoss  ",
+                servicePeriodStart = "2026-09-01",
+                servicePeriodEnd = "2026-09-30",
+            });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal("Malerarbeiten Erdgeschoss", body.GetProperty("description").GetString());
+        Assert.Equal("2026-09-01", body.GetProperty("servicePeriodStart").GetString());
+        Assert.Equal("2026-09-30", body.GetProperty("servicePeriodEnd").GetString());
+
+        var line = Assert.Single(body.GetProperty("vatLines").EnumerateArray());
+        Assert.Equal("Standard", line.GetProperty("rate").GetString());
+        Assert.Equal(250.00m, line.GetProperty("netAmount").GetDecimal());
+        Assert.Equal(47.50m, line.GetProperty("vatAmount").GetDecimal());
+    }
+
+    /// <summary>
+    /// <b>D111: the API accepts no VAT data.</b> A client that sends a net amount, a VAT amount, a
+    /// rate or its own lines has every one of them ignored — the stored and returned figures are the
+    /// Invoice aggregate's split of the gross across the Angebot's rates, and nothing else.
+    /// </summary>
+    [Fact]
+    public async Task Client_sent_vat_figures_are_neither_stored_nor_echoed()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new
+            {
+                grossAmount = 297.50m,
+                dueDate = DateTime.UtcNow.AddDays(14),
+                description = "Abschlag 1",
+                netAmount = 1.00m,
+                vatAmount = 296.50m,
+                rate = "Zero",
+                vatRate = 0,
+                vatLines = new[] { new { rate = "Zero", netAmount = 297.50m, vatAmount = 0m } },
+            });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(250.00m, body.GetProperty("netAmount").GetDecimal());
+        Assert.Equal(47.50m, body.GetProperty("vatAmount").GetDecimal());
+        Assert.Equal("Standard", Assert.Single(body.GetProperty("vatLines").EnumerateArray()).GetProperty("rate").GetString());
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
+        var stored = await db.Invoices.SingleAsync(i => i.Id == body.GetProperty("id").GetInt32());
+        Assert.Equal(250.00m, stored.NetAmount.Amount);
+        Assert.Equal(VatRate.Standard, Assert.Single(stored.VatLines).Rate);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_missing_or_blank_description_is_a_field_keyed_bad_request(string? description)
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(problem.GetProperty("errors").TryGetProperty("Description", out _));
+    }
+
+    [Fact]
+    public async Task A_description_over_500_characters_is_a_bad_request_not_a_500()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = new string('a', 501) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(problem.GetProperty("errors").TryGetProperty("Description", out _));
+    }
+
+    [Fact]
+    public async Task A_service_period_ending_before_it_starts_is_a_bad_request()
+    {
+        var projectId = await ConvertedProjectAsync();
+        using var admin = await AdminClientAsync();
+
+        var response = await admin.PostAsJsonAsync(
+            $"/api/v1/projects/{projectId}/invoices",
+            new
+            {
+                grossAmount = 100.00m,
+                dueDate = DateTime.UtcNow.AddDays(14),
+                description = "Abschlag 1",
+                servicePeriodStart = "2026-09-30",
+                servicePeriodEnd = "2026-09-01",
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(problem.GetProperty("errors").TryGetProperty("ServicePeriodEnd", out _));
     }
 
     // ---- BR-3: the warning is a number, not a rejection ---------------------
@@ -186,7 +316,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var created = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 1_000.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 1_000.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
@@ -264,7 +394,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var create = await inspector.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
     }
@@ -301,7 +431,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         {
             var created = await admin.PostAsJsonAsync(
                 $"/api/v1/projects/{projectId}/invoices",
-                new { grossAmount = amount, dueDate = DateTime.UtcNow.AddDays(14) });
+                new { grossAmount = amount, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
             Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         }
 
@@ -620,7 +750,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var created = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
         var invoiceId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
         await admin.PostAsync($"/api/v1/invoices/{invoiceId}/send", content: null);
 
@@ -697,7 +827,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var created = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
         var invoiceId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
         var before = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/projects/{projectId}/invoice-balance");
@@ -822,7 +952,7 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 
         var created = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 297.50m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 297.50m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         return (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();

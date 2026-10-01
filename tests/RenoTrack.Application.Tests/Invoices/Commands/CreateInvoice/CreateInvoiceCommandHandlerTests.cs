@@ -28,6 +28,9 @@ public class CreateInvoiceCommandHandlerTests
     private readonly FakeNumberGeneratorService _numberGenerator = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
     private readonly FakeAuditService _auditService = new();
+
+    // A fixed mid-morning instant, far from any midnight, unless a test moves it (D111 Part 6).
+    private readonly FakeTimeProvider _clock = new(new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero));
     private readonly CreateInvoiceCommandHandler _handler;
 
     public CreateInvoiceCommandHandlerTests()
@@ -39,7 +42,9 @@ public class CreateInvoiceCommandHandlerTests
             _invoiceRepository,
             _numberGenerator,
             _unitOfWork,
-            _auditService);
+            _auditService,
+            _clock,
+            InvoiceCalendar.ForEuropeBerlin());
     }
 
     /// <summary>
@@ -57,8 +62,27 @@ public class CreateInvoiceCommandHandlerTests
             ProjectId);
     }
 
-    private CreateInvoiceCommand CommandFor(decimal gross) =>
-        new(ProjectId, gross, DateTime.UtcNow.AddDays(14), AdminId);
+    private const string Description = "Abschlag 1: Malerarbeiten Erdgeschoss";
+
+    private CreateInvoiceCommand CommandFor(
+        decimal gross,
+        string description = Description,
+        DateOnly? servicePeriodStart = null,
+        DateOnly? servicePeriodEnd = null) =>
+        new(ProjectId, gross, DateTime.UtcNow.AddDays(14), description, servicePeriodStart, servicePeriodEnd, AdminId);
+
+    /// <summary>A real mixed-rate Angebot (BR-6): one 7 % line and one 19 % line.</summary>
+    private Project SeedMixedRateProject()
+    {
+        var angebot = _angebotRepository.Seed(Angebot.Create(1, null, "ANG-2026-00043", InspectorId));
+        var section = angebot.AddSection("Pos. 1", 1);
+        angebot.AddItemToSection(section, "Material", 1m, ItemUnit.Piece(), Money.FromExact(1_000.00m), VatRate.Reduced);
+        angebot.AddItemToSection(section, "Arbeit", 1m, ItemUnit.Piece(), Money.FromExact(5_000.00m), VatRate.Standard);
+
+        return _projectRepository.Seed(
+            Project.Create(customerId: 9, angebotId: angebot.Id, agreedTotal: angebot.GrossTotal),
+            ProjectId);
+    }
 
     // ---- Happy path -----------------------------------------------------
 
@@ -89,6 +113,65 @@ public class CreateInvoiceCommandHandlerTests
         Assert.Equal(10_000.00m, result.NetAmount);
         Assert.Equal(1_900.00m, result.VatAmount);
         Assert.Equal(11_900.00m, result.GrossAmount);
+    }
+
+    /// <summary>
+    /// D111: the Invoice aggregate keeps one VAT line per rate of the originating Angebot. Billing a
+    /// 7 % + 19 % Angebot's whole gross (1,070.00 + 5,950.00) reproduces both rates' figures.
+    /// </summary>
+    [Fact]
+    public async Task AMixedRateAngebotYieldsOneVatLinePerRate()
+    {
+        SeedMixedRateProject();
+
+        var result = await _handler.HandleAsync(CommandFor(7_020.00m), CancellationToken.None);
+
+        Assert.Collection(
+            result.VatLines,
+            line =>
+            {
+                Assert.Equal(VatRate.Reduced, line.Rate);
+                Assert.Equal(1_000.00m, line.NetAmount);
+                Assert.Equal(70.00m, line.VatAmount);
+            },
+            line =>
+            {
+                Assert.Equal(VatRate.Standard, line.Rate);
+                Assert.Equal(5_000.00m, line.NetAmount);
+                Assert.Equal(950.00m, line.VatAmount);
+            });
+        Assert.Equal(6_000.00m, result.NetAmount);
+        Assert.Equal(1_020.00m, result.VatAmount);
+    }
+
+    /// <summary>
+    /// The lines on the persisted aggregate are the ones returned — the DTO reads what the Invoice
+    /// calculated, and nothing in the command could have supplied them.
+    /// </summary>
+    [Fact]
+    public async Task ThePersistedInvoiceCarriesTheCalculatedLines()
+    {
+        SeedMixedRateProject();
+
+        await _handler.HandleAsync(CommandFor(3_510.00m), CancellationToken.None);
+
+        var invoice = Assert.Single(_invoiceRepository.AddedInvoices);
+        Assert.Equal([VatRate.Reduced, VatRate.Standard], invoice.VatLines.Select(l => l.Rate).ToArray());
+        Assert.Equal(invoice.GrossAmount, invoice.NetAmount + invoice.VatAmount);
+    }
+
+    [Fact]
+    public async Task TheDescriptionAndServicePeriodAreStored()
+    {
+        SeedProject();
+
+        var result = await _handler.HandleAsync(
+            CommandFor(100.00m, "  Malerarbeiten  ", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30)),
+            CancellationToken.None);
+
+        Assert.Equal("Malerarbeiten", result.Description);
+        Assert.Equal(new DateOnly(2026, 9, 1), result.ServicePeriodStart);
+        Assert.Equal(new DateOnly(2026, 9, 30), result.ServicePeriodEnd);
     }
 
     [Fact]
@@ -136,7 +219,76 @@ public class CreateInvoiceCommandHandlerTests
 
         await _handler.HandleAsync(CommandFor(100.00m), CancellationToken.None);
 
-        Assert.Equal(DateTime.UtcNow.Year, Assert.Single(_numberGenerator.RequestedYears));
+        Assert.Equal(2026, Assert.Single(_numberGenerator.RequestedYears));
+    }
+
+    // ---- D111 Part 6: one instant, in the company's calendar ---------------
+
+    /// <summary>
+    /// 23:30 UTC on 31 December is 00:30 on 1 January in Berlin. The invoice is numbered in the
+    /// Berlin year — 2027 — although the UTC year is still 2026. Before this fix it was numbered (and
+    /// dated) 2026.
+    /// </summary>
+    [Fact]
+    public async Task AfterBerlinMidnightOnNewYearsEveTheNumberYearIsTheNewYear()
+    {
+        SeedProject();
+        _clock.UtcNow = new DateTimeOffset(2026, 12, 31, 23, 30, 0, TimeSpan.Zero);
+
+        await _handler.HandleAsync(CommandFor(100.00m), CancellationToken.None);
+
+        Assert.Equal(2027, Assert.Single(_numberGenerator.RequestedYears));
+    }
+
+    /// <summary>22:59 UTC on 31 December is 23:59 in Berlin — the old year still.</summary>
+    [Fact]
+    public async Task BeforeBerlinMidnightOnNewYearsEveTheNumberYearIsTheOldYear()
+    {
+        SeedProject();
+        _clock.UtcNow = new DateTimeOffset(2026, 12, 31, 22, 59, 0, TimeSpan.Zero);
+
+        await _handler.HandleAsync(CommandFor(100.00m), CancellationToken.None);
+
+        Assert.Equal(2026, Assert.Single(_numberGenerator.RequestedYears));
+    }
+
+    /// <summary>
+    /// The number year and the issue date come from ONE clock read, so they cannot disagree: the
+    /// stored issue instant is exactly the instant the year was taken from, and the clock is read
+    /// exactly once.
+    /// </summary>
+    [Fact]
+    public async Task TheNumberYearAndTheIssueDateComeFromOneInstant()
+    {
+        SeedProject();
+        var instant = new DateTimeOffset(2026, 12, 31, 23, 30, 0, TimeSpan.Zero);
+        _clock.UtcNow = instant;
+
+        var result = await _handler.HandleAsync(CommandFor(100.00m), CancellationToken.None);
+
+        Assert.Equal(1, _clock.ReadCount);
+        Assert.Equal(instant.UtcDateTime, Assert.Single(_invoiceRepository.AddedInvoices).IssueDate);
+        Assert.Equal(instant.UtcDateTime, result.IssueDate);
+        Assert.Equal(
+            new DateOnly(2027, 1, 1),
+            InvoiceCalendar.ForEuropeBerlin().DateOf(result.IssueDate));
+        Assert.Equal(2027, Assert.Single(_numberGenerator.RequestedYears));
+    }
+
+    /// <summary>
+    /// D66 is unchanged: a rejected request reads no clock and reserves no number. The clock is read
+    /// after every guard, immediately before the reservation.
+    /// </summary>
+    [Fact]
+    public async Task ARejectedRequestReadsNoClock()
+    {
+        SeedProject().Complete();
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _handler.HandleAsync(CommandFor(100.00m), CancellationToken.None));
+
+        Assert.Equal(0, _clock.ReadCount);
+        Assert.Equal(0, _numberGenerator.ReservationCount);
     }
 
     // ---- BR-3: over-invoicing is allowed --------------------------------
@@ -243,6 +395,68 @@ public class CreateInvoiceCommandHandlerTests
             () => _handler.HandleAsync(CommandFor(-1.00m), CancellationToken.None));
     }
 
+    // ---- Description and service period shape (D111) --------------------
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ABlankDescriptionFailsValidationOnTheDescriptionField(string description)
+    {
+        SeedProject();
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(
+            () => _handler.HandleAsync(CommandFor(100.00m, description), CancellationToken.None));
+
+        Assert.Contains(ex.Errors, e => e.PropertyName == nameof(CreateInvoiceCommand.Description));
+    }
+
+    [Fact]
+    public async Task ADescriptionOverTheMaximumFailsValidation()
+    {
+        SeedProject();
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(
+            CommandFor(100.00m, new string('a', Invoice.MaxDescriptionLength + 1)), CancellationToken.None));
+
+        Assert.Contains(ex.Errors, e => e.PropertyName == nameof(CreateInvoiceCommand.Description));
+    }
+
+    /// <summary>The validator measures after trimming, as the Domain does — the two must agree.</summary>
+    [Fact]
+    public async Task ADescriptionOfExactlyTheMaximumAfterTrimmingIsAccepted()
+    {
+        SeedProject();
+
+        var result = await _handler.HandleAsync(
+            CommandFor(100.00m, " " + new string('a', Invoice.MaxDescriptionLength) + " "),
+            CancellationToken.None);
+
+        Assert.Equal(Invoice.MaxDescriptionLength, result.Description.Length);
+    }
+
+    [Fact]
+    public async Task AServicePeriodEndWithoutAStartFailsValidation()
+    {
+        SeedProject();
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(
+            CommandFor(100.00m, servicePeriodEnd: new DateOnly(2026, 9, 30)), CancellationToken.None));
+
+        Assert.Contains(ex.Errors, e => e.PropertyName == nameof(CreateInvoiceCommand.ServicePeriodStart));
+    }
+
+    [Fact]
+    public async Task AServicePeriodEndingBeforeItStartsFailsValidation()
+    {
+        SeedProject();
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(
+            CommandFor(100.00m, servicePeriodStart: new DateOnly(2026, 9, 30), servicePeriodEnd: new DateOnly(2026, 9, 1)),
+            CancellationToken.None));
+
+        Assert.Contains(ex.Errors, e => e.PropertyName == nameof(CreateInvoiceCommand.ServicePeriodEnd));
+    }
+
     // ---- D66: the number is reserved last -------------------------------
 
     /// <summary>
@@ -292,6 +506,35 @@ public class CreateInvoiceCommandHandlerTests
         Assert.Equal(0, _numberGenerator.ReservationCount);
     }
 
+    /// <summary>
+    /// D111 moved the description and service-period rules into Invoice.Create, which runs after the
+    /// reservation. The validator mirrors them so an ordinary bad request still burns no number —
+    /// these pin it for every one of the new shape errors.
+    /// </summary>
+    [Theory]
+    [InlineData("", null, null)]
+    [InlineData("   ", null, null)]
+    [InlineData("TOO_LONG", null, null)]
+    [InlineData("Malerarbeiten", null, "2026-09-30")]
+    [InlineData("Malerarbeiten", "2026-09-30", "2026-09-01")]
+    public async Task NoNumberIsReservedWhenTheDescriptionOrServicePeriodIsMalformed(
+        string description, string? start, string? end)
+    {
+        SeedProject();
+        var text = description == "TOO_LONG" ? new string('a', Invoice.MaxDescriptionLength + 1) : description;
+
+        await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(
+            CommandFor(
+                100.00m,
+                text,
+                start is null ? null : DateOnly.Parse(start, System.Globalization.CultureInfo.InvariantCulture),
+                end is null ? null : DateOnly.Parse(end, System.Globalization.CultureInfo.InvariantCulture)),
+            CancellationToken.None));
+
+        Assert.Equal(0, _numberGenerator.ReservationCount);
+        Assert.Empty(_invoiceRepository.AddedInvoices);
+    }
+
     /// <summary>A rejected request must leave nothing behind at all — no row, no commit, no audit.</summary>
     [Fact]
     public async Task ARejectedRequestHasNoSideEffects()
@@ -323,5 +566,28 @@ public class CreateInvoiceCommandHandlerTests
             .Select(p => p.ParameterType);
 
         Assert.DoesNotContain(typeof(IOwnershipValidator), parameterTypes);
+    }
+
+    /// <summary>
+    /// D111: the command carries the Admin's gross and nothing else monetary. No net amount, VAT
+    /// amount, rate or line can be stated by a caller — the Invoice aggregate calculates them.
+    /// </summary>
+    [Fact]
+    public void TheCommandAcceptsNoNetVatRateOrLine()
+    {
+        var properties = typeof(CreateInvoiceCommand).GetProperties().Select(p => p.Name).Order().ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                nameof(CreateInvoiceCommand.CreatedByAdminId),
+                nameof(CreateInvoiceCommand.Description),
+                nameof(CreateInvoiceCommand.DueDate),
+                nameof(CreateInvoiceCommand.GrossAmount),
+                nameof(CreateInvoiceCommand.ProjectId),
+                nameof(CreateInvoiceCommand.ServicePeriodEnd),
+                nameof(CreateInvoiceCommand.ServicePeriodStart),
+            },
+            properties);
     }
 }

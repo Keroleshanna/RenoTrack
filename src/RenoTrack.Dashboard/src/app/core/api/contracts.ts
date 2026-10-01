@@ -307,6 +307,16 @@ export interface InvoiceListItemDto {
   readonly voidReason: string | null;
 }
 
+/**
+ * One rate's share of an Invoice, as the Invoice aggregate calculated it (D111). Read-only: no
+ * request shape carries one, because the server — never this screen — splits the gross by rate.
+ */
+export interface InvoiceVatLineDto {
+  readonly rate: VatRateDto;
+  readonly netAmount: number;
+  readonly vatAmount: number;
+}
+
 /** What every Invoice *command* returns. Carries no customer name — the list read supplies that. */
 export interface InvoiceDto {
   readonly id: number;
@@ -319,7 +329,36 @@ export interface InvoiceDto {
   readonly vatAmount: number;
   readonly grossAmount: number;
   readonly voidReason: string | null;
+  /** What the invoice bills for. Empty only on an invoice created before Phase 14 Slice 2. */
+  readonly description: string;
+  /** ISO calendar dates (`yyyy-MM-dd`), present only when the Admin gave a service date/period. */
+  readonly servicePeriodStart: string | null;
+  readonly servicePeriodEnd: string | null;
+  readonly vatLines: readonly InvoiceVatLineDto[];
 }
+
+/**
+ * The body of `POST /api/v1/projects/{id}/invoices` — its own type because it is deliberately
+ * not a subset of {@link InvoiceDto} (CLAUDE.md §23).
+ *
+ * **There is no net amount, VAT amount, rate or line here, and there must never be** (D111). The
+ * Admin decides how much this invoice bills; the Invoice aggregate splits it across the originating
+ * Angebot's rates. Dates are ISO calendar dates; an absent service period is `null`, never assumed.
+ */
+export interface CreateInvoiceRequestDto {
+  readonly grossAmount: number;
+  readonly dueDate: string;
+  readonly description: string;
+  readonly servicePeriodStart: string | null;
+  readonly servicePeriodEnd: string | null;
+}
+
+/**
+ * The longest invoice description the server accepts, mirrored from `Invoice.MaxDescriptionLength`
+ * (D111). The form enforces it so an Admin is told at the field, not by a 400 — the same reason
+ * `PAGE_SIZE_MAX` and `MAX_SCHEDULE_WINDOW_DAYS` are mirrored, and pinned by a test like them.
+ */
+export const INVOICE_DESCRIPTION_MAX = 500;
 
 /** `PaymentMethod` — Phase 8 records full payment only, so no amount accompanies it. */
 export const PAYMENT_METHODS = ['BankTransfer', 'Cash', 'Other'] as const;
@@ -379,6 +418,8 @@ export interface ProjectInvoiceDto {
   readonly grossAmount: number;
   readonly status: InvoiceStatusDto;
   readonly dueDate: string;
+  /** Empty only on an invoice created before Phase 14 Slice 2 (D111). */
+  readonly description: string;
 }
 
 /**

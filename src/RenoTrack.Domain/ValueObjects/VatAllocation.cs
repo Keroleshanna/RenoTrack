@@ -14,14 +14,33 @@ namespace RenoTrack.Domain.ValueObjects;
 /// target: it knows nothing about Angebote, Invoices or Projects, and reaches no repository.
 /// </para>
 /// <para>
-/// <b>The per-rate detail is deliberately not returned.</b> Only the three totals are, because only
-/// those three exist as columns (ERD.md's <c>Invoices</c>) — <c>InvoiceLine</c> is deferred, so
-/// there is nowhere to put a per-rate breakdown and nothing that reads one. The split is performed
-/// per rate, which is what BR-6 requires; it is the *result* that is aggregated.
+/// <b>The per-rate detail is returned as <see cref="Lines"/>, one per rate, ordered by rate</b>
+/// (Phase 14 Slice 2, D111). Phase 8 computed the split and discarded it, because nothing stored
+/// or read it; an Invoice document has to print "applicable VAT rate(s) and VAT amount(s)" (BR-5),
+/// so <c>Invoice</c> now keeps exactly these lines. The totals are the lines' sums, never a second
+/// calculation, so the two can never disagree.
 /// </para>
 /// </summary>
-public sealed record VatAllocation(Money NetAmount, Money VatAmount, Money GrossAmount)
+public sealed record VatAllocation(
+    IReadOnlyList<VatBreakdownLine> Lines,
+    Money NetAmount,
+    Money VatAmount,
+    Money GrossAmount)
 {
+    /// <summary>
+    /// Value equality over the lines too. A record compares a list member by reference, which would
+    /// make two identical allocations unequal the moment <see cref="Lines"/> was added; this keeps
+    /// "the same input always produces the same result" a statement about values.
+    /// </summary>
+    public bool Equals(VatAllocation? other) =>
+        other is not null
+        && NetAmount == other.NetAmount
+        && VatAmount == other.VatAmount
+        && GrossAmount == other.GrossAmount
+        && Lines.SequenceEqual(other.Lines);
+
+    public override int GetHashCode() => HashCode.Combine(NetAmount, VatAmount, GrossAmount, Lines.Count);
+
     /// <summary>
     /// Splits <paramref name="targetGross"/> across the VAT rates present in
     /// <paramref name="rateMix"/>, in proportion to each rate's share of that mix's own gross.
@@ -34,15 +53,16 @@ public sealed record VatAllocation(Money NetAmount, Money VatAmount, Money Gross
     /// than recomputed from the rate, so a rounded net cannot leave a stray cent behind.
     /// </para>
     /// <para>
-    /// <b>A zero target allocates to zero without dividing.</b> That path is taken before the mix's
-    /// gross is ever used as a divisor, so a zero-valued Angebot and a zero-valued Invoice compose
-    /// safely.
+    /// <b>A zero target allocates to zero without dividing</b>, and produces no lines: there is
+    /// nothing to split, so no rate has a share. That path is taken before the mix's gross is ever
+    /// used as a divisor, so a zero-valued Angebot and a zero-valued Invoice compose safely.
     /// </para>
     /// <para>
     /// The residual-cent rule is deterministic rounding machinery, not policy: the mix is ordered by
     /// rate and any residual lands on the largest-gross rate group (ties going to the higher rate).
-    /// Nothing outside this method depends on <i>which</i> group receives it — only that the totals
-    /// reconcile — because the per-rate detail is not returned or stored.
+    /// Since Slice 2 the lines are stored, so <i>which</i> group receives it is visible on the
+    /// document — which is exactly why it must be a fixed function of the input, pinned by tests,
+    /// rather than an accident of ordering.
     /// </para>
     /// </summary>
     /// <exception cref="ArgumentNullException">The rate mix or the target is null.</exception>
@@ -61,7 +81,7 @@ public sealed record VatAllocation(Money NetAmount, Money VatAmount, Money Gross
 
         // Before any division: nothing to split, so nothing to divide by.
         if (targetGross == Money.Zero)
-            return new VatAllocation(Money.Zero, Money.Zero, Money.Zero);
+            return new VatAllocation([], Money.Zero, Money.Zero, Money.Zero);
 
         // Ordered so the whole calculation — including which group absorbs the residual — is a
         // function of the input alone, never of the order a caller happened to build the list in.
@@ -89,20 +109,23 @@ public sealed record VatAllocation(Money NetAmount, Money VatAmount, Money Gross
             shares[IndexOfLargestGross(groupGross)] += residual;
         }
 
-        var nets = new Money[lines.Length];
-        var vats = new Money[lines.Length];
+        var allocated = new VatBreakdownLine[lines.Length];
 
         for (var i = 0; i < lines.Length; i++)
         {
             var multiplier = 1m + (lines[i].Rate.ToPercentage() / 100m);
-            nets[i] = Money.RoundedPerBR11(shares[i].Amount / multiplier);
+            var net = Money.RoundedPerBR11(shares[i].Amount / multiplier);
 
             // Subtraction, not a second rate calculation: this is what guarantees
             // net + vat == share for every group, and therefore for the totals.
-            vats[i] = shares[i] - nets[i];
+            allocated[i] = new VatBreakdownLine(lines[i].Rate, net, shares[i] - net);
         }
 
-        return new VatAllocation(Money.Sum(nets), Money.Sum(vats), targetGross);
+        return new VatAllocation(
+            allocated,
+            Money.Sum(allocated.Select(line => line.NetAmount)),
+            Money.Sum(allocated.Select(line => line.VatAmount)),
+            targetGross);
     }
 
     /// <summary>

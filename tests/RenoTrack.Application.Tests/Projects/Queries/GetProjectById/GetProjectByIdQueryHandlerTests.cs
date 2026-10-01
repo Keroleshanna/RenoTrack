@@ -25,7 +25,7 @@ public class GetProjectByIdQueryHandlerTests
         AlreadyInvoiced: 8_000m, Remaining: 17_673.36m,
         Invoices:
         [
-            new ProjectInvoiceDto(11, "RE-2026-00017", 8_000m, InvoiceStatus.Sent, new DateTime(2026, 8, 15)),
+            new ProjectInvoiceDto(11, "RE-2026-00017", 8_000m, InvoiceStatus.Sent, new DateTime(2026, 8, 15), "Abschlag 1"),
         ]);
 
     [Fact]
@@ -96,9 +96,11 @@ public class GetProjectByIdQueryHandlerTests
     }
 
     /// <summary>
-    /// The invoice rows carry E1's four columns plus the id the "Mark Paid" button needs, and
-    /// nothing more — no net/VAT split, no issue date, no void reason, no payments. Pinned by
-    /// property name so an added field is a deliberate, reviewed change rather than a quiet one.
+    /// The invoice rows carry E1's four columns, the id the "Mark Paid" button needs and — since
+    /// Phase 14 Slice 2 (D111) — the invoice's description, which is how several invoices against
+    /// one Project are told apart. Nothing more: no net/VAT split, no issue date, no void reason, no
+    /// payments. Pinned by property name so an added field is a deliberate, reviewed change rather
+    /// than a quiet one.
     /// </summary>
     [Fact]
     public void AnInvoiceRowExposesOnlyWhatWireframeE1Renders()
@@ -110,7 +112,7 @@ public class GetProjectByIdQueryHandlerTests
             .ToArray();
 
         Assert.Equal(
-            ["DueDate", "GrossAmount", "Id", "InvoiceNumber", "Status"],
+            ["Description", "DueDate", "GrossAmount", "Id", "InvoiceNumber", "Status"],
             properties);
     }
 }

@@ -691,13 +691,11 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
         context.Projects.Add(project);
         await context.SaveChangesAsync();
 
-        var invoice = Invoice.Create(
+        var invoice = Persistence.TestInvoices.AtStandardRate(
             project.Id,
             $"RE-2026-{Random.Shared.Next(10000, 99999)}",
             DateTime.UtcNow.AddDays(14),
-            Domain.ValueObjects.Money.FromExact(840.34m),
-            Domain.ValueObjects.Money.FromExact(159.66m),
-            Domain.ValueObjects.Money.FromExact(1000.00m));
+            1000.00m);
 
         context.Invoices.Add(invoice);
         await context.SaveChangesAsync();

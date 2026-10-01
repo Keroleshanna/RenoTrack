@@ -10,9 +10,10 @@ using RenoTrack.Domain.ValueObjects;
 namespace RenoTrack.Application.Invoices.Commands.CreateInvoice;
 
 /// <summary>
-/// SRS FR-8.1/FR-8.2, Sequence Diagram §8. The Admin enters a gross amount and a due date; this
-/// splits that gross across the originating Angebot's VAT rates and records the Invoice as
-/// <c>Draft</c>.
+/// SRS FR-8.1/FR-8.2, Sequence Diagram §8. The Admin enters a gross amount, a due date, a
+/// description and optionally a service period; this loads the originating Angebot's VAT rate mix
+/// and hands it to <c>Invoice.Create</c>, which splits the gross across it (D111), and records the
+/// Invoice as <c>Draft</c>.
 ///
 /// <para>
 /// <b>No <c>IOwnershipValidator</c>, deliberately.</b> `PermissionMatrix.md` §5 marks "Create
@@ -40,7 +41,9 @@ public sealed class CreateInvoiceCommandHandler(
     IInvoiceRepository invoiceRepository,
     INumberGeneratorService numberGenerator,
     IUnitOfWork unitOfWork,
-    IAuditService auditService) : ICommandHandler<CreateInvoiceCommand, InvoiceDto>
+    IAuditService auditService,
+    TimeProvider timeProvider,
+    InvoiceCalendar invoiceCalendar) : ICommandHandler<CreateInvoiceCommand, InvoiceDto>
 {
     public async Task<InvoiceDto> HandleAsync(CreateInvoiceCommand command, CancellationToken cancellationToken)
     {
@@ -77,20 +80,33 @@ public sealed class CreateInvoiceCommandHandler(
                 $"Angebot {angebot.AngebotNumber} has a gross total of zero, so no VAT split can be derived for an invoice of {command.GrossAmount}.");
         }
 
-        var allocation = VatAllocation.ProportionalTo(angebot.VatBreakdown, requestedGross);
-
         // Reserved last, after every guard that could reject this request has already passed
-        // (D66). The reservation commits independently of the save below, so a failure after this
-        // point leaves the number unused — the window is narrowed to the commit itself, not closed.
-        var invoiceNumber = await numberGenerator.NextInvoiceNumberAsync(DateTime.UtcNow.Year, cancellationToken);
+        // (D66) — including the description and service-period shape, which the validator checks
+        // first so that Invoice.Create's own guards are never what rejects an ordinary bad request.
+        // The reservation commits independently of the save below, so a failure after this point
+        // leaves the number unused — the window is narrowed to the commit itself, not closed.
+        //
+        // ONE clock read, used for both the number year and the issue date (D111 Part 6). The year is
+        // the calendar year in Europe/Berlin, the zone the invoice is dated in, so an invoice created
+        // at 00:30 on 1 January in Germany is numbered and dated in the new year — and the two can
+        // never disagree, because they come from the same instant. Read here, after the guards, so a
+        // rejected request has touched nothing.
+        var issuedAt = timeProvider.GetUtcNow().UtcDateTime;
+        var invoiceNumber = await numberGenerator.NextInvoiceNumberAsync(
+            invoiceCalendar.YearOf(issuedAt), cancellationToken);
 
+        // The Invoice aggregate splits the gross across the Angebot's rate mix itself (D111). This
+        // handler supplies the mix as values and decides nothing about the split.
         var invoice = Invoice.Create(
             project.Id,
             invoiceNumber,
+            issuedAt,
             command.DueDate,
-            allocation.NetAmount,
-            allocation.VatAmount,
-            allocation.GrossAmount);
+            requestedGross,
+            angebot.VatBreakdown,
+            command.Description,
+            command.ServicePeriodStart,
+            command.ServicePeriodEnd);
 
         await invoiceRepository.AddAsync(invoice, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
