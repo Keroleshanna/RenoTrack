@@ -1,5 +1,17 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-01 — Phase 14 Slice 1 is MERGED to `main` (`c18a541`, PR #30), and so are Phase 13's parking (PR #28) and Slice 7 (PR #29). All CI green.**
+>
+> **Tests, measured in CI — 2,932 passing, 0 failing:** Domain **396**, Application **470**, Infrastructure **412** (LocalDB), Api **489** (LocalDB), Website **1,136**, MediaPrep **20**, Documents **9** (new). Build 0 warnings, 0 errors. Migrations: 13, none added by this slice.
+>
+> **`RenoTrack.Documents.Tests` passed in CI's Linux job**, which was the open verification from this slice: it cannot run locally because Windows Application Control blocks `PdfSharp.System.dll` (`0x800711C7`), and that condition blocks a third-party assembly, so the non-deterministic-build workaround does not apply to it.
+>
+> **Next: Phase 14 Slice 2 — the Invoice document.** The Invoice aggregate cannot produce a §14 UStG compliant document today: it stores no description, no quantity and no VAT rate. The approved resolution is **one description and one VAT rate on the Invoice**, not an `InvoiceLine` collection. It needs Domain fields and guards, a migration, the creation path through to the Dashboard's invoice form, the document model and template, and tests. Legal sign-off on the rendered document remains the company's (SRS §5, Q20).
+>
+> **Then Slice 3:** archive the PDF at send time rather than regenerating it, the authenticated Dashboard download, the token-based customer download, and the email attachment.
+>
+> `HANDOFF_PROMPT.md` is current as of this entry and is what a fresh session should be given.
+
 > **2026-10-01 — Phase 14 Slice 1 (PDF foundation and the Angebot document, D110) is implemented on `feature/phase-14-pdf-generation`.** Not committed to `main`.
 > - **Library:** MigraDoc/PDFsharp 6.2.4 (**MIT**), composing a document model rather than rendering HTML — `Architecture.md` §4 updated in the same change. The alternatives either ship a browser into the deployment or carry a revenue-triggered licence inherited by every company this product is sold to.
 > - **Fonts:** PDFsharp resolves none on its own, on any OS — measured. Liberation Sans (OFL 1.1) is embedded in the Infrastructure assembly with its licence, and `EmbeddedFontResolver` answers every request.
