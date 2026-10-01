@@ -1,5 +1,24 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-01 — Phase 14 Slice 2 (the Invoice document, D111) is MERGED and VERIFIED. `main` is at `dff57c4165fdc3bb648a9b91c1c3a16379f69ba5` (PR #32). No later slice has started.**
+>
+> **Tests, measured in CI on PR #32 — 3,055 passing, 0 failing:** Domain **429**, Application **530**, Infrastructure **419** (LocalDB), Api **498** (LocalDB), Website **1,136**, MediaPrep **20**, **Documents 23** — the 23 PDF tests that cannot run on the development machine ran and passed in CI's Linux job, which closes Slice 2's open verification. Build 0 warnings, 0 errors. Migrations: **14**, no pending model changes. The Dashboard is not built or tested by CI; its figures are local: 94 specs (81 existing + 13 new), lint clean, build 391.77 kB.
+>
+> **What Slice 2 settled (all approved before implementation; D111 is the full record):**
+> - **The Invoice calculates its own VAT** from the originating Angebot's rate mix: `Invoice.Create` takes the Admin's gross and the mix and stores **one `InvoiceVatLine` per VAT rate**; net and VAT are the lines' sums. No caller may send a net amount, a VAT amount, a rate or a line. An `InvoiceVatLine` is a calculated result, not an invoice line — `InvoiceLine` stays deferred.
+> - **`GrossAmount` remains the Admin's input** (FR-8.1 instalments).
+> - **`Description` is required, at most 500 characters** after trimming; an **optional service date or period**; **no quantity field** (a legal-review question, Q20).
+> - **An issued invoice is immutable; a correction is void and reissue** (BR-9).
+> - **The invoice date and number year come from one server instant read in Europe/Berlin** (D111 Part 6). The stored value is the UTC instant. **This covers the Invoice only** — the general UTC/time-policy questions remain future work (`NEXT_STEPS.md` §8e).
+> - **PDF rendering is prepared, not wired:** `InvoiceDocument`, `InvoiceDocumentFactory` and `IPdfGenerator.RenderInvoice` exist with no production caller; Slice 3 wires them.
+> - **Customer address correction is outside Slice 2** — the document assembler refuses an invoice whose customer has no address.
+>
+> **Next: the Product Owner chooses.** Candidates in `NEXT_STEPS.md` §8, **order not decided, none started**: Slice 3 (archive, download, email attachment); 2b (customer address correction); A (Admin editing of an Inspector's Angebot — design first); B (Angebot revisions after sending, SRS OQ-4 — design first); a time-policy slice for the remaining UTC dates (design first).
+>
+> `HANDOFF_PROMPT.md` is current as of this entry and is what a fresh session should be given.
+
+> *History — the entry below describes Slice 2 before it was merged and before CI ran the Documents tests. Superseded by the entry above.*
+>
 > **2026-10-01 — Phase 14 Slice 2 (the Invoice document, D111) is implemented on `feature/phase-14-slice-2-invoice-document`, off `main` at `3f4f8f9`. Not merged.**
 > - **VAT:** the Invoice aggregate now calculates its own per-rate split. `Invoice.Create` takes the Admin's gross and the originating Angebot's rate mix and stores one `InvoiceVatLine` per rate; net and VAT are the lines' sums. No caller can supply a net amount, a VAT amount, a rate or a line. "One VAT rate" (D110's first resolution) was replaced in design review, because it would have broken FR-8.2 and BR-6.
 > - **New fields:** a required `Description` (≤ 500 characters, one constant for validator, Domain and schema) and an optional service date or period. No quantity, by decision — recorded for the legal reviewer (Q20). No invoice editing: void and reissue.
