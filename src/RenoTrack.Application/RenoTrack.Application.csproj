@@ -10,6 +10,12 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
   </ItemGroup>
 
+  <!-- Only so InvoiceCalendar's failure path can be tested with a zone that does not exist
+       (D111 Part 6); the same single-assembly grant RenoTrack.Domain gives its own tests. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="RenoTrack.Application.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

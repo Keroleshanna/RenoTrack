@@ -123,6 +123,7 @@ The company's content is a **content pack**: a directory outside the application
 | `TokenLink:LifetimeDays` | SRS FR-6.4 | Has a default |
 | `Email:Enabled` | Stated explicitly, so deployed behaviour is visible in a tracked file | `false` ⇒ `LoggingNoOpEmailSender`, and no email configuration is required |
 | `Email:*` when enabled | `Host`, `Port`, `SecurityMode`, `FromAddress`, `FromDisplayName`, `AdminRecipients` (≥1). Optional: `ReplyToAddress`; `Username`+`Password` together or not at all | Fails startup |
+| *(no key)* — **time-zone data for `Europe/Berlin`** | Not configuration: the operating system's time-zone database. Invoice dates and invoice-number years are read in that zone, fixed by decision (D111 Part 6) | **Fails startup**, naming the zone. Windows has it; on Linux install `tzdata` — some minimal container images ship without it |
 | `DevelopmentBootstrap:*` | Development-only account provisioning | Three independent guards; **enabled outside Development throws**, never silently skips. No password is ever compiled in. |
 
 **`Email:AdminRecipients` is deliberately independent of the Identity Admin role (D71).** Holding the Admin role does not subscribe an account to operational mail, and appearing in this list confers no dashboard permission.
@@ -170,3 +171,4 @@ Both applications serve URLs whose path **is** a customer credential (`/angebot/
 - [ ] `TrustedForwarders` names the real proxy, and is not `0.0.0.0/0`.
 - [ ] No startup warning left unexplained — each one names a key that is genuinely intended to be unset.
 - [ ] Migrations applied by the deployment step; `Database:Mode` left at `Verify`.
+- [ ] The API host has time-zone data for `Europe/Berlin` (on Linux, the `tzdata` package). Without it the API refuses to start — by design, since invoice dates and number years depend on it (D111 Part 6).

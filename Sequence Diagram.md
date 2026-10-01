@@ -431,14 +431,14 @@ sequenceDiagram
     DASH-->>AD: Shows "€25,673.36 agreed / €0 invoiced / €25,673.36 remaining"
 
     AD->>DASH: Enter first invoice: amount = €8,000 (e.g. project start)
-    DASH->>API: POST /api/v1/projects/{id}/invoices { grossAmount, dueDate }
+    DASH->>API: POST /api/v1/projects/{id}/invoices { grossAmount, dueDate, description, servicePeriodStart?, servicePeriodEnd? }
     API->>APP: Send(CreateInvoiceCommand)
     APP->>NUM: NextInvoiceNumber(year)
     NUM->>DB: UPDATE NumberSequences (atomic)
     NUM-->>APP: "RE-2026-00017"
-    APP->>APP: Derive Net/VAT split proportionally from the Angebot's VAT-rate mix (Architecture §6.1)
-    APP->>REPO: AddAsync(Invoice { ProjectId, Number, NetAmount, VatAmount, GrossAmount, Status=Draft })
-    REPO->>DB: INSERT INTO Invoices
+    APP->>APP: Invoice.Create(gross, Angebot.VatBreakdown, description, period) — the Invoice splits the gross per rate itself (D111)
+    APP->>REPO: AddAsync(Invoice { ProjectId, Number, Description, VatLines[], NetAmount, VatAmount, GrossAmount, Status=Draft })
+    REPO->>DB: INSERT INTO Invoices, InvoiceVatLines
     APP-->>API: InvoiceDto
     API-->>DASH: 201 Created
     DASH-->>AD: Invoice appears under Project; remaining balance updates

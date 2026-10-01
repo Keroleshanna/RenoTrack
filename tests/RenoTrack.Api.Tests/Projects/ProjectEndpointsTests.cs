@@ -254,9 +254,10 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
     }
 
     /// <summary>
-    /// An invoice row carries E1's four columns plus the id its "Mark Paid" button needs — no net
-    /// or VAT split, no issue date, no void reason, no payments. Pinned against raw JSON so a typed
-    /// read cannot ignore an added field.
+    /// An invoice row carries E1's four columns, the id its "Mark Paid" button needs and — since
+    /// Phase 14 Slice 2 (D111) — the description that tells several invoices apart. No net or VAT
+    /// split, no issue date, no void reason, no payments. Pinned against raw JSON so a typed read
+    /// cannot ignore an added field.
     /// </summary>
     [Fact]
     public async Task An_invoice_row_exposes_exactly_the_documented_fields()
@@ -271,7 +272,7 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
         var row = body.GetProperty("invoices").EnumerateArray().Single();
 
         Assert.Equal(
-            ["id", "invoiceNumber", "grossAmount", "status", "dueDate"],
+            ["id", "invoiceNumber", "grossAmount", "status", "dueDate", "description"],
             row.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal("Draft", row.GetProperty("status").GetString());
     }
@@ -344,7 +345,7 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
 
         var create = await inspector.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 50.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 50.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
         Assert.Empty(await create.Content.ReadAsStringAsync());
@@ -644,7 +645,7 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 25.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 25.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -720,7 +721,7 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = 100.00m, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         // StateMachine.md §5 permits an Invoice against an Active *or* OnHold Project, so pausing
         // must not disturb billing that is already in flight.
@@ -759,7 +760,7 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
 
         var response = await admin.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/invoices",
-            new { grossAmount = gross, dueDate = DateTime.UtcNow.AddDays(14) });
+            new { grossAmount = gross, dueDate = DateTime.UtcNow.AddDays(14), description = "Abschlag 1" });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 

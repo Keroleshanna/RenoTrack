@@ -71,10 +71,7 @@ public sealed class InvoiceQueriesTests(RenoTrackDbContextFixture fixture)
     {
         await using var context = fixture.CreateContext();
 
-        var net = Money.FromExact(Math.Round(gross / 1.19m, 2));
-        var vat = Money.FromExact(gross - net.Amount);
-
-        var invoice = Invoice.Create(projectId, NextNumber(), dueDate, net, vat, Money.FromExact(gross));
+        var invoice = TestInvoices.AtStandardRate(projectId, NextNumber(), dueDate, gross);
         transition?.Invoke(invoice);
 
         context.Invoices.Add(invoice);

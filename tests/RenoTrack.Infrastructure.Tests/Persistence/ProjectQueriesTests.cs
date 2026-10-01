@@ -106,14 +106,11 @@ public sealed class ProjectQueriesTests(RenoTrackDbContextFixture fixture)
         DateTime issueDateShift,
         InvoiceStatus status = InvoiceStatus.Draft)
     {
-        var net = Money.RoundedPerBR11(gross / 1.19m);
-        var invoice = Invoice.Create(
+        var invoice = TestInvoices.AtStandardRate(
             projectId,
             $"RE-{Guid.NewGuid():N}"[..17],
             DateTime.UtcNow.AddDays(14),
-            net,
-            Money.FromExact(gross) - net,
-            Money.FromExact(gross));
+            gross);
 
         if (status == InvoiceStatus.Void)
             invoice.Void("Superseded.");

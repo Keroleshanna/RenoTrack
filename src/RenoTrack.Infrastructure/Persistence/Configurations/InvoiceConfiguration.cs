@@ -69,6 +69,54 @@ public sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         // AngebotReviewComments.Comment, the schema's existing staff-authored free-text column.
         builder.Property(i => i.VoidReason).HasMaxLength(4000);
 
+        // Phase 14 Slice 2 (D111). Required, at the same Invoice.MaxDescriptionLength the validator
+        // and Invoice.Create read. Rows created before this slice receive the migration's empty
+        // default — deliberately not a description, and refused by the document assembler.
+        builder.Property(i => i.Description)
+            .IsRequired()
+            .HasMaxLength(Invoice.MaxDescriptionLength);
+
+        // DateOnly maps to SQL Server's date: a service period is calendar days, not instants.
+        builder.Property(i => i.ServicePeriodStart);
+        builder.Property(i => i.ServicePeriodEnd);
+
+        // The per-rate VAT split Invoice.Create calculates (D111). Owned, because a line has no
+        // identity or meaning apart from its Invoice and nothing ever addresses one on its own; an
+        // owned collection is also always loaded with its owner, so every read of an Invoice
+        // carries its lines without an Include anyone could forget. The owned relationship is
+        // required and cascades, which is aggregate composition — the same reasoning as Payments.
+        //
+        // The unique (InvoiceId, Rate) index is the database half of an invariant the Domain also
+        // holds: two lines at one rate would print a VAT summary counting that rate twice.
+        // Invoice.Create refuses a rate mix naming a rate twice; this refuses every path that does
+        // not go through it (raw SQL, a data repair, a future code change). A violation surfaces
+        // as an unmapped DbUpdateException — a 500 — because it is a defect, not a conflict (§21).
+        builder.OwnsMany(i => i.VatLines, line =>
+        {
+            line.ToTable("InvoiceVatLines");
+            line.WithOwner().HasForeignKey("InvoiceId");
+            line.Property<int>("Id");
+            line.HasKey("Id");
+
+            // VatRate's enum values already are the percentages, so EF's default enum-to-int
+            // mapping is correct as-is — identical to AngebotItems.VatRate (CLAUDE.md §21).
+            line.Property(l => l.Rate).IsRequired();
+
+            line.Property(l => l.NetAmount)
+                .HasConversion(new MoneyConverter())
+                .HasColumnType("decimal(18,2)")
+                .IsRequired();
+
+            line.Property(l => l.VatAmount)
+                .HasConversion(new MoneyConverter())
+                .HasColumnType("decimal(18,2)")
+                .IsRequired();
+
+            line.HasIndex("InvoiceId", nameof(InvoiceVatLine.Rate)).IsUnique();
+        });
+
+        builder.Navigation(i => i.VatLines).UsePropertyAccessMode(PropertyAccessMode.Field);
+
         // By id only, no navigation property on either side (CLAUDE.md §2). Restrict, like every
         // other reference between independent aggregates in this schema.
         builder.HasOne<Project>()

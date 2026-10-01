@@ -41,6 +41,16 @@ public sealed class MigraDocPdfGenerator(CompanyLegalIdentityOptions companyIden
         return Render(pdf);
     }
 
+    public byte[] RenderInvoice(InvoiceDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        EmbeddedFontResolver.EnsureInstalled();
+
+        var pdf = BuildInvoice(document);
+        return Render(pdf);
+    }
+
     private Document BuildAngebot(AngebotDocument document)
     {
         var pdf = NewDocument($"Angebot {document.AngebotNumber}");
@@ -67,6 +77,72 @@ public sealed class MigraDocPdfGenerator(CompanyLegalIdentityOptions companyIden
 
         return pdf;
     }
+
+    /// <summary>
+    /// The Invoice layout (Phase 14 Slice 2, D111): BR-5's fields in reading order — issuer,
+    /// recipient, number and date, service date or period when one was given, what is billed, the
+    /// per-rate VAT summary, the totals and the due date. No quantity column (an Invoice has one
+    /// description, SRS Q20), no bank details (D110) and no payment terms beyond the due date the
+    /// Admin entered — nothing the company did not supply.
+    /// </summary>
+    private Document BuildInvoice(InvoiceDocument document)
+    {
+        var pdf = NewDocument($"Rechnung {document.InvoiceNumber}");
+        var section = pdf.LastSection;
+
+        AddCompanyHeader(section);
+        AddRecipient(section, document.Customer);
+
+        var title = section.AddParagraph($"Rechnung {document.InvoiceNumber}");
+        title.Format.Font.Bold = true;
+        title.Format.Font.Size = Unit.FromPoint(TitleFontSize);
+        title.Format.SpaceBefore = Unit.FromCentimeter(1);
+
+        section.AddParagraph($"Rechnungsdatum: {FormatDate(document.IssuedOn)}");
+
+        // Printed only when the Admin gave one, and never assumed: a single date (or a period that
+        // starts and ends on one day) is a service date; two different days are a period.
+        if (document.ServicePeriodStart is { } start)
+        {
+            section.AddParagraph(
+                document.ServicePeriodEnd is { } end && end != start
+                    ? $"Leistungszeitraum: {FormatDate(start)} – {FormatDate(end)}"
+                    : $"Leistungsdatum: {FormatDate(start)}");
+        }
+
+        var heading = section.AddParagraph("Leistung");
+        heading.Format.Font.Bold = true;
+        heading.Format.SpaceBefore = Unit.FromCentimeter(0.8);
+        heading.Format.SpaceAfter = Unit.FromCentimeter(0.2);
+
+        // The Admin's words, verbatim; their own line breaks are kept, as the address's are.
+        foreach (var line in document.Description.Split('\n'))
+        {
+            section.AddParagraph(line.TrimEnd('\r'));
+        }
+
+        var net = section.AddParagraph($"Nettobetrag: {document.NetTotal}");
+        net.Format.SpaceBefore = Unit.FromCentimeter(0.6);
+
+        // One line per rate billed — BR-6 allows several in one invoice, and BR-5 requires each rate
+        // with its own amount. The figures are the Invoice aggregate's stored lines.
+        foreach (var vatLine in document.VatBreakdown)
+        {
+            section.AddParagraph($"MwSt. {vatLine.VatRate} auf {vatLine.NetAmount}: {vatLine.VatAmount}");
+        }
+
+        section.AddParagraph($"MwSt. gesamt: {document.VatTotal}");
+
+        var gross = section.AddParagraph($"Rechnungsbetrag: {document.GrossTotal}");
+        gross.Format.Font.Bold = true;
+
+        var due = section.AddParagraph($"Zahlbar bis: {FormatDate(document.DueOn)}");
+        due.Format.SpaceBefore = Unit.FromCentimeter(0.6);
+
+        return pdf;
+    }
+
+    private static string FormatDate(DateOnly date) => date.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The company block every document carries. Refuses rather than printing a document missing

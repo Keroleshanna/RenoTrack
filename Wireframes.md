@@ -278,9 +278,14 @@ Legend: `[ Button ]` = action button, `( )` = input field, `[v]` = dropdown, `�
 │  Remaining to invoice: €17,673.36│
 │  Amount    ( __________ )        │
 │  Due Date  ( __________ )        │
+│  Description ( ____________ )    │
+│  Service period (optional)       │
+│    From ( ______ )  To ( ______ )│
 │              [ Cancel ] [ Create ]│
 └───────────────────────────────┘
 ```
+
+*Description and service period added in Phase 14 Slice 2 (`ARCHITECTURE_DECISIONS.md` D111), because the Invoice document must state what it bills for (BR-5). The description is required (at most 500 characters) and has no suggested wording; the service period is optional and printed only when given. There is deliberately **no VAT field**: the amount is split across the originating Angebot's rates by the Invoice itself.*
 
 ### E3 — Mark Invoice Paid (Modal)
 **Roles:** Admin · **Covers:** FR-8.4

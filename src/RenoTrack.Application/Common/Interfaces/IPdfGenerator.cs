@@ -20,12 +20,20 @@ namespace RenoTrack.Application.Common.Interfaces;
 /// </para>
 /// <para>
 /// <b>It grows one method per real use case</b>, exactly as the repositories do (§4). The Angebot
-/// comes first because every figure it prints already exists; the invoice follows once the data
-/// §14 UStG requires exists to print.
+/// came first because every figure it prints already existed; the invoice followed in Slice 2, once
+/// the description and per-rate VAT lines BR-5 requires were stored (D111).
 /// </para>
 /// </remarks>
 public interface IPdfGenerator
 {
     /// <summary>Renders an Angebot. The returned bytes are a complete PDF file.</summary>
     byte[] RenderAngebot(AngebotDocument document);
+
+    /// <summary>
+    /// Renders an Invoice (Phase 14 Slice 2, D111). The returned bytes are a complete PDF file.
+    /// Build the document with <see cref="InvoiceDocumentFactory"/>, which refuses an invoice the
+    /// document would misrepresent. No production caller exists until Slice 3 archives an invoice
+    /// at send time — deliberately, rather than an artificial one.
+    /// </summary>
+    byte[] RenderInvoice(InvoiceDocument document);
 }

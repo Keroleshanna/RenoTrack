@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
@@ -275,13 +276,23 @@ public static class DependencyInjection
     }
 
     /// <summary>
-    /// Application-layer service implementations. <c>OwnershipValidator</c> is the only one:
-    /// unlike every other service interface, it has no external dependency (no EF Core, no disk, no
-    /// network) that would justify an Infrastructure-side implementation, so it lives here and is
-    /// deliberately excluded from <c>AddInfrastructure()</c> (CLAUDE.md §9).
+    /// Application-layer service implementations. <c>OwnershipValidator</c> has no external
+    /// dependency (no EF Core, no disk, no network) that would justify an Infrastructure-side
+    /// implementation, so it lives here and is deliberately excluded from <c>AddInfrastructure()</c>
+    /// (CLAUDE.md §9). <c>InvoiceCalendar</c> and the BCL's <c>TimeProvider</c> (Phase 14 Slice 2,
+    /// D111 Part 6) are here for the same reason: neither reaches anything outside the process.
     /// </summary>
     private static void AddServices(IServiceCollection services)
     {
         services.AddScoped<IOwnershipValidator, OwnershipValidator>();
+
+        // D111 Part 6. Resolved here, while the container is composed, so a host without the
+        // Europe/Berlin time-zone data refuses to start instead of failing on the first invoice.
+        services.AddSingleton(InvoiceCalendar.ForEuropeBerlin());
+
+        // The clock the invoice handler reads its single issue instant from. The BCL's own
+        // abstraction, so tests substitute a fixed instant without a mocking library (§14).
+        // TryAdd: a host that already provides one keeps it.
+        services.TryAddSingleton(TimeProvider.System);
     }
 }

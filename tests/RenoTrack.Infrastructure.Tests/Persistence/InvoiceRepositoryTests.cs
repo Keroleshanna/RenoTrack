@@ -39,13 +39,11 @@ public sealed class InvoiceRepositoryTests(RenoTrackDbContextFixture fixture)
         return (project.Id, user.Id);
     }
 
-    private static Invoice NewInvoice(int projectId) => Invoice.Create(
+    private static Invoice NewInvoice(int projectId) => TestInvoices.AtStandardRate(
         projectId,
         $"RE-{Guid.NewGuid():N}"[..17],
         DateTime.UtcNow.AddDays(14),
-        Money.FromExact(6_722.69m),
-        Money.FromExact(1_277.31m),
-        Money.FromExact(8_000.00m));
+        8_000.00m);
 
     [Fact]
     public async Task GetByIdAsync_ReturnsThePersistedInvoice()

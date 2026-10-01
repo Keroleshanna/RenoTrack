@@ -71,9 +71,8 @@ public class CompleteProjectCommandHandlerTests
     private Invoice SeedInvoice(InvoiceStatus status, int projectId = ProjectId)
     {
         var invoice = _invoiceRepository.Seed(
-            Invoice.Create(
-                projectId, $"RE-2026-{_nextInvoiceId:00000}", DateTime.UtcNow.AddDays(14),
-                Money.FromExact(6_722.69m), Money.FromExact(1_277.31m), Money.FromExact(8_000.00m)),
+            TestInvoices.AtStandardRate(
+                projectId, $"RE-2026-{_nextInvoiceId:00000}", DateTime.UtcNow.AddDays(14), 8_000.00m),
             _nextInvoiceId++);
 
         switch (status)

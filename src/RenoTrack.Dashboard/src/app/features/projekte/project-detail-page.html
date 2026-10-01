@@ -77,6 +77,7 @@
               <thead>
                 <tr>
                   <th>{{ t().invoices.columns.number }}</th>
+                  <th>{{ t().invoices.columns.description }}</th>
                   <th>{{ t().invoices.columns.status }}</th>
                   <th class="rt-numeric">{{ t().invoices.columns.due }}</th>
                   <th class="rt-numeric">{{ t().invoices.columns.gross }}</th>
@@ -88,7 +89,9 @@
               <tbody>
                 @for (invoice of project.invoices; track invoice.id) {
                   <tr>
-                    <td class="rt-numeric">{{ invoice.invoiceNumber }}</td>
+                    <td class="rt-numeric invoice-number">{{ invoice.invoiceNumber }}</td>
+                    <!-- Empty only on an invoice created before Phase 14 Slice 2; nothing is invented for it. -->
+                    <td class="invoice-description">{{ invoice.description }}</td>
                     <td><app-status-chip kind="invoice" [value]="invoice.status" /></td>
                     <td class="rt-numeric">
                       {{ invoice.dueDate | date: t().formats.date : undefined : locale() }}
@@ -212,6 +215,65 @@
               <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
             }
           </div>
+
+          <!-- Phase 14 Slice 2 (D111): what the invoice bills for, printed on it verbatim. -->
+          <div class="rt-field">
+            <label class="rt-field__label" for="invoice-description">{{
+              t().projectDetail.description
+            }}</label>
+            <textarea
+              id="invoice-description"
+              class="rt-textarea"
+              formControlName="description"
+              aria-describedby="invoice-description-hint"
+            ></textarea>
+            <span id="invoice-description-hint" class="rt-caption">
+              {{ t().projectDetail.descriptionHint }}
+              ({{ invoiceForm.controls.description.value.trim().length }} / {{ descriptionMax }})
+            </span>
+            @if (invoiceForm.controls.description.touched && invoiceForm.controls.description.errors?.['required']) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+            @if (invoiceForm.controls.description.errors?.['maxlength']) {
+              <span class="rt-field__error">{{ t().projectDetail.descriptionTooLong }}</span>
+            }
+          </div>
+
+          <!-- Optional: printed only when given, never assumed (D111). A single day is a start alone. -->
+          <fieldset class="rt-field service-period">
+            <legend class="rt-field__label">{{ t().projectDetail.servicePeriod }}</legend>
+            <p class="rt-caption">{{ t().projectDetail.servicePeriodHint }}</p>
+            <div class="service-period__dates">
+              <div class="rt-field">
+                <label class="rt-field__label" for="invoice-service-start">{{
+                  t().projectDetail.servicePeriodStart
+                }}</label>
+                <input
+                  id="invoice-service-start"
+                  class="rt-input"
+                  type="date"
+                  formControlName="servicePeriodStart"
+                />
+              </div>
+              <div class="rt-field">
+                <label class="rt-field__label" for="invoice-service-end">{{
+                  t().projectDetail.servicePeriodEnd
+                }}</label>
+                <input
+                  id="invoice-service-end"
+                  class="rt-input"
+                  type="date"
+                  formControlName="servicePeriodEnd"
+                />
+              </div>
+            </div>
+            @if (invoiceForm.errors?.['servicePeriodEndWithoutStart']) {
+              <span class="rt-field__error">{{ t().projectDetail.servicePeriodEndWithoutStart }}</span>
+            }
+            @if (invoiceForm.errors?.['servicePeriodEndBeforeStart']) {
+              <span class="rt-field__error">{{ t().projectDetail.servicePeriodEndBeforeStart }}</span>
+            }
+          </fieldset>
         </form>
 
         <ng-container dialogActions>

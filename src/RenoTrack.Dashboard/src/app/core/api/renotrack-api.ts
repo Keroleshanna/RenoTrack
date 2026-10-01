@@ -12,6 +12,7 @@ import {
   AngebotSummaryDto,
   CatalogItemDto,
   CatalogItemWrite,
+  CreateInvoiceRequestDto,
   PAGE_SIZE_DEFAULT,
   InspectionDetailDto,
   InspectionDto,
@@ -349,11 +350,8 @@ export class RenoTrackApi {
    * **Exceeding the remaining balance is accepted, not refused** — BR-3 warns rather than blocks, so
    * the result is a negative `remaining`, never an error the UI should pre-empt.
    */
-  createInvoice(projectId: number, grossAmount: number, dueDate: string): Observable<InvoiceDto> {
-    return this.http.post<InvoiceDto>(`/api/v1/projects/${projectId}/invoices`, {
-      grossAmount,
-      dueDate,
-    });
+  createInvoice(projectId: number, request: CreateInvoiceRequestDto): Observable<InvoiceDto> {
+    return this.http.post<InvoiceDto>(`/api/v1/projects/${projectId}/invoices`, request);
   }
 
   /** Sends a Draft Invoice as a token link (FR-8.3). No PDF is generated — that is Phase 14. */

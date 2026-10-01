@@ -6,6 +6,7 @@ import { Observable } from 'rxjs';
 
 import { ApiError } from '../../core/api/api-error';
 import {
+  INVOICE_DESCRIPTION_MAX,
   PAYMENT_METHODS,
   PaymentMethodDto,
   ProjectDetailDto,
@@ -19,6 +20,11 @@ import { Notifier } from '../../shared/ui/notifier';
 import { ErrorState, Skeleton } from '../../shared/ui/state-panels';
 import { StatusChip } from '../../shared/ui/status-chip';
 import { invoiceCapabilitiesFor } from './invoice-capabilities';
+import {
+  invoiceDescriptionValidator,
+  servicePeriodValidator,
+  toCreateInvoiceRequest,
+} from './invoice-form';
 
 /**
  * Wireframe **E1** — the Project, its money, and every Invoice action (E2, E3).
@@ -109,13 +115,26 @@ export class ProjectDetailPage {
   protected readonly holdDialogOpen = signal(false);
   protected readonly resumeDialogOpen = signal(false);
 
-  protected readonly invoiceForm = new FormGroup({
-    grossAmount: new FormControl(0, {
-      nonNullable: true,
-      validators: [Validators.required, Validators.min(0)],
-    }),
-    dueDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-  });
+  // The Admin states how much this invoice bills, what it is for and — optionally — when the work
+  // was done. Never a VAT figure: the server splits the gross by the Angebot's rates (D111).
+  protected readonly invoiceForm = new FormGroup(
+    {
+      grossAmount: new FormControl(0, {
+        nonNullable: true,
+        validators: [Validators.required, Validators.min(0)],
+      }),
+      dueDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+      description: new FormControl('', {
+        nonNullable: true,
+        validators: [invoiceDescriptionValidator],
+      }),
+      servicePeriodStart: new FormControl('', { nonNullable: true }),
+      servicePeriodEnd: new FormControl('', { nonNullable: true }),
+    },
+    { validators: [servicePeriodValidator] },
+  );
+
+  protected readonly descriptionMax = INVOICE_DESCRIPTION_MAX;
 
   protected readonly paymentForm = new FormGroup({
     paidAt: new FormControl(today(), { nonNullable: true, validators: [Validators.required] }),
@@ -179,9 +198,14 @@ export class ProjectDetailPage {
 
     // Pre-filled with what is left to invoice — the number the Admin most often wants, and one they
     // may freely overwrite. Never clamped: BR-3 permits exceeding it.
+    // The description starts empty on purpose: what an invoice bills for is the Admin's statement,
+    // and no wording is suggested for it (D111).
     this.invoiceForm.reset({
       grossAmount: remaining > 0 ? round2(remaining) : 0,
       dueDate: inDays(14),
+      description: '',
+      servicePeriodStart: '',
+      servicePeriodEnd: '',
     });
     this.invoiceDialogOpen.set(true);
   }
@@ -195,7 +219,7 @@ export class ProjectDetailPage {
     const value = this.invoiceForm.getRawValue();
 
     this.perform(
-      this.api.createInvoice(this.id, value.grossAmount, value.dueDate),
+      this.api.createInvoice(this.id, toCreateInvoiceRequest(value)),
       this.t().projectDetail.invoiceCreated,
       () => this.invoiceDialogOpen.set(false),
     );

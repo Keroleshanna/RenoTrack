@@ -44,9 +44,8 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
             Project.Create(customer.Id, angebotId: 3, Money.FromExact(25_673.36m)), ProjectId);
 
         var invoice = _invoiceRepository.Seed(
-            Invoice.Create(
-                ProjectId, "RE-2026-00017", new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc),
-                Money.FromExact(6_722.69m), Money.FromExact(1_277.31m), Money.FromExact(8_000.00m)),
+            TestInvoices.AtStandardRate(
+                ProjectId, "RE-2026-00017", new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), 8_000.00m),
             InvoiceId);
 
         invoice.Send();

@@ -160,6 +160,9 @@ public sealed class InvoicesController(
                 ProjectId: projectId,
                 GrossAmount: request.GrossAmount,
                 DueDate: request.DueDate,
+                Description: request.Description ?? string.Empty,
+                ServicePeriodStart: request.ServicePeriodStart,
+                ServicePeriodEnd: request.ServicePeriodEnd,
                 CreatedByAdminId: CurrentUserId()),
             cancellationToken);
 

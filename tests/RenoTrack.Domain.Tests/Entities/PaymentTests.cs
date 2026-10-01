@@ -68,10 +68,13 @@ public class PaymentTests
         var invoice = Invoice.Create(
             projectId: 11,
             invoiceNumber: "RE-2026-00017",
+            issuedAt: DateTime.UtcNow,
             dueDate: DateTime.UtcNow,
-            netAmount: Money.FromExact(6_722.69m),
-            vatAmount: Money.FromExact(1_277.31m),
-            grossAmount: Money.FromExact(8_000.00m));
+            grossAmount: Money.FromExact(8_000.00m),
+            rateMix: [new VatBreakdownLine(VatRate.Standard, Money.FromExact(1_000.00m), Money.FromExact(190.00m))],
+            description: "Abschlag 1",
+            servicePeriodStart: null,
+            servicePeriodEnd: null);
 
         invoice.Send();
         return invoice;

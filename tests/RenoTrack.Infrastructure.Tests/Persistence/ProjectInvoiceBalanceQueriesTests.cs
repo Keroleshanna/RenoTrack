@@ -39,14 +39,11 @@ public sealed class ProjectInvoiceBalanceQueriesTests(RenoTrackDbContextFixture 
 
     private async Task AddInvoiceAsync(int projectId, decimal gross, bool voided = false)
     {
-        var net = Money.RoundedPerBR11(gross / 1.19m);
-        var invoice = Invoice.Create(
+        var invoice = TestInvoices.AtStandardRate(
             projectId,
             $"RE-{Guid.NewGuid():N}"[..17],
             DateTime.UtcNow.AddDays(14),
-            net,
-            Money.FromExact(gross) - net,
-            Money.FromExact(gross));
+            gross);
 
         if (voided)
             invoice.Void("Superseded.");
