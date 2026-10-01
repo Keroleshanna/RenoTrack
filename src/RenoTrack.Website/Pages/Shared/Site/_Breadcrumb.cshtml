@@ -1,0 +1,25 @@
+@model IReadOnlyList<RenoTrack.Website.Site.BreadcrumbItem>
+@*
+    The visible breadcrumb trail (D105), which Slice 10's BreadcrumbList must agree with. A labelled nav landmark with an
+    ordered list; the current page is text with aria-current="page", never a link to itself. The separators are drawn
+    by CSS, so a screen reader hears the steps, not the punctuation. No id: it can never collide with a page's own.
+*@
+<div class="page-breadcrumb-bar">
+    <div class="site-container">
+        <nav class="page-breadcrumb" aria-label="Pfadnavigation">
+            <ol class="page-breadcrumb-list">
+                @foreach (var item in Model)
+                {
+                    @if (item.Href is null)
+                    {
+                        <li class="page-breadcrumb-item"><span aria-current="page">@item.Text</span></li>
+                    }
+                    else
+                    {
+                        <li class="page-breadcrumb-item"><a class="page-breadcrumb-link" href="@item.Href">@item.Text</a></li>
+                    }
+                }
+            </ol>
+        </nav>
+    </div>
+</div>

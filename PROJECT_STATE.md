@@ -1,6 +1,57 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
-> **2026-09-14 — Phase 11 (Customer-Facing Workflow): Slices 1–7 are merged to `main` (PRs #18–#25), and Slice 8, the completion gate, is in progress.** The automated customer-workflow E2E is merged (PR #26, `main` at `d6cc324`). Manual Checkpoint 3 was run against it. Checkpoint 4's work is on `claude/phase-11-checkpoint-4-review-cc99b9`, **uncommitted and pending review**. It classified Checkpoint 3's findings: **A21 (logo) is configuration only; A22 (display names) is a deployment responsibility; the 3 Website test failures came from ignored leftover files in one checkout** (baseline 331/331 once removed). It also found and fixed **a real token disclosure in both applications** (**D101**): ASP.NET's per-request `RequestPath` logging scope wrote customer tokens into the Windows Application event log. Tracing was restored with an `ActivityListener`; `RequestId` is intentionally no longer logged. **FR-1.4 and company identity remain open, company- and deployment-owned.** See `PHASE11_PROGRESS.md` §11. **§3 now carries figures re-verified in Checkpoint 4**; other sections of this file still describe Phase 10 and earlier unless noted.
+> **2026-10-01 — Phase 13 (Public Website) is PARKED BY DECISION after Slices 5a, 5v and 5h, all committed on `feature/phase-13-public-website`.** The Product Owner's call: finish RenoTrack itself first, then approach a company about its site. Nothing here is failing, and nothing company-specific was built — what exists is a site template driven by the content pack, so resuming means supplying a pack rather than writing code for a company.
+> - **5a (D106):** media foundation — offline preparation tool, byte-level verification at startup, `/medien/` allowlist, split hero and card photos, `og:image`. **Real-media QA (S5-13) and the byte-budget freeze (S5-11) remain open; both need the owner's approvals.**
+> - **5v (D107):** the visual system — six surface roles derived from two configured colours and contrast-checked at startup, dark bands framing the page, the layered hero, the fact panel, card treatment, and a band-alternation rule enforced by two independent checks.
+> - **5h (D108):** the header composed to an approved reference — accent brand zone bleeding to the viewport edge with an angled notch, uppercase navigation of real pages only, an inverted phone CTA.
+> - **Tests:** Website **1,136** (1,110 → 1,135 → 1,136); Domain 389, Application 470, Infrastructure 412, Api 478, MediaPrep 20 — all unchanged by these slices. 0 warnings, 0 errors.
+> - **Browser QA** against the published build: 0 findings across three fictional packs × seven widths, plus 200 % text, true 400 % zoom, keyboard focus, reduced motion and print. It found four defects in the slices and four in the QA harness itself before it was trusted (D107 Part 5).
+> - **Next, by decision:** **Slice 7** — hardening the anonymous `POST /api/v1/leads` (no rate limit, no maximum lengths, full `LeadDto` to an anonymous caller; `PHASE13_PROGRESS.md` §3.4). It is a product boundary rather than website work: every way a customer company's site can feed RenoTrack depends on it. Then **Phase 14 (PDF)**.
+
+> **2026-09-17 — Phase 13 Slice 5a (media foundation, D106) is implemented on `feature/phase-13-public-website` and pending Tech Lead review. It is not committed and not pushed.** Slice 4 is committed (`91232e0`).
+> - **Photos:** `tools/RenoTrack.MediaPrep` prepares owner-approved photos offline. The Website verifies every listed derivative byte by byte at startup (exact size, byte budget, no EXIF/GPS/XMP/IPTC) and serves only listed files at `/medien/`.
+> - **Pages:** photos appear in a split hero on the homepage and photographed service pages; card photos are all-or-nothing; `og:image` only for a page's own photo. The text-only layouts are unchanged.
+> - **Tests** (Release, one build): Website **1,110** (+153: 957 → 1,110), new MediaPrep **20**, Domain 389, Application 470, Infrastructure 412, Api 478. 0 warnings. 23 mutations, all caught.
+> - **Browser QA** on synthetic derivatives found and fixed one defect (card chevron drawn on the photo).
+> - **Still open before 5a closes:** the private QA with real owner-approved photos, and freezing the byte budgets from its evidence. Both need the owner's approvals first. Budgets remain provisional. See `PHASE13_PROGRESS.md` §5e.
+>
+> *Earlier status:* **2026-09-17 — Phase 13 Slice 4 (service pages, D105) is approved and closed (`91232e0`).** Slice 3 is committed (`8734bb9`).
+> - **New pages:** `/leistungen` and one page per configured service at `/leistungen/{slug}`, matched exactly (ordinal, case-sensitive, no fallback).
+> - **Titles:** every page's `<title>` is company-authored with no fallback (`Site:ServicesPage:MetaTitle`, `Site:Services[]:MetaTitle`). Titles and descriptions must be unique across pages.
+> - **Service page content:** optional headline, meta description and descriptive sections, "Leistungsumfang" (at most 12 offerings), breadcrumb, contact section and "Weitere Leistungen".
+> - **Site-wide changes:** the homepage cards link to the service pages, the navigation gains "Leistungen", and the footer lists every service.
+> - **Shared markup:** partials whose heading levels and ids the page supplies; shared CSS renamed `home-*` → `page-*`.
+> - **Unchanged:** no image, no JavaScript, no third-party request. Token pages are unchanged.
+>
+> **Tests, measured per project in Release on one non-deterministic build** (the known Application Control block refused the first, deterministic build):
+> - Website **957** (+157: 800 → 957);
+> - Domain 389, Application 470, Infrastructure 412 and Api 478, all unchanged by Slice 4;
+> - 0 warnings, 0 errors.
+>
+> **Verification:** 21 mutations, all caught. Browser QA against the published build found and fixed two overflow defects at 200% text on 375 px (a section heading, and the footer's services column with long names). See `PHASE13_PROGRESS.md` §5d.
+>
+> *Earlier status:* **2026-09-17 — Phase 13 Slice 3 (homepage, D104) is approved and closed (`8734bb9`).** Slice 2 is committed (`1b6337a`). The homepage at `/` is built from the content pack's new `Site:Home` section:
+> - a company-authored `MetaTitle`, required once the site is enabled, with no fallback to the company name;
+> - an optional headline and subheadline;
+> - optional advantages and process lists;
+> - `Inhaber: {OwnerName}`.
+>
+> Services are listed unlinked, contact is `tel:`/`mailto:` only, and "Startseite" is the first navigation entry. There is no link ahead of its page, no image, no JavaScript and no third-party request. Token pages are unchanged.
+>
+> **Tests, measured per project:**
+> - Website **800** (+79: 721 → 800), passed in Release, after the known Windows Application Control block refused the first builds;
+> - Domain 389, Application 470, Infrastructure 412 and Api 478 passed in Release, all unchanged by Slice 3;
+> - 0 warnings.
+>
+> Browser QA against the published build found and fixed two defects: a header squeezed at 200% text, and focus hidden behind the call bar at 400% zoom. The pre-commit review corrected print, so contact actions print as phone and address text. See `PHASE13_PROGRESS.md` §5c.
+>
+> *Earlier status:* **2026-09-16 — Phase 13 Slice 2 (site shell, D103) is approved and closed on `feature/phase-13-public-website` (not pushed).** Slice 1 is committed (`ff1d6cb`). Marketing pages get a startup-composed shell: metadata applied by a Razor Pages convention only when the site is enabled, every request-time decision read from the endpoint, two startup guards keeping it off token routes, CSP and Permissions-Policy, derived `www` alias and lower-case path redirects, a site 404, validated theme colours, self-hosted Figtree (OFL 1.1). Tests, per project and not as one unified run: **Website 721** (+135: 586 → 721) and Application 470 / Infrastructure 412 / Api 478 passed in Release; Domain 389 passed in Debug, with Release refused by the known Windows Application Control block. Those four projects are unchanged by Slice 2. 0 warnings. Accessibility QA (print, reduced motion, 200% text, true 400% zoom) found and fixed a print defect. See `PHASE13_PROGRESS.md` §5b.
+>
+> *Earlier status:* **2026-09-16 — Phase 13 Slice 1 (content model, D102) is approved and closed on `feature/phase-13-public-website` (not pushed).** Slice 0 is closed (`0d2f22a`). The Website now loads an isolated company content pack from outside the repository: pack files can contribute only `CompanyIdentity`/`Site`/`Legal`, never product configuration. Tests **2,335/2,335** (+210, all in Website: 376 → 586), 0 warnings. No migration, no package, no layer outside the Website. See `PHASE13_PROGRESS.md` §5a.
+>
+> *Earlier status:* **2026-09-16 — Phase 13 (Public Website) has started on `feature/phase-13-public-website`, off `main` at `2c39aee` (PR #27, the Checkpoint 4 merge).** The design review gate is approved and frozen, including the Search & AI Discoverability addendum. **Slice 0 (housekeeping) is done and pending Tech Lead review.** No code has changed. **Phase 11 Slice 8 is closed/parked by Tech Lead decision**, and `main` remains canonical. The company content pack will live in a separate private repository, with D100 unchanged. The next step is review of Slice 0. Slice 1 does not start without explicit approval. See `PHASE13_PROGRESS.md`.
+>
+> *Earlier status, kept for history:* **2026-09-14 — Phase 11 (Customer-Facing Workflow): Slices 1–7 are merged to `main` (PRs #18–#25), and Slice 8, the completion gate, is in progress.** The automated customer-workflow E2E is merged (PR #26, `main` at `d6cc324`). Manual Checkpoint 3 was run against it. Checkpoint 4's work is on `claude/phase-11-checkpoint-4-review-cc99b9`, **uncommitted and pending review**. It classified Checkpoint 3's findings: **A21 (logo) is configuration only; A22 (display names) is a deployment responsibility; the 3 Website test failures came from ignored leftover files in one checkout** (baseline 331/331 once removed). It also found and fixed **a real token disclosure in both applications** (**D101**): ASP.NET's per-request `RequestPath` logging scope wrote customer tokens into the Windows Application event log. Tracing was restored with an `ActivityListener`; `RequestId` is intentionally no longer logged. **FR-1.4 and company identity remain open, company- and deployment-owned.** See `PHASE11_PROGRESS.md` §11. **§3 now carries figures re-verified in Checkpoint 4**; other sections of this file still describe Phase 10 and earlier unless noted.
 >
 > *Earlier status, kept for history:* **2026-09-04 — Phase 11 in progress on `claude/customer-workflow-phase-rvh4rj`, off `main` at `a5124ca` (the Phase 10 merge, PR #17).** `PHASE11_PROGRESS.md` is the per-slice record and carries the eight design decisions (Q1–Q8) approved before any code was written. **Slices 1 and 2 of eight are implemented.** Slice 1 closes a real correctness defect (**D96**: two simultaneous customer decisions on the same token link both committed); Slice 2 builds the customer-facing Website skeleton, server-rendered, and gives the public rate limiter the trust boundary D65 declined to invent (**D97**). **The figures in §3 below are Phase 10's and are now stale**: one more migration (ten → eleven), ten backend tests from Slice 1, and a fifth test project — `RenoTrack.Website.Tests`, eighty test cases, running in CI's **Linux** job because it needs no database. They will be re-verified at the completion gate. Everything else in this file remains accurate.
 
@@ -49,6 +100,7 @@
 
 ## 2. Current Branch State
 
+- **2026-09-16 — `feature/phase-13-public-website` is the current branch.** It is off `main` at `2c39aee`, has no upstream set and has not been pushed. It carries Slice 0's documentation only, pending Tech Lead review. `claude/phase-11-checkpoint-4-review-cc99b9` is merged (PR #27), and Phase 11 Slice 8 is parked. The entries below are kept for history.
 - **`feature/phase-10-dashboard` is the current branch** (Phase 10, above), off `main` at `6cd8856`, carrying **four commits** (`1eed2e2` the Dashboard, then `ce91314`/`5dea592`/`090aef0`, the three QA rounds) plus this documentation reconciliation. Working tree clean; **being pushed and opened as a PR now, with the Product Owner's explicit permission.**
 - **`feature/phase-9-email-integration` — merged** via **PR #16** (`6cd8856`). The branch has deliberately not been deleted.
 - `feature/phase-8-invoices-payments-project-completion` (off `origin/main` at `697292b`, tip `4218fcc`) **was pushed and merged via PR #14**; `origin/main` is at `0c12948`. Local `main` has been fast-forwarded to `0c12948`. The branch has deliberately **not** been deleted.

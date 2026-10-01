@@ -1,0 +1,24 @@
+@model RenoTrack.Website.Site.PictureModel
+@using RenoTrack.Website.Site
+@*
+    One approved photo (D106): a WebP source and a JPEG img, three widths each, the caller's sizes, and the intrinsic
+    size declared so the layout never shifts. Every URL is a verified derivative with its content hash; the alt text
+    is encoded company text.
+
+    Content photography is always a real <img>, never a CSS background, and is never cropped by CSS: the derivative
+    is the approved crop. Priority images (the hero) are never lazy; everything else is.
+*@
+@{
+    var image = Model.Image;
+}
+<picture>
+    <source type="image/webp" srcset="@image.WebPSrcset" sizes="@Model.Sizes" />
+    @if (Model.Loading == PictureLoading.Priority)
+    {
+        <img src="@image.FallbackUrl" srcset="@image.JpegSrcset" sizes="@Model.Sizes" width="@image.Width" height="@image.Height" alt="@image.Alt" fetchpriority="high" decoding="async" />
+    }
+    else
+    {
+        <img src="@image.FallbackUrl" srcset="@image.JpegSrcset" sizes="@Model.Sizes" width="@image.Width" height="@image.Height" alt="@image.Alt" loading="lazy" decoding="async" />
+    }
+</picture>

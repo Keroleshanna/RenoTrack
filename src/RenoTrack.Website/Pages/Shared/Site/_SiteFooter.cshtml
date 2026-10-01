@@ -1,0 +1,117 @@
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@inject LegalContentOptions Legal
+@inject MarketingSite Marketing
+@*
+    The footer (D103/D105; composed in Slice 5v, D107): a brand block that names the company, then the link columns,
+    then a bottom bar carrying the copyright and the legal pages.
+
+    Company facts from the content pack only. A block whose facts are not configured is omitted entirely, with
+    no heading over nothing and no placeholder (D100). There is no social-media slot: none is configured, and
+    an empty one would suggest accounts that do not exist.
+
+    The reversed logo appears here for the same reason as in the header, under the same condition: this is a dark
+    band, so only CompanyIdentity:LogoOnDarkPath is drawn, and without one the name stands alone (V-4).
+
+    The legal links moved into the bottom bar and are not repeated in a column: one list of them per page.
+*@
+@{
+    var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
+    var hasHoursNote = !string.IsNullOrWhiteSpace(Company.OpeningHoursNote);
+    var hasAreaNote = !string.IsNullOrWhiteSpace(Company.ServiceArea.Note);
+    var year = SiteFormatting.CopyrightYear(DateTimeOffset.UtcNow);
+}
+<footer class="site-footer">
+    <div class="site-container site-footer-grid">
+        <section class="site-footer-block site-footer-brand" aria-labelledby="site-footer-company">
+            @if (Company.HasLogoOnDark)
+            {
+                <img class="site-footer-logo" src="@Company.LogoOnDarkPath" alt="" width="48" height="48" />
+            }
+            <h2 id="site-footer-company" class="site-footer-name">@Company.DisplayName</h2>
+            <address class="site-address">
+                @if (Company.Address.IsSupplied)
+                {
+                    <span class="site-address-line">@Company.Address.StreetAddress</span>
+                    <span class="site-address-line">@Company.Address.PostalCode @Company.Address.Locality</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(Company.ContactPhone))
+                {
+                    <span class="site-address-line"><a class="site-footer-link" href="@SiteFormatting.TelHref(Company.ContactPhone)">@Company.ContactPhone</a></span>
+                }
+                @if (!string.IsNullOrWhiteSpace(Company.ContactEmail))
+                {
+                    <span class="site-address-line"><a class="site-footer-link" href="@SiteFormatting.MailtoHref(Company.ContactEmail)">@Company.ContactEmail</a></span>
+                }
+            </address>
+        </section>
+
+        @* Every service page linked from every page (D105, S4-8). An enabled site has at least one service. *@
+        <nav class="site-footer-block" aria-labelledby="site-footer-services">
+            <h2 id="site-footer-services" class="site-footer-heading">Leistungen</h2>
+            <ul class="site-footer-links">
+                @foreach (var service in Marketing.Services)
+                {
+                    <li><a class="site-footer-link" href="@MarketingSite.ServicePath(service)">@service.Name</a></li>
+                }
+            </ul>
+        </nav>
+
+        @if (hours.Count > 0 || hasHoursNote)
+        {
+            <section class="site-footer-block" aria-labelledby="site-footer-hours">
+                <h2 id="site-footer-hours" class="site-footer-heading">Öffnungszeiten</h2>
+                @if (hours.Count > 0)
+                {
+                    <ul class="site-hours">
+                        @foreach (var line in hours)
+                        {
+                            <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                        }
+                    </ul>
+                }
+                @if (hasHoursNote)
+                {
+                    <p class="site-footer-note">@Company.OpeningHoursNote</p>
+                }
+            </section>
+        }
+
+        @if (Company.ServiceArea.HasPlaces || hasAreaNote)
+        {
+            <section class="site-footer-block" aria-labelledby="site-footer-area">
+                <h2 id="site-footer-area" class="site-footer-heading">Einsatzgebiet</h2>
+                @if (Company.ServiceArea.HasPlaces)
+                {
+                    <p class="site-footer-text">@SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+                }
+                @if (hasAreaNote)
+                {
+                    <p class="site-footer-note">@Company.ServiceArea.Note</p>
+                }
+            </section>
+        }
+    </div>
+
+    <div class="site-footer-bottom">
+        <div class="site-container site-footer-bottom-inner">
+            <p class="site-copyright">&copy; @year @Company.DisplayName</p>
+            @if (Legal.Impressum.HasContent || Legal.Datenschutz.HasContent)
+            {
+                <nav aria-label="Rechtliches">
+                    <ul class="site-legal-links">
+                        @if (Legal.Impressum.HasContent)
+                        {
+                            <li><a class="site-footer-link" href="/impressum">Impressum</a></li>
+                        }
+                        @if (Legal.Datenschutz.HasContent)
+                        {
+                            <li><a class="site-footer-link" href="/datenschutz">Datenschutzerklärung</a></li>
+                        }
+                    </ul>
+                </nav>
+            }
+        </div>
+    </div>
+</footer>

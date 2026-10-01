@@ -44,7 +44,7 @@ flowchart LR
     MAIL -->|Token link email| T
 ```
 
-- **Public Website** — server-rendered pages (fast, SEO-friendly, no login). Submits the contact form to the API.
+- **Public Website** — server-rendered pages (fast, SEO-friendly, no login). Submits the contact form to the API. **Company content arrives through a content pack (D102):** a directory outside the application and outside this repository, kept in the company's private content repository, whose files enter configuration through an isolated provider that can contribute only content sections and never product settings. One build serves any company; no company identity or copy is compiled in (D100).
 - **Dashboard** — a single-page application used by Admin and Inspector, authenticated with JWT.
 - **Token-Link Pages** — a small set of public, unauthenticated pages (view Angebot, view Invoice, Approve/Reject) resolved by a token, not a login session. **Served by the `RenoTrack.Website` project as server-rendered Razor Pages, calling the API from the server (D97)** — the customer's browser runs no script and never learns the API's origin. They use their own `_CustomerLayout`, not the marketing chrome: `PermissionMatrix.md` §7 grants a token holder exactly view and decide, so any other destination on screen would imply access they do not have. `/angebot/{token}` exists as of Phase 11 Slice 2; the priced document, the decision buttons and the invoice view follow in later slices.
 - **API** — the single backend, owning all business logic and data access.

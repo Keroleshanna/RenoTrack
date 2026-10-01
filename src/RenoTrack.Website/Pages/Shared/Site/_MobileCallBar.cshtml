@@ -1,0 +1,12 @@
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@*
+    Narrow screens only (see marketing.css), hidden in print. A visible-text link, never icon-only (D103).
+*@
+@if (!string.IsNullOrWhiteSpace(Company.ContactPhone))
+{
+    <nav class="site-callbar" aria-label="Schnellkontakt">
+        <a class="site-callbar-link" href="@SiteFormatting.TelHref(Company.ContactPhone)">Anrufen</a>
+    </nav>
+}

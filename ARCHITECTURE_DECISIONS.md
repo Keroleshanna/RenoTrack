@@ -2486,3 +2486,543 @@ The ASP.NET template pages are removed: `/Index`, `/Privacy`, the legacy `_Layou
 - **Windows EventLog**, over a clean full-suite run plus a published Website in Production: **847** events, **565** request-path entries all carrying `TraceId` and `SpanId`. **Zero** entries contain `RequestPath:`, a token-route path, or any probe token. Full suite **2,125/2,125** from a clean Release rebuild.
 
 **What this does not clean up:** entries already written. Event logs on machines that ran either application before this decision may hold tokens. Clearing them is an operator action, not something the application does.
+
+---
+
+## D102 — The Company Content Pack: Isolated Content, Never Configuration Authority
+
+**Phase 13 Slice 1.** Design approved at the Slice 1 gate, including decisions S1-1 to S1-8.
+
+**Problem:** the marketing site presents one company's facts — identity, address, opening hours, service area, services. D100 already rules that no company identity or legal text is committed to this repository, and Phase 13 **Q9** places that content in a separate private repository. The product still has to load it, validate it, and stay usable by another company without a fork.
+
+### Part 1 — Where the content lives, and how it arrives
+
+**Decision:** the content pack is a directory **outside the application and outside this repository**, named by one optional wiring key, `ContentPack:RootPath`. It holds `site.json` (required), `legal.json` (optional) and `brand/` (optional). The JSON files are ordinary configuration JSON, bound to typed options exactly as `LegalContentOptions` already is.
+
+**Alternatives considered:**
+- **A custom file reader with its own schema** — rejected. D100 already chose configuration as the content channel. It keeps environment variables and mounted secrets working, and binding, `"//"` comment keys in `.Get<T>()` sections, and fail-at-startup on malformed JSON are all existing, tested behaviour.
+- **Committing company content under the repository** — rejected by Q9, and it would amend D100.
+
+**Consequences:**
+- Absent `RootPath`, the Website behaves exactly as before.
+- A set `RootPath` that is relative, missing, or lacks `site.json` fails startup naming the key.
+- Files are never reloaded; content changes take effect on restart.
+- With a pack configured, the `/brand` mount serves the pack's `brand/`, and nothing else in the pack is reachable.
+
+### Part 2 — Isolation: the pack contributes content and nothing else (S1-8)
+
+**Problem found at the design gate.** The pack's files sit above `appsettings.json`.
+- Loaded with `AddJsonFile`, a `Logging` section in `site.json` could re-enable the Information-level request and HttpClient logging that D101 and `CLAUDE.md` §24 treat as load-bearing token protections.
+- A `PublicApi` or `TrustedForwarders` section could redirect a customer's token traffic or widen the forwarder trust list.
+
+"The typed models ignore unknown keys" is no boundary: the application's own options would read those keys.
+
+**Decision:** each file enters through `IsolatedContentPackProvider`, governed by a per-file allowed-root table in `ContentPackSectionPolicy`:
+
+| File | Allowed top-level sections |
+|---|---|
+| `site.json` | `CompanyIdentity`, `Site` |
+| `legal.json` | `Legal` |
+
+1. **Parsed privately.** An inner `JsonConfigurationProvider` is never added to any builder, so the raw file never becomes application configuration.
+2. **Validated before exposure.** Startup fails with one message naming the file and every offending section when the file contains:
+   - any section outside its allowed roots — product sections (`ConnectionStrings`, `Jwt`, `Email`, `TokenLink`, `Logging`, `PublicApi`, `TrustedForwarders`, `ContentPack`, `AllowedHosts`, …), the other file's section, or a top-level `"//"` comment key;
+   - an allowed root that is a scalar or an empty object;
+   - no allowed section at all.
+
+   An absent optional file contributes nothing; a present-but-empty one is refused.
+3. **Filtered by construction.** Only keys under an allowed root are copied into the provider's data.
+4. **Flattened keys are judged, not JSON shape.** A property literally named `"Logging:LogLevel:Default"` is caught at the root.
+5. **Messages name files and sections, never values.** Section names are stripped of control characters and truncated.
+
+Roots compare case-insensitively, because configuration keys do.
+
+**Precedence (S1-4, amended by S1-8):** the pack's sources go directly after the last file source (`appsettings*.json`, user-secrets). The result is command line > environment variables > **pack** > user-secrets/appsettings. The position comes from the last *file* source, not the first environment source, because `WebApplication.CreateBuilder` registers `DOTNET_`/`ASPNETCORE_`-prefixed host environment sources *before* the JSON files. Given isolation, this precedence governs content sections only.
+
+**Verified beyond the suite by mutation runs on the finished implementation:**
+
+| Mutation | Tests that fail |
+|---|---|
+| Provider made equivalent to `AddJsonFile` (no validation, no filter) | 21 |
+| Validation removed from the provider, filter kept | 21 |
+| `Filter` passes every key through | 1 — the filter's own unit test |
+| Single-source guard removed | 3 |
+| Pack inserted at top precedence | 3 |
+
+**One residual gap, stated rather than hidden — accepted as documented by the Tech Lead; no test-only seam is to be added:** removing *only the provider's call* to `Filter`, with validation kept, fails no test. That is inherent, not an oversight — while validation holds, filtering removes nothing, so the call's absence can't be observed from outside. The filter is proven at function level. Detecting the missing call would need a test-only seam in the provider, which was not added without a decision.
+
+### Part 3 — One identity, extended in place (S1-1, S1-3)
+
+`CompanyIdentityOptions` gains `OwnerName`, `Address`, `OpeningHours`, `OpeningHoursNote` and `ServiceArea` — not a second marketing identity. The token pages and the marketing site read one identity, or entity consistency breaks before a page exists.
+
+Format rules now apply to **every** deployment:
+- **`ContactPhone`:** international — `+`, country code, digit groups separated by single spaces, 8–15 digits — so `tel:` links and later structured data derive from one spelling.
+- **`ContactEmail`:** exactly one plain address.
+- **Text fields:** control characters refused, with length limits.
+- **Address:** whole or absent, with an ISO 3166-1 alpha-2 country code.
+- **Opening hours:** fixed `HH:mm` spans on English day names, no day in two blocks. "By appointment" belongs in `OpeningHoursNote`, which is never published as machine-readable hours.
+- **Service-area places:** `City` or `Region`.
+
+### Part 4 — The marketing site's switch (S1-2, S1-7)
+
+`SiteOptions` carries `PublicBaseUrl` and `Services`.
+
+**The site is enabled exactly when `PublicBaseUrl` is set.** It must then be an HTTPS origin with no path, query, fragment or user information. `DisplayName`, `ContactPhone`, `ContactEmail`, `Address` and at least one service become required, and every missing key is named in one message.
+
+**Services are validated whenever supplied:**
+- slug matches `^[a-z0-9]+(-[a-z0-9]+)*$` and is unique;
+- name is unique ignoring case;
+- summary is required;
+- at least one non-blank offering.
+
+Without `PublicBaseUrl` the site is disabled, one startup warning says so, and the token and legal pages are unaffected — D100's "absence means the route does not exist", applied to a whole site.
+
+Only fields with a consumer in Slices 2–4 exist. Statements, media, FAQ, inquiry service types, map settings, robots rules, content version and gated legal facts arrive with the slices that render them.
+
+### Part 5 — Lists come from exactly one source (S1-5)
+
+.NET configuration merges arrays **by index** across sources, silently. `Site:Services`, `CompanyIdentity:OpeningHours` and `CompanyIdentity:ServiceArea:Places` must each come from exactly one provider, or startup fails naming the providers. Scalar overrides — an environment variable correcting one phone number — stay allowed.
+
+### Part 6 — What stays out of this repository (S1-6)
+
+- **Fixtures:** two fictional companies with reserved `.test` domains and `+49 000` numbers, enforced by a test.
+- **Forbidden-name variants:** the addendum's check can't hold a real company's spellings here without breaking D100. The product repository ships the *mechanism* (Slice 10); the company's list lives in its content repository.
+- **Cross-application consistency:** `Site:PublicBaseUrl` should match the API's `TokenLink:PublicBaseUrl` origin, as `CompanyIdentity:DisplayName` should match `Email:FromDisplayName`. The two applications can't check each other, so this is a documented deployment check.
+
+---
+
+## D103 — The Marketing Site Shell: Startup-Composed, Endpoint-Decided, Never on a Token Route
+
+**Phase 13 Slice 2.** Approved at the Slice 2 gate, decisions S2-1 to S2-9.
+
+**Problem:** the marketing site needs its own layout, security headers, canonical addresses, typography, theme and 404 page. It shares an application — and two pages, the Impressum and the Datenschutzerklärung — with the customer token pages, whose rules (`CLAUDE.md` §24, D97–D101) must not move by a byte. A token-only deployment must also behave exactly as before.
+
+### Part 1 — Marketing metadata: a startup convention, never an attribute (S2-9)
+
+**Decision:** `MarketingPageMetadata` is a sealed, non-attribute marker. The only code that adds it is `MarketingPageConvention`, a Razor Pages page convention over one list of page paths. `Program.cs` registers the convention **only when `Site:PublicBaseUrl` is set**. When the site is disabled, no endpoint in the application carries the marker (pinned by enumerating every endpoint).
+
+**Every request-time marketing behaviour decides from the matched endpoint alone** — `HttpContext.IsMarketingPage()`:
+- the marketing security headers;
+- the canonical-path redirect;
+- the layout choice of the two shared legal pages;
+- the not-found page's own "render or bare 404".
+
+No consumer reads configuration per request. Pipeline pieces that have no endpoint to consult (404 re-execution, host redirect) are registered or not at startup, with the canonical origin captured then.
+
+A test swaps the registered `SiteOptions` for a disabled instance after composition and proves headers, layout and redirects still follow the metadata. A mutation that re-reads the options in the headers middleware fails that test.
+
+**Alternatives considered:**
+- **An attribute on page models.** Rejected: a page could declare itself a marketing page, and a stray attribute could land on a token page.
+- **An attribute plus a request-time `IsEnabled` check.** Rejected at the design gate: behaviour would depend on configuration read per request.
+
+**Never on a token route — two independent startup guards:**
+1. the convention refuses any page path under `/Angebot`;
+2. `MarketingPageGuard` scans the built endpoints before `app.Run()` and fails naming the route pattern when an endpoint carries the marker *and* a route parameter named `token` (case-insensitive).
+
+The second guard keys on the same parameter rule as `CustomerSecurityHeaders`, so it also covers token routes nobody has written yet.
+
+### Part 2 — Headers
+
+Endpoints with the marker send:
+- `Content-Security-Policy: default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()`
+
+`connect-src 'none'` goes beyond the originally proposed string, closing the fetch channel `default-src 'self'` would leave open. The site-wide baseline (`nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS) is unchanged. **Token pages get no CSP change in this decision.** Proposing a CSP for them is separate hardening.
+
+### Part 3 — Canonical host and path
+
+**Host:** exactly one alias is redirected — the `www.` counterpart of the canonical host, derived rather than configured. There is no alias for an IP, `localhost` or a single-label host.
+- GET/HEAD gets 301; other methods get 308.
+- Path and query are preserved on **every route, token routes included**. The token is never re-cased, and the redirect keeps the token route's `no-store`/`noindex`. Nothing is logged.
+- **Unknown hosts are not redirected** — refusing them is `AllowedHosts`' job, and redirecting everything non-canonical would bounce health checks.
+- `X-Forwarded-Host` is not trusted; the proxy must pass the original `Host`.
+- `http://www…` takes two hops (HTTPS redirect, then host).
+
+**Path:** on endpoints with the marker only, GET/HEAD only.
+- Upper-case ASCII or a trailing slash gets 301 to the lower-case path without the slash, query preserved.
+- A path starting `//` or `/\` is never redirected.
+
+The alias and path rules are unit-tested. Host-level, an escaped `%2F` path never reaches a marketing endpoint, so the protocol-relative guard is unit-proven only — a mutation removing it failed the unit test and no host test.
+
+### Part 4 — The site 404
+
+A custom `UseStatusCodePages` handler, registered only when the site is enabled, re-executes a bodyless 404 into `/nicht-gefunden`:
+- **404 only, GET/HEAD only, never from a token route** — narrower than `UseStatusCodePagesWithReExecute`, which would turn a 405 or a bodyless 400 into "not found".
+- The page always answers 404, is `noindex`, and never renders the requested path or query.
+- Without the marker (site disabled) it returns a bare 404.
+
+POST to an unknown address is untouched: routing answers 405 there, identically with the site disabled.
+
+### Part 5 — Layout, theme, typography
+
+- **Layout.** `_SiteLayout` and partials in `Pages/Shared/Site/`, referenced by full path. The header has the company name as text beside a decorative logo (`alt=""`, since the web logo carries no wordmark) and the phone. The footer has address and contact, opening hours as German ranges with `abbr`, service area, legal links and copyright. There is a fixed "Anrufen" call bar below 768 px. Every fact comes from the content pack; an unconfigured block is omitted, heading included.
+- **Mobile phone CTA (accepted at implementation review).** On narrow screens, the fixed mobile call bar is the primary phone CTA; the duplicate header phone CTA is hidden below 768px. The header button is deliberately not shown alongside the bar.
+- **Navigation.** `SiteNavigation` lists only pages that exist — none in Slice 2, so no `<nav>` renders, and every future entry must answer 200 (pinned). **The narrow-screen `<details>` navigation is introduced with the first real navigation entries** (accepted deferral at implementation review); no empty mobile menu is built.
+- **Head.** Title `<page> | <DisplayName>`; absolute lower-case canonical without query; Open Graph without an image; `noindex` only on non-indexable pages. A marketing page's layout reads a startup snapshot (`MarketingSite`), never `SiteOptions`.
+- **Theme (S2-2).** `Site:Theme:PrimaryColor`/`AccentColor` are `#RRGGBB` only. The primary must reach 4.5:1 against white; the accent 3:1 against the effective primary; failures fail startup naming the key. `/site/theme.css` is generated at startup as two custom properties, served with a content-hash URL and `max-age=3600`, and always available (product defaults when unset). No company-authored CSS and no inline style.
+- **Typography (S2-3).** Figtree, SIL OFL 1.1, *"Copyright 2022 The Figtree Project Authors"*, taken from `@fontsource/figtree@5.3.0` — Latin 400/600/700 woff2 plus `OFL.txt`, served same-origin, `font-display: swap`, 400 preloaded. Chosen for a clean geometric form, body-size legibility, full German coverage in the Latin subset, and a licence with no Reserved Font Name.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `figtree-latin-400-normal.woff2` | 11,384 | `8f98dd642986f1fa39c45b89665a57372897c235b36028e0e4a136e43dc5f8ab` |
+| `figtree-latin-600-normal.woff2` | 11,544 | `367d713287918784702563518f59239989da815c80d3c7337686b9816635a08b` |
+| `figtree-latin-700-normal.woff2` | 11,376 | `7ec4f08d09f91d349917dd6592f6aaae66d8fe1bbd58fa24707961e79236616e` |
+| `OFL.txt` | 4,498 | `ee23e6c84000126692e112ff067b456470493349f993ceaa8b4d3766dd6fad5d` |
+
+**Found while implementing:**
+- `/css/site.css` is pinned as a removed scaffold asset by `ScaffoldRemovalTests`, so the stylesheet is `marketing.css`.
+- `MapStaticAssets` fingerprints stylesheet file names (`/css/marketing.<hash>.css`), so tests match the pattern, not a `?v=` query.
+
+**Found in accessibility QA, before closure.** Print, reduced motion, 200% text-only resize and true 400% page zoom were checked in a real Chromium browser (Edge) over the DevTools Protocol against the published build. The in-app pane can emulate none of them.
+- **Print defect, fixed.** The printed PDF showed the footer's phone, email and legal links white on the background print removes. The print rule `.site-footer a` lost on specificity to the screen rule `.site-footer .site-footer-link`. The print rule now names the specific selector, pinned by a test; after the fix every footer link prints black.
+- **Zoom has to be real zoom.** `--force-device-scale-factor=4` raised `devicePixelRatio` without shrinking the CSS viewport (1256 px), so it is not page zoom. The browser's page-zoom preference at 400% gave the genuine result: a 314 px CSS viewport at `devicePixelRatio` 4, reflowing without overflow. A narrow viewport is not a substitute for either.
+- **Reduced motion:** no transition or animation exists in the shell; the rule is in force for future additions.
+- **200% text:** no overflow or clipping at 1280 or 375 px.
+- **Focus not obscured:** real Tab presses at 400% zoom and 200% text found no focus stop hidden behind the fixed call bar.
+
+## D104 — The Homepage: Company-Authored Title and Copy, Every Section Earned, No Link Ahead of Its Page
+
+**Phase 13 Slice 3.** Approved at the Slice 3 gate, decisions S3-1 to S3-11, with the Tech Lead's two corrections (C1, C2).
+
+**Problem:** the homepage is the first page that is marketing rather than legal. It has to say what the company does, where it works and how to reach it, for people and for search/AI discovery alike. At this point:
+- the content model holds identity, services and theme only;
+- every page it would naturally link to (services, projects, about, FAQ, inquiry) is built in a later slice;
+- no company photo has been approved.
+
+Nothing may be invented, and nothing may link to a page that answers 404.
+
+### Part 1 — Content: `Site:Home`, grown for what this slice renders
+
+| Key | Rule | Renders as |
+|---|---|---|
+| `MetaTitle` | text ≤ 70; **required once the site is enabled** | the homepage `<title>` and `og:title`, verbatim |
+| `Headline` | text ≤ 90; optional | the one `h1`; absent → `CompanyIdentity:DisplayName` |
+| `Subheadline` | text ≤ 160; optional | hero lead, `meta description` and `og:description`; absent → none of them |
+| `Advantages[]` | none, or 2–6 `{ Title ≤ 60, Text ≤ 200 }` | "Ihre Vorteile" section; absent → no section |
+| `Process[]` | none, or 2–6 `{ Title ≤ 60, Text ≤ 200 }` | "So läuft es ab" ordered list; absent → no section |
+
+- **Shape rules** are those of all pack text: single line, no control characters, bounded, and a supplied-but-blank value refused. Messages name the key, never the value. Malformed content is refused on a disabled site as well.
+- **Both lists are single-source lists** (`ContentListSourceGuard`), for the same index-merge reason as `Site:Services`.
+- **C1 — the title never falls back to the company name.** A homepage titled only with the company name tells a searcher, or an AI system summarising the page, nothing about what the company does or where. The title is therefore company-authored content, and an enabled site without it fails startup, named in the same single message as every other missing key. The real value lives in the company's private content pack. Fixtures use fictional values.
+- **The `h1` may fall back to the name; the title may not.** A heading is read in the context of the page around it, while a title is read alone in a result list.
+- **Headings and button labels are product copy** ("Leistungen", "Ihre Vorteile", "So läuft es ab", "Kontakt aufnehmen", "Anrufen", "E-Mail schreiben", "Inhaber"). They make no claim about any company.
+- **Truth stays in the content repository.** `CONTENT_PACK.md` §6 lists what the title, headline and lists must not claim without verification: superlatives, prices, "kostenlos", response times, ratings, counts, certifications, keyword or city chains.
+
+**Alternatives considered:**
+- **A code-derived title** (services plus places). Rejected: keyword-shaped, and a generator is a second author of company copy.
+- **Code-defined process steps.** Rejected (S3-5): wording such as "kostenlose Besichtigung" is a company claim, and neutral wording says nothing.
+
+### Part 2 — The page
+
+- **`Pages/Startseite` with `@page "/"`**, never `Index`: the explicit template replaces the page-name route, so `/Index` and `/startseite` do not exist and the homepage has one address. It becomes marketing only through `MarketingPageConvention`.
+- **Its page model returns a bare `NotFound()` when the endpoint carries no marketing metadata**, so a token-only deployment keeps the bare 404 at `/` that `ScaffoldRemovalTests` pins.
+- **Section order:** hero → services → advantages → *(projects teaser, Slice 5)* → process → *(about and FAQ teasers, Slice 6)* → contact.
+- **Services (S3-3):** every entry in pack order, name and summary only. Offerings belong to the service page. **Not linked until `/leistungen/{slug}` exists (Slice 4).**
+- **C2 — the owner line reads `Inhaber: {OwnerName}`.** It is rendered in the advantages section when both are present. "Ihr Ansprechpartner" was rejected: it asserts the person's role as the visitor's direct contact, which no field states. "Inhaber" restates the identity field exactly.
+- **Conversion points in this slice are `tel:` and `mailto:` only:**
+  - hero, with the phone button hidden below 768 px where the fixed call bar is the phone CTA (S3-2, D103);
+  - the contact section, phone button at every width, because it sits in the page flow (S3-6);
+  - the existing header, call bar and footer.
+
+  "Angebot anfragen" arrives with its route in Slice 8.
+- **Contact actions stay understandable on paper.** A link cannot be followed in print, so each prints as the information it stands for: "Anrufen: <phone>" (revealing its visually hidden prefix) and "E-Mail schreiben: <address>". The address travels in a `home-print-only` span that is `display: none` on screen, so the visible label and accessible name are unchanged. Only the fixed call bar is hidden on paper. A first implementation hid the buttons and relied on the footer; that was rejected at pre-commit review as a deviation from the approved design, and the correction is pinned by tests.
+- **No reviews, ratings, testimonials, counters, badges, prices or images.** The hero is text on the primary colour (S3-1). The approved-photo requirements for Slice 5 are frozen in `PHASE13_PROGRESS.md` §5c.
+
+### Part 3 — Shell changes
+
+- **`SitePage.SetDocumentTitle`:** the head renders a page-set document title verbatim. Every other page keeps `"{Title} | {DisplayName}"`, pinned by a test.
+- **`SitePage.SetFullWidth`:** the layout omits its content container for a page that draws full-width bands. Pages that do not ask are unchanged.
+- **Navigation (S3-7):**
+  - `SiteNavigation.Primary` is `[Startseite → /]`, a plain list at every width, with `aria-current="page"` on the current entry;
+  - the brand links to `/`;
+  - **the narrow-screen `<details>` menu is introduced when there are several real primary entries**, not for one.
+- **`MarketingSite` carries the startup snapshot of `Home` and `Services`**, so the page never reads `SiteOptions` per request.
+
+### Part 4 — What deliberately did not change
+
+- `_CustomerLayout`, every token route, their headers, logging and tests.
+- CSP, cookies (the homepage has no form and sets none) and fonts.
+- No JavaScript, no third-party request, no new package, no migration, no project outside `RenoTrack.Website`.
+
+**Found while implementing:**
+- **Four Slice 2 tests pinned "no homepage yet"**, and the approved design necessarily changes each one:
+  - the exact marketing page-path list;
+  - the exact set of marked endpoints;
+  - `/` as an unknown address answering the site 404, now `/index`;
+  - the empty primary navigation, now "only pages that exist".
+
+  Each was updated to the Slice 3 state with its intent kept. None was deleted.
+- **`ContentListSourceGuard` holds an explicit list**, so the two new lists had to be added to it. The design had assumed they were covered automatically.
+
+**Found in browser QA, before closure** (headless Edge over the DevTools Protocol, against the published build, D103's method). Both defects were invisible to the test suite and are now pinned by tests.
+- **The first navigation entry squeezed the brand.** At 200% text and 375 px, flex shrinking narrowed the brand link until the company name wrapped almost character by character, about 1,100 px tall. The header now wraps (`flex-wrap: wrap`), and the brand claims a basis (`flex: 1 1 10rem`). After the fix the brand is 128 px tall there, and at normal text size the header stays one 73 px row from 320 to 1920 px.
+- **Focus stopped behind the call bar.** At true 400% zoom, a real Tab press scrolled the contact section's "E-Mail schreiben" button to 155–202 px against a call bar starting at 177 px. `scroll-padding-bottom` below 768 px now reserves the bar's height, and every focus stop clears it. Slice 2's footer-only page never had a focusable element low enough to expose this.
+
+## D105 — The Service Pages: One Real Page per Service, Matched Exactly, Titled by the Company
+
+**Phase 13 Slice 4.** Approved at the Slice 4 gate, decisions S4-1 to S4-13, with the Tech Lead's three implementation guardrails (exact slug comparison; shared partials must keep semantic structure; no company-specific literal in production code).
+
+**Problem:** the service pages are the site's main sales pages: what the company does in a trade, what that covers, where, and how to get in touch. They must:
+- be reachable from the homepage without a dead link;
+- serve any company's services from its content pack;
+- give search and AI systems one clean, factual, self-canonical page per real service, with no doorway or town pages;
+- stand as finished text-only pages, because approved photography arrives only in Slice 5 and may never exist for some services;
+- leave every token-route protection untouched.
+
+### Part 1 — Routes and lookup (S4-1, guardrail 1)
+
+- **`Pages/Leistungen` with `@page "/leistungen"`, `Pages/Leistung` with `@page "/leistungen/{slug}"`.** Never `Index`, for `Startseite`'s reason: explicit templates replace page-name routes, so `/leistung` and `/leistungen/index` are not addresses of these pages. Both become marketing pages only through `MarketingPageConvention`, and both return a bare `NotFound()` without the metadata.
+- **The slug is looked up through `MarketingSite.FindService`, a dictionary built once at startup with `StringComparer.Ordinal`.** There is no case folding, trimming, transliteration, closest match or fallback. An unknown slug is a bodyless 404, which the site's not-found page renders without echoing the address.
+- **Upper-case and trailing-slash addresses never reach the lookup:** D103's canonical-path redirect answers them with a 301 first. That same redirect makes a case-insensitive lookup invisible to every host-level test, so the ordinal contract is pinned on `FindService` itself, including under the `tr-TR` culture. A mutation to `OrdinalIgnoreCase` fails exactly those unit tests.
+- **`LeistungModel` resolves `MarketingSite` from request services after the marketing check.** The snapshot is registered only when the site is enabled, so it cannot be a constructor dependency of a page that also exists on a token-only deployment.
+- **Slug stability is the company's responsibility and is documented, not engineered:** a changed slug's old address answers 404. Redirects from previous slugs are out of scope. Slice 8's inquiry flow will use the same key.
+
+### Part 2 — Content (S4-2 to S4-5)
+
+| Key | Rule | Renders as |
+|---|---|---|
+| `ServicesPage.MetaTitle` | ≤ 70; **required once enabled** | overview `<title>`/`og:title`, verbatim |
+| `ServicesPage.Headline` | ≤ 90; optional | overview `h1`; absent → "Leistungen" |
+| `ServicesPage.Intro` | ≤ 160; optional | overview lead and meta description |
+| `Services[].MetaTitle` | ≤ 70; **required once enabled** | service `<title>`/`og:title`, verbatim |
+| `Services[].Headline` | ≤ 90; optional | service `h1`; absent → `Name` |
+| `Services[].MetaDescription` | ≤ 160; optional | service meta description; absent → none |
+| `Services[].Sections[]` | none or 1–4 `{ Heading ≤ 80, Paragraphs[1–4 × ≤ 600] }` | descriptive blocks |
+| `Services[].Offerings[]` | existing rules, **now at most 12** | "Leistungsumfang" |
+
+- **S4-2 — no generated titles.** D104 C1's reasoning applies with more force here: a service page is where a "trade + region" search lands, and `"{Name} | {company}"` says neither. Every missing title is named in the existing single startup message.
+- **`Summary` is not the meta description.** At up to 300 characters it is too long for one, and code never shortens company copy.
+- **S4-5 — unique titles and descriptions.** Across the homepage, the overview and every service, `MetaTitle`s must differ, and so must every supplied description (`Home.Subheadline`, `ServicesPage.Intro`, `Services[].MetaDescription`). Values are trimmed and compared ignoring case. The refusal names both keys and never the text. This is checked whenever content is supplied, enabled or not, and prepares Slice 10's crawl rule.
+- **Nested lists** (`Offerings`, `Sections`, `Paragraphs`) sit under `Site:Services` and are covered by the existing single-source guard. Slice 3 had assumed its lists were covered and was wrong, so this was verified with startup tests rather than assumed.
+
+**Alternatives considered:**
+- **Optional service titles falling back to `"{Name} | {DisplayName}"`.** Rejected at the gate: fewer required keys, but a title with no region, on exactly the pages whose purpose is regional discovery.
+- **A per-service service area.** Rejected: it invites town pages. The company's `ServiceArea` is shown on every service page instead.
+
+### Part 3 — The pages
+
+- **Overview:** breadcrumb → hero (`h1`, intro, "Einsatzgebiet", phone and email actions) → one linked card per service (`h2`) → contact section.
+- **Service page:** breadcrumb → hero (`h1`, `Summary`, "Einsatzgebiet", actions with the email subject "Anfrage: {Name}") → "Leistungsumfang" → `Sections` → *(Slice 5 photos)* → contact section → "Weitere Leistungen" (every other service, `h3` cards under its `h2`; omitted for a single-service site).
+- **Homepage:** its service cards link to their pages, and "Alle Leistungen ansehen" links to the overview.
+- **Navigation** gains "Leistungen". It stays a plain list, because two entries are not several (S4-7). `aria-current` stays exact-match, and on a service page the breadcrumb carries the location.
+- **Footer** gains a "Leistungen" navigation block linking every service from every page (S4-8). From 1280 px the footer grid fits every configured block in one row.
+- **Breadcrumb (S4-10):** a `nav` labelled "Pfadnavigation" with an ordered list. The current page is text marked `aria-current="page"`, never a link to itself. Separators are drawn by CSS. Slice 10's `BreadcrumbList` must agree with it.
+- **Cards:** one link per card, on the heading, stretched over the card by a pseudo-element, with no repeated "Mehr erfahren". The link keeps its focus outline, and the card repeats it via `:has(:focus-visible)`.
+- **Email subject (S4-9)** is percent-encoded whole with `Uri.EscapeDataString`, so a name containing `&`, `?`, `#` or `%` cannot add a `body`, `cc` or fragment.
+- **No image, placeholder or empty frame.** The text-only page must read as finished.
+
+### Part 4 — Shared markup without weakened structure (S4-6, guardrail 2)
+
+- **Partials:** `_ServiceCards`, `_ContactSection`, `_Breadcrumb` and `_HeroActions`, under `Pages/Shared/Site/`, referenced through `SiteLayout` constants.
+- **A partial never fixes a page-specific choice.** `_ServiceCards` takes its heading level (validated 2 or 3), `_ContactSection` takes its heading id, and `_HeroActions` and `_Breadcrumb` carry no id at all. Heading levels are written as two branches, not a computed tag name, which would need `Html.Raw`.
+- **Shared classes were renamed from `home-*` to `page-*`.** Only the owner line and the process steps, which exist on the homepage alone, keep `home-*`. The 33 homepage test assertions on class names were updated with intent kept. Homepage ids (`home-title`, `home-services`, …) are unchanged.
+- **`PageSemanticsTests` proves the guardrail on every marketing page,** with a full pack and a minimal one:
+  - ids are unique, and every `aria-labelledby` resolves;
+  - there is one `h1`, it comes first, and no heading level is skipped;
+  - there is one `header`, `main` and `footer`, and every `nav` is named with no shared name;
+  - each page's exact heading outline is pinned.
+
+  A self-test proves the checker catches each defect it claims to.
+
+### Part 5 — What deliberately did not change
+
+- `_CustomerLayout`, every token route, their headers, logging and tests.
+- CSP, cookies, fonts, `Program.cs`.
+- No JavaScript, no third-party request, no package, no migration, no project outside `RenoTrack.Website`.
+- **No company literal in production code (guardrail 3).** Every service word, title and description comes from the pack. The fixed labels are product copy.
+
+**Found while implementing:**
+- **A Slice 1 test's "not served" marker stopped being unique.** `Pack_files_outside_the_brand_directory_are_never_served` asserted the 404 body lacked "Testleistung". Once the footer linked every service, the site 404 legitimately contained it. The marker became text found only in the raw pack files (the fixture comment and the `"Offerings"` key), with the intent kept.
+- **A test expectation was too broad, not the code.** The mailto-injection test first asserted the page contained no `?body=` anywhere. The service name is also visible text (h1, breadcrumb), correctly encoded. The assertion was narrowed to the `mailto:` attributes (CLAUDE.md §14).
+- **`--list-tests` undercounts.** Theories whose data is not serializable are listed as one case but executed per row, so class counts were measured with filtered runs.
+
+**Found in browser QA, before closure** (headless Edge over the DevTools Protocol, against the published build, D103's method). Both defects were invisible to the test suite and are now pinned by tests and by mutations that revert them:
+- **A section heading widened the page.** At 200% text and 375 px, "Leistungsumfang" in the `inline-block` `.page-section-title` was wider than the viewport. `hyphens: auto` did not break it, because hyphenation depends on the browser having a dictionary. The heading now has `max-width: 100%` and `overflow-wrap: anywhere`.
+- **A long service name widened the footer.** With the five-service fictional pack, 200% text at 375 px overflowed through the new footer services column: a bare `1fr` grid track cannot shrink below its longest word. The one-column track is now `minmax(0, 1fr)`, and footer links wrap.
+- **Accepted, not changed:** a very long single-word service name can break mid-word in a narrow footer column at wide screens. Real service names are short, and the alternative is overflow.
+
+## D106 — Photos: Verified Derivatives, Served by Allowlist, Prepared Offline
+
+**Phase 13 Slice 5a (media foundation).** Approved at the Slice 5 gate, decisions S5-1 to S5-15, with the Tech Lead's two corrections: byte budgets frozen only after real-media validation (S5-11), and the alt-text wording. Slice 5b (projects) is designed but not part of this decision.
+
+**Problem:** the site needs authentic company photography, which is what makes a renovation company's website credible. It must stay:
+- **Truthful:** only owner-approved photos of the company's own work.
+- **Private:** source photos carry GPS coordinates and may show people, house numbers or customers' homes.
+- **Honest about coverage:** strong material exists for one service, little or none for the others.
+- **Reusable:** no company's photo or approval record belongs in the product repository.
+
+### Part 1 — The boundary: source, register, derivative (S5-4, S5-9)
+
+- **Source photos never enter any repository and the application never reads them.** An offline tool, `tools/RenoTrack.MediaPrep`, turns each approved source into published derivatives. It runs on an operator's machine against the company's private content repository.
+- **Approval, consent and the privacy checklist live in a private register.** The pack carries only `SourceRef`, an opaque reference into it, which is shape-checked, never rendered and never logged. The application cannot know whether an approval is real, and does not claim to.
+- **The pack's `media/` holds derivatives only**, named `{Id}-{480|960|1600}.{webp|jpg}` and optionally `{Id}-og.jpg`. A replacement photo is a new id.
+
+**Tool:**
+- **Stack and output:** SkiaSharp 4.152.0 pinned exactly; the Linux native assets are for CI. Output is byte-reproducible per platform.
+- **Pipeline:**
+  1. decode to sRGB;
+  2. **apply EXIF orientation first**;
+  3. crop to the operator's explicit rectangle (3:2 content, 1200:630 social; one pixel of rounding tolerated);
+  4. downscale only, by 2× box halvings then one Mitchell cubic resample;
+  5. encode WebP lossy quality 80 and JPEG quality 82, 4:2:0 baseline, from pixels with no colour space, so no ICC profile or metadata is written;
+  6. verify every file with the Website's own inspector.
+- **Safeguards:** it refuses to overwrite a file and refuses to enlarge. **It never fits a byte budget by itself:** an over-budget file is written, reported, and the tool exits with code 3.
+
+**Alternatives considered:**
+- **Documented external commands** (libvips/ImageMagick plus exiftool): manual and not reproducible.
+- **ImageSharp:** split licence.
+- **Runtime resizing:** a request-time dependency and attack surface for no benefit.
+
+### Part 2 — Nothing published unverified (S5-3, S5-5, S5-10, S5-11)
+
+- **`MediaDerivatives.cs`** is the single derivative specification: 480 × 320, 960 × 640 and 1600 × 1067 (3:2) in WebP and JPEG, 1200 × 630 JPEG social, and per-derivative byte budgets. It is linked into the tool, not copied.
+- **`ImageFileInspector.cs`** is a hand-written, allowlist-shaped parser, with no image library in the product:
+  - **JPEG:** allows only JFIF APP0, ICC APP2, quantisation/Huffman tables, restart interval, frames SOF0–2 and scans. It refuses APP1 (EXIF, XMP), APP3–15 (IPTC, Photoshop), comments, other coding processes and **any byte after EOI**.
+  - **WebP:** allows exactly one VP8/VP8L bitstream, with ALPH/ICCP only inside VP8X. It refuses EXIF/XMP chunks (declared or not), the EXIF/XMP/animation flags, unknown chunks and a RIFF size that does not match the file.
+  - **GPS lives inside EXIF, so refusing EXIF entirely closes accidental location leaks without parsing it.**
+- **`MediaCatalog.Load`**, at startup, for every derivative of every listed item checks that the file:
+  - exists under the media directory;
+  - is within its byte budget (checked before reading);
+  - passes inspection;
+  - matches its format and exact size.
+
+  Any failure **stops startup** naming the key and file. It computes a 16-hex content hash per file.
+- **Content rules** (`SiteOptions`):
+  - ids are well-formed and unique;
+  - alt text is required;
+  - a caption may not repeat the alt text;
+  - `SourceRef` is required and opaque;
+  - every `Home:HeroImage` / `Services[]:Image` names a listed photo;
+  - **every listed photo is referenced**, because listing publishes;
+  - `Site:Media` comes from one configuration source.
+- **Byte budgets are provisional** — 1600 ≤ 350 KB, 960 ≤ 160 KB, 480 ≤ 60 KB, social ≤ 250 KB (1 KB = 1,024 bytes). They are evidence-based performance budgets, **frozen only after validation against the real owner-approved media set**, per `MEDIA_PREPARATION.md` §6.3: measure, inspect visually, resolve globally, never by degrading one photo. The evidence and final values are recorded in this decision when that validation is done (see *Pending*).
+
+### Part 3 — Serving: an allowlist, not a mount (S5-2, S5-12)
+
+- `GET/HEAD /medien/{datei}` is mapped only when the site is enabled. The name is looked up in the catalog's ordinal dictionary, and **a request never builds a filesystem path**: unlisted files on disk, the pack's own files, case variants of a file name and every encoded traversal answer 404 (rendered by the site 404, which echoes nothing).
+- The content type comes from the verified derivative, never the request.
+- **Caching:** `Cache-Control: public, max-age=31536000, immutable` with an ETag. It is safe because every rendered URL carries `?v=` plus the content hash, so a silently overwritten file still gets a new URL. The query itself is not checked.
+- **Logging:** nothing is logged per request. The startup summary reports counts only.
+- **Rejected:** `UseStaticFiles` over `media/`, the `/brand/` pattern, which would publish anything placed in the directory.
+
+### Part 4 — Pages (S5-6, S5-7, S5-8)
+
+- **`_Picture`:** a WebP `<source>` and a JPEG `<img>`, three widths each, `sizes` from `PictureSizes`, `width="1600" height="1067"`, encoded alt text.
+  - **Hero:** `fetchpriority="high"`, no `loading` attribute, no preload.
+  - **Everything else:** `loading="lazy"`.
+  - Both use `decoding="async"`.
+- **Photos in CSS:** never a CSS background, never cropped by CSS — no `object-fit`, no `aspect-ratio`, no fixed height.
+- **Split hero** (homepage `Home:HeroImage`, service page `Services[]:Image`):
+  - the text column (`_PageHeroText`, shared with the text-only hero) comes first;
+  - the photo sits beside it from 1024 px, in a 1.1fr : 1fr grid with a 3rem gap, and follows the actions below that;
+  - **text never sits on the photo**;
+  - **without a photo, the text-only hero is unchanged**: a finished layout with no placeholder.
+- **Cards:** photos only when **every** service has one (`ServiceCardImagesEnabled`), identically on the homepage, the overview and "Weitere Leistungen". The photo sits above the heading, outside the link, and is not focusable.
+- **`og:image`:** only the page's own photo with a social derivative, as an absolute canonical URL with type, width, height and alt. **No fallback.** The overview, legal pages, 404 and customer token pages declare none.
+- **Print:** the hero photo is not printed; card photos print at most 8 cm tall and never split.
+
+### Part 5 — What deliberately did not change
+
+- CSP (`img-src 'self'` already allowed same-origin photos).
+- Token pages and `_CustomerLayout`.
+- Logging rules and navigation.
+- No JavaScript, CDN, third-party request or migration; no project outside `RenoTrack.Website` except the tool and its tests.
+- **No real photo in the repository:** fixture media are synthetic test graphics generated by the real tool.
+
+### Pending before Slice 5a closes
+
+- **Private real-media QA (S5-13):** owner-approved derivatives prepared with the pinned tool, browser QA against them, visual inspection, size measurement.
+- **Freezing the budgets and encoding settings (S5-11)** from that evidence. The aggregates and final values are recorded here and in `MEDIA_PREPARATION.md` §6.
+
+**Found while implementing:**
+- **A single cubic resample over a large reduction aliases fine repeating detail**, such as tile joints. The approved "one fixed filter (Mitchell cubic)" is therefore preceded by deterministic 2× box halvings. This refines the design without replacing it: the final resample is still Mitchell, and the whole chain is still fixed.
+- **ASP.NET route literals match case-insensitively and ignore a trailing slash.** `/Medien/x.jpg` and `/medien/x.jpg/` reach the endpoint. They still serve only the exact listed file, because the file name is an ordinal key, and a test pins exactly that.
+- **The first synthetic fixture pattern (a 40 px grid) exceeded the 960 JPEG budget.** The test graphic was made less dense rather than the budget changed: synthetic images say nothing about real photos, and S5-11 reserves budget decisions for real-media evidence.
+- **`<picture>` markup** was pinned exactly by regular-expression tests, including every URL's content hash, rather than by fragments.
+
+**Found in browser QA, before closure** (published build, headless Edge over the DevTools Protocol, synthetic fixture derivatives):
+- **The card chevron sat on the photo.** `.page-card-with-image::before` lost to the general `.page-card-linked::before`, which has the same specificity and comes later in the file, so the decoration was drawn on the photo. Every test was green; only a screenshot showed it. The rule now names both classes. It is pinned by a test and by a mutation that reverts it.
+- **Verified clean** at 320–1920 px and 1× and 2× pixel density, on three packs (hero plus one service photo, every service photographed, no photos):
+  - every `currentSrc` is sufficient for its rendered width and never more than one size larger;
+  - the rendered aspect is exactly 3:2 and WebP is served;
+  - the split hero places the photo beside the text from 1024 px and after the actions below that, never under the headline;
+  - no CSS background images, no horizontal overflow, and layout shift before scrolling ≤ 0.0007 (with or without photos, so from font swap, not images).
+- **Accessibility and print:** 200% text and true 400% zoom show no overflow or clipping, and no Tab stop is hidden behind the call bar. Reduced motion shows no transitions or animations. Print, read back from PDF, omits the hero photo and bounds card photos without splitting them.
+- **Security and logging:** token pages are unchanged; unlisted and probe media names answer 404; the server logs contain no token, probe, `SourceRef` or alt text.
+- **Lazy loading:** card photos inside the browser's lazy-load margin are fetched before scrolling. That is the browser honouring `loading="lazy"`, not eager loading.
+
+---
+
+## D107 — The Visual System: Two Configured Colours, Several Validated Surface Roles, and Bands That Must Alternate
+
+**Phase 13 Slice 5v (visual system).** Approved as the *Visual Direction Re-Alignment Gate*, decisions V-1 to V-9, after a Tech Lead review found the site reading as "a technical Razor website with company content" rather than as a renovation company. A reference site was used as a benchmark for composition, confidence and section rhythm — never for branding, copy, assets or its inaccessible patterns (parallax, text on photography, JavaScript filters, unverifiable testimonials).
+
+**Problem:** the pages built in Slices 2–5a were correct and accessible, and looked like an application. The causes were structural rather than cosmetic: one dark colour used on two bands, a near-invisible accent, pure white as the default surface, boxed everything, and a flat alternation of white and warm bands.
+
+### Part 1 — Surface roles are derived in C#, not in CSS (V-2)
+
+The company still configures exactly two colours (`Site:Theme:PrimaryColor`, `AccentColor`). `ThemeOptions` derives four more roles from them and `/site/theme.css` publishes all six:
+
+| Role | Derivation | Used for |
+|---|---|---|
+| `--brand-night` | primary mixed 40 % towards black | header, hero, footer, one mid band |
+| `--brand-navy` | the primary itself | the second dark band, so two never touch |
+| `--brand-accent-bright` | accent lightened until ≥ 7:1 on night | accent **text** on a dark surface |
+| `--brand-accent-strong` | accent darkened until ≥ 4.5:1 on **sand** | accent **text** on a light surface |
+
+- **Derived in C#, deliberately not with CSS `color-mix()`.** A derived colour that carries text has to be contrast-checked at startup exactly like a configured one, and CSS cannot report a failure. The walk is in fixed 2 % steps, so the same two colours always generate the same stylesheet — which the content hash in the stylesheet's URL assumes.
+- **The accent minimum rose from 3:1 to 4.5:1**, measured against the derived night surface. The accent was decoration when D103 set 3:1; it now fills the primary button and carries that button's night-coloured label. Contrast is symmetric, so one check covers both.
+- **`--brand-accent-strong` is measured against the darker of the two light surfaces (sand `#EAE2D5`), not the lighter one.** Deriving against stone alone produced **4.11:1** on the breadcrumb bar — measured at the prototype checkpoint, not predicted. A colour that clears sand clears stone.
+- **Stone and sand are product neutrals, not brand colours.** They have to sit under every company's palette.
+
+### Part 2 — The composition (V-1)
+
+- **Dark bands frame the page** — header, hero, one mid band, the contact band, the footer — and warm off-white carries the reading. Pure white is a card surface, no longer the page's default.
+- **The layered hero:** text column first, photo beside it from 1024 px in a wider container, an accent offset frame behind the photo, and the photo crossing into the section below. **Text never sits on a photograph** (D106, unchanged). The no-photo hero remains a finished layout.
+  - **The overlap is vertical by decision.** A horizontal bleed to the viewport edge needs `100vw`, which includes the scrollbar and overflows by its width wherever one is shown.
+- **The fact panel** — phone, email, availability, service area — crosses the hero's lower edge from 1024 px and is an ordinary block below that. Its heading is visually hidden, because the contact band and the footer state the same facts in full and a second visible "Kontakt" heading would compete with the real one. Every cell is a pack fact, omitted whole when absent (D100).
+- **Service cards** carry an index numeral, the accent rule, the name, the summary and **the first three offerings** — the pack's own words, which is what makes a card read as work offered rather than as a label. This supersedes Slice 4's decision to keep offerings off the card.
+  - **The card's footer line is an element in flow**, after the photo, the heading and the text. Slice 5a fixed a chevron drawn on the photo by out-specifying a selector (D106, mutation 23); 5v removes the possibility instead, because document order cannot be lost to a CSS ordering accident.
+- **Uppercase is reserved** for small labels — the hero's service-area eyebrow, fact labels, footer headings, navigation. German compounds set uppercase at display size hyphenate badly and read poorly, so headings stay sentence case.
+- **No invented German copy.** The bronze rule that opens each section is a drawn decoration, not an eyebrow word: product chrome is neutral vocabulary, and marketing voice is the company's to write.
+
+### Part 3 — Bands must alternate, and that is enforced
+
+No two adjacent bands may paint the same surface; consecutive prose sections are one band, because they continue one reading surface. Where the rule would be broken — the process band and the contact band were both navy — the later band steps from navy to night.
+
+**This was found by measuring painted colours in a browser, while the test that reads class names passed:** it classified `surface-dark surface-navy` as night. The test now checks the specific surface first, and the browser harness checks the painted colours as well. Two checks, because each missed what the other caught.
+
+### Part 4 — `CompanyIdentity:LogoOnDarkPath` (V-4, V-5)
+
+An optional second logo path with `LogoPath`'s rules, named by its own key in every failure message. **No dark-variant asset means the company name alone is the brand treatment** — a finished design, not a fallback. A mark drawn in the brand's own colours loses whichever parts match its surface; recolouring a raster file is impossible and redrawing a vector one would be inventing the company's mark. The product invents no brand asset, exactly as it invents no company name.
+
+### Part 5 — What the prototype checkpoint found (V-8)
+
+Three fictional packs — no photos, hero only, all photos — across seven widths, plus 200 % text, true 400 % zoom, keyboard focus, reduced motion and print, against the published build. It found **four defects in the slice's own work**, none of which any unit test could see:
+
+1. The hero's eyebrow at **2.65:1** and the process steps' text at **1.18:1**: `.surface-dark X` rules did not cover `.page-hero` and `.page-contact`, which paint their own surfaces. Fixed by naming all three dark bands in one selector group, so the next dark band cannot miss a rule.
+2. The breadcrumb link at **4.11:1** (Part 1).
+3. Two adjacent navy bands (Part 3).
+4. The surface-classification slip in the test that was supposed to prevent (3).
+
+**And four defects in the QA harness itself**, each of which would have produced a green run that measured nothing: a viewport emulation that silently did not apply; an unstyled page passing QA because the published app was started from the wrong working directory, so `MapStaticAssets` served every static file as 200 with zero bytes; a print check that ran at a width where the element it checked was already hidden; and `focus()` reporting no focus ring on everything, because `:focus-visible` depends on the input modality.
+
+**The rule that follows:** a QA harness states its own preconditions as assertions — the viewport it asked for, and that the stylesheet actually applied — and is mutation-tested before its green run is believed. Six mutations, all caught.
+
+---
+
+## D108 — The Header: Composed to an Approved Reference, With the Angle Drawn Behind the Link
+
+**Phase 13 Slice 5h (header / top toolbar).** A component-by-component visual reproduction: a reference screenshot was the visual authority for this one component, with the company's own content, colours and routes.
+
+**The composition:** a full-width near-black band; a brand zone painted in the accent, bleeding to the viewport's left edge and cut by an angled edge; the navigation and one prominent call to action on the right. The band is **92 px** at ≥ 1024 px, which is the reference's own height.
+
+- **The band carries no container.** The brand zone has to reach the viewport's left edge, which a centred container cannot do; only the right-hand group is inset by the page gutter.
+- **The angle is a band-coloured notch drawn over the zone, never a `clip-path` on the zone itself.** Two reasons, both measured rather than assumed:
+  1. a `clip-path` on an element containing a link **cuts that link's focus ring off at the diagonal** — a WCAG 2.4.7 failure that reads as a styling detail;
+  2. painting the accent on a pseudo-element leaves the brand name's real background the night band, which measures **1.00:1**. It looked right only because the pseudo-element happened to paint.
+- **The notch overlaps the zone's edge by one pixel.** A `clip-path` is rasterised against the pseudo-element's own box, which left a one-pixel accent hairline down the band at 2× device pixel ratio. Found in the screenshots; invisible to every geometry check.
+- **No mark is drawn in the brand zone**, and this is stricter than D107's rule: the zone is painted in the accent, so the positive mark loses its accent parts there exactly as the dark one loses its dark parts on a dark band. `LogoOnDarkPath` stays a dark-surface asset and renders in the footer.
+- **The call to action is the phone number** — the strongest action this application actually has. No button is drawn for a feature that does not exist, and the navigation lists only pages that exist (D104, unchanged).
+- **The header's button is inverted** — a light rectangle with `--brand-accent-strong` text — rather than the accent-filled button the page body uses (D107). Header-scoped by selector, and the derivation guarantees the pairing clears 4.5:1.
+- **Narrow screens:** the row wraps and the brand zone keeps its own height, rather than the brand being squeezed into a one-word column (D104's rule, unchanged). The wrapped action row stays right-aligned and carries the page gutter — it sat against the viewport's left edge until the screenshots showed it; nothing overflowed, so no measurement caught it.

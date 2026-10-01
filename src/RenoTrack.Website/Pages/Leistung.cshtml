@@ -1,0 +1,121 @@
+@page "/leistungen/{slug}"
+@model RenoTrack.Website.Pages.LeistungModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject MarketingSite Marketing
+@inject CompanyIdentityOptions Company
+@{
+    Layout = SiteLayout.Path;
+    ViewData.SetFullWidth();
+
+    var service = Model.Service;
+
+    // Required on an enabled site and validated at startup; used verbatim, with no company-name suffix (D105, S4-2).
+    ViewData.SetDocumentTitle(service.MetaTitle!.Trim());
+    if (service.HasMetaDescription)
+    {
+        ViewData.SetDescription(service.MetaDescription!.Trim());
+    }
+
+    var headline = service.HasHeadline ? service.Headline : service.Name;
+    var subject = SiteFormatting.ServiceMailSubject(service);
+    var others = Marketing.Services.Where(other => !ReferenceEquals(other, service)).ToList();
+
+    IReadOnlyList<BreadcrumbItem> breadcrumb =
+    [
+        new("Startseite", "/"),
+        new("Leistungen", MarketingSite.ServicesPath),
+        new(service.Name!),
+    ];
+    var heroText = new HeroTextModel("page-title", headline!, service.Summary, new HeroActionsModel(subject));
+    var contact = new ContactSectionModel(HeadingId: "kontakt", MailSubject: subject);
+
+    var serviceImage = Marketing.ImageFor(service);
+    ViewData.SetSocialImage(serviceImage);
+}
+@*
+    One service's page (Phase 13 Slice 4, D105). Every word of company copy comes from the content pack.
+
+    Order: breadcrumb → hero → "Leistungsumfang" → descriptive sections → (projects, Slice 5b) → contact →
+    "Weitere Leistungen". Optional blocks are omitted whole, heading included.
+
+    Heading outline: h1 (hero) → h2 "Leistungsumfang" → h2 per section → h2 "Kontakt aufnehmen" → h3
+    "Öffnungszeiten" → h2 "Weitere Leistungen" → h3 per other service.
+
+    The service's photo (Slice 5a, D106) sits in the hero beside the text from 1024 px and after the actions below it,
+    never under the text. A service without a photo keeps the text-only hero: a finished layout, with no placeholder.
+
+    The service area is the company's (CompanyIdentity:ServiceArea), never a per-service claim; there are no city
+    pages. No price, rating, counter, script or style attribute.
+*@
+
+<partial name="@SiteLayout.Breadcrumb" model="breadcrumb" />
+
+@if (serviceImage is null)
+{
+    <section class="page-hero" aria-labelledby="page-title">
+        <div class="site-container">
+            <partial name="@SiteLayout.HeroText" model="heroText" />
+        </div>
+    </section>
+}
+else
+{
+    <section class="page-hero page-hero-split" aria-labelledby="page-title">
+        <div class="site-container page-hero-grid">
+            <div class="page-hero-text">
+                <partial name="@SiteLayout.HeroText" model="heroText" />
+            </div>
+            <div class="page-hero-media">
+                <partial name="@SiteLayout.Picture" model="new PictureModel(serviceImage, PictureSizes.Hero, PictureLoading.Priority)" />
+            </div>
+        </div>
+    </section>
+}
+
+<partial name="@SiteLayout.FactPanel" />
+
+<section class="page-section surface-stone" aria-labelledby="leistungsumfang">
+    <div class="site-container">
+        <h2 id="leistungsumfang" class="page-section-title">Leistungsumfang</h2>
+        <ul class="page-checklist">
+            @foreach (var offering in service.Offerings)
+            {
+                <li class="page-checklist-item">@offering</li>
+            }
+        </ul>
+    </div>
+</section>
+
+@for (var index = 0; index < service.Sections.Count; index++)
+{
+    var block = service.Sections[index];
+    var blockId = $"abschnitt-{index + 1}";
+    <section class="page-section page-section-text surface-paper" aria-labelledby="@blockId">
+        <div class="site-container">
+            <div class="page-prose">
+                <h2 id="@blockId" class="page-prose-title">@block.Heading</h2>
+                @foreach (var paragraph in block.Paragraphs)
+                {
+                    <p class="page-prose-paragraph">@paragraph</p>
+                }
+            </div>
+        </div>
+    </section>
+}
+
+<partial name="@SiteLayout.ContactSection" model="contact" />
+
+@if (others.Count > 0)
+{
+    @*
+        "Weitere Leistungen" is the page's dark band: the contact band above it is the navy surface, so this one is
+        the night surface and the two never read as one (D107).
+    *@
+    <section class="page-section surface-dark" aria-labelledby="weitere-leistungen">
+        <div class="site-container site-container-wide">
+            <h2 id="weitere-leistungen" class="page-section-title">Weitere Leistungen</h2>
+            <partial name="@SiteLayout.ServiceCards" model="new ServiceCardsModel(others, headingLevel: 3)" />
+        </div>
+    </section>
+}

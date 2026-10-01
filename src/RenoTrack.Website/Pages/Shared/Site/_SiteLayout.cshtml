@@ -1,0 +1,40 @@
+@using RenoTrack.Website.Site
+@*
+    The public marketing site's layout (D103). Only pages whose endpoint carries MarketingPageMetadata use it,
+    and that metadata exists only when the marketing site is enabled, so no customer token page ever renders
+    here. Those keep _CustomerLayout and its own rules (CLAUDE.md §24).
+
+    No script element of any kind, and no inline style: the marketing CSP is script-src 'none' and
+    style-src 'self' (Phase 13 Q15). Every company fact comes from the content pack; one that is not
+    configured is omitted, never placeholdered (D100).
+*@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <partial name="@SiteLayout.Head" />
+</head>
+<body class="site">
+    <a class="site-skip-link" href="#inhalt">Zum Inhalt springen</a>
+
+    <partial name="@SiteLayout.Header" />
+
+    @if (ViewData.IsFullWidth())
+    {
+        @* The page draws its own full-width bands, each with its own container (D104). *@
+        <main id="inhalt" class="site-main site-main-full" tabindex="-1">
+            @RenderBody()
+        </main>
+    }
+    else
+    {
+        <main id="inhalt" class="site-main" tabindex="-1">
+            <div class="site-container">
+                @RenderBody()
+            </div>
+        </main>
+    }
+
+    <partial name="@SiteLayout.Footer" />
+    <partial name="@SiteLayout.CallBar" />
+</body>
+</html>

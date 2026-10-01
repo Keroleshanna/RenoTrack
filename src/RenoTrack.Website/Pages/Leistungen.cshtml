@@ -1,0 +1,63 @@
+@page "/leistungen"
+@model RenoTrack.Website.Pages.LeistungenModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject MarketingSite Marketing
+@inject CompanyIdentityOptions Company
+@{
+    Layout = SiteLayout.Path;
+    ViewData.SetFullWidth();
+
+    var overview = Marketing.ServicesPage;
+
+    // Required on an enabled site and validated at startup; used verbatim, with no company-name suffix (D105, S4-2).
+    ViewData.SetDocumentTitle(overview.MetaTitle!.Trim());
+    if (overview.HasIntro)
+    {
+        ViewData.SetDescription(overview.Intro!.Trim());
+    }
+
+    var headline = overview.HasHeadline ? overview.Headline : "Leistungen";
+    IReadOnlyList<BreadcrumbItem> breadcrumb = [new("Startseite", "/"), new("Leistungen")];
+    var contact = new ContactSectionModel(HeadingId: "kontakt");
+}
+@*
+    The services overview (Phase 13 Slice 4, D105): every service in pack order, each card linked to its page.
+
+    Heading outline: h1 (hero) → h2 per service card → h2 "Kontakt aufnehmen" → h3 "Öffnungszeiten". The cards sit
+    directly under the h1, so they are h2 here, not h3 as on the homepage.
+
+    No image before the approved-media pipeline (Slice 5), no price, rating or counter, no script, no style attribute.
+*@
+
+<partial name="@SiteLayout.Breadcrumb" model="breadcrumb" />
+
+@*
+    The overview writes its hero out rather than using _PageHeroText, because its headline and lead come from
+    ServicesPage rather than from a service. The order is the shared one (D107): service area, headline, lead,
+    actions.
+*@
+<section class="page-hero" aria-labelledby="page-title">
+    <div class="site-container">
+        @if (Company.ServiceArea.HasPlaces)
+        {
+            <p class="page-eyebrow page-hero-area">Einsatzgebiet: @SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+        }
+        <h1 id="page-title" class="page-hero-title">@headline</h1>
+        @if (overview.HasIntro)
+        {
+            <p class="page-hero-lead">@overview.Intro</p>
+        }
+        <partial name="@SiteLayout.HeroActions" model="new HeroActionsModel()" />
+    </div>
+</section>
+
+<partial name="@SiteLayout.FactPanel" />
+
+<div class="page-section surface-stone">
+    <div class="site-container site-container-wide">
+        <partial name="@SiteLayout.ServiceCards" model="new ServiceCardsModel(Marketing.Services, headingLevel: 2)" />
+    </div>
+</div>
+
+<partial name="@SiteLayout.ContactSection" model="contact" />

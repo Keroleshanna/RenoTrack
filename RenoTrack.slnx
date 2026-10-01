@@ -11,6 +11,10 @@
     <Project Path="tests/RenoTrack.Application.Tests/RenoTrack.Application.Tests.csproj" />
     <Project Path="tests/RenoTrack.Domain.Tests/RenoTrack.Domain.Tests.csproj" />
     <Project Path="tests/RenoTrack.Infrastructure.Tests/RenoTrack.Infrastructure.Tests.csproj" />
+    <Project Path="tests/RenoTrack.MediaPrep.Tests/RenoTrack.MediaPrep.Tests.csproj" />
     <Project Path="tests/RenoTrack.Website.Tests/RenoTrack.Website.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/RenoTrack.MediaPrep/RenoTrack.MediaPrep.csproj" />
   </Folder>
 </Solution>

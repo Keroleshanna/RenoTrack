@@ -1,0 +1,59 @@
+@model RenoTrack.Website.Site.ServiceCardsModel
+@using RenoTrack.Website.Site
+@inject MarketingSite Marketing
+@*
+    Service cards (D105; re-drawn in Slice 5v, D107): an index numeral, the service name, its summary and the
+    first of its offerings, in the order given.
+
+    The link sits on the heading and its accessible name is the service name alone; a CSS pseudo-element stretches it
+    over the card, so there is no second "Mehr erfahren" link and nothing interactive nested inside the link. The
+    footer line is decoration with no text of its own, for the same reason.
+
+    The index span is empty and aria-hidden: a CSS counter draws it. It is the card's position in the list, never a
+    claim about anything, and a screen reader already hears the list.
+
+    The heading level is the caller's (ServiceCardsModel), so no page skips a level. Written out as two branches rather
+    than a computed tag name, which would need Html.Raw.
+
+    Photos (D106, S5-7) appear only when every service on the site has one — decided once at startup, so the homepage,
+    the overview and "Weitere Leistungen" always agree. The photo sits outside the link and is not focusable; its alt
+    text describes the photo, not the service name the heading already announces. Lazy, because cards are below the
+    hero. A card's geometry is the same in both states: the photo is a slot above an otherwise identical card, so
+    enabling photography changes what a card shows and never how the grid is composed.
+*@
+<ul class="page-cards">
+    @foreach (var service in Model.Services)
+    {
+        var href = MarketingSite.ServicePath(service);
+        var image = Marketing.ServiceCardImagesEnabled ? Marketing.ImageFor(service) : null;
+        var offerings = service.Offerings.Take(3).ToList();
+        <li class="page-card page-card-linked@(image is null ? "" : " page-card-with-image")">
+            @if (image is not null)
+            {
+                <div class="page-card-media">
+                    <partial name="@SiteLayout.Picture" model="new PictureModel(image, PictureSizes.Card, PictureLoading.Lazy)" />
+                </div>
+            }
+            <span class="page-card-index" aria-hidden="true"></span>
+            @if (Model.HeadingLevel == 2)
+            {
+                <h2 class="page-card-title"><a class="page-card-link" href="@href">@service.Name</a></h2>
+            }
+            else
+            {
+                <h3 class="page-card-title"><a class="page-card-link" href="@href">@service.Name</a></h3>
+            }
+            <p class="page-card-text">@service.Summary</p>
+            @if (offerings.Count > 0)
+            {
+                <ul class="page-card-offerings">
+                    @foreach (var offering in offerings)
+                    {
+                        <li class="page-card-offering">@offering</li>
+                    }
+                </ul>
+            }
+            <span class="page-card-go" aria-hidden="true">Zur Leistung</span>
+        </li>
+    }
+</ul>

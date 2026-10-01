@@ -1,0 +1,61 @@
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject CompanyIdentityOptions Company
+@*
+    The company's facts on one panel (Slice 5v, D107): phone, email, availability and service area, each a
+    content-pack fact and each omitted whole when it is not configured (D100).
+
+    From 1024 px it crosses the hero's lower edge, which is the composition's one deliberate overlap; below that
+    it is an ordinary block after the hero, so a phone never scrolls past a decorative device. The overlap lives
+    entirely in marketing.css — this partial is the same markup at every width.
+
+    Its heading is visually hidden: the panel repeats facts the contact band and the footer state in full, so it
+    must not appear in the page outline as a second "Kontakt" section competing with the real one.
+*@
+@{
+    var hours = SiteFormatting.OpeningHours(Company.OpeningHours);
+    var phone = Company.ContactPhone;
+    var email = Company.ContactEmail;
+    var hasArea = Company.ServiceArea.HasPlaces;
+}
+@if (!string.IsNullOrWhiteSpace(phone) || !string.IsNullOrWhiteSpace(email) || hours.Count > 0 || hasArea)
+{
+    <section class="page-facts" aria-labelledby="site-facts">
+        <h2 id="site-facts" class="site-visually-hidden">Kontakt auf einen Blick</h2>
+        <div class="site-container page-facts-grid">
+            @if (!string.IsNullOrWhiteSpace(phone))
+            {
+                <div class="page-fact">
+                    <span class="page-fact-label">Telefon</span>
+                    <p class="page-fact-value"><a href="@SiteFormatting.TelHref(phone)"><span class="site-visually-hidden">Anrufen: </span>@phone</a></p>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(email))
+            {
+                <div class="page-fact">
+                    <span class="page-fact-label">E-Mail</span>
+                    <p class="page-fact-value"><a href="@SiteFormatting.MailtoHref(email)">@email</a></p>
+                </div>
+            }
+            @if (hours.Count > 0)
+            {
+                <div class="page-fact">
+                    <span class="page-fact-label">Erreichbar</span>
+                    <ul class="page-fact-list">
+                        @foreach (var line in hours)
+                        {
+                            <li><abbr title="@line.DaysLong">@line.DaysShort</abbr> @line.Times</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (hasArea)
+            {
+                <div class="page-fact">
+                    <span class="page-fact-label">Einsatzgebiet</span>
+                    <p class="page-fact-value">@SiteFormatting.ServiceAreaPlaces(Company.ServiceArea)</p>
+                </div>
+            }
+        </div>
+    </section>
+}

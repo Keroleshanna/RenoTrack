@@ -123,6 +123,61 @@ public sealed class CompanyIdentityOptionsTests
         Assert.Contains("CompanyIdentity:DisplayName", error.Message, StringComparison.Ordinal);
     }
 
+    // ---- The reversed logo for dark surfaces (Slice 5v, D107) --------------
+
+    /// <summary>
+    /// <c>LogoOnDarkPath</c> is the variant the marketing header and footer draw, and it is the same kind of
+    /// deployment asset as <c>LogoPath</c> — so every rule that protects one protects the other, named by its own
+    /// key. A second path was easy to add and easy to forget to validate.
+    /// </summary>
+    [Theory]
+    [InlineData("https://cdn.example.test/logo.png")]
+    [InlineData("//cdn.example.test/logo.png")]
+    [InlineData("/\\cdn.example.test/logo.png")]
+    [InlineData("data:image/svg+xml;base64,PHN2Zy8+")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/img/logo-invers.svg")]
+    [InlineData("img/logo-invers.svg")]
+    public void A_dark_logo_outside_the_brand_prefix_is_refused_naming_its_own_key(string logoPath)
+    {
+        var options = new CompanyIdentityOptions { DisplayName = "Testfirma", LogoOnDarkPath = logoPath };
+
+        var error = Assert.Throws<InvalidOperationException>(options.Validate);
+
+        Assert.Contains("CompanyIdentity:LogoOnDarkPath", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("CompanyIdentity:LogoPath'", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_dark_logo_without_a_display_name_is_refused()
+    {
+        var options = new CompanyIdentityOptions { LogoOnDarkPath = "/brand/logo-invers.svg" };
+
+        var error = Assert.Throws<InvalidOperationException>(options.Validate);
+
+        Assert.Contains("CompanyIdentity:LogoOnDarkPath", error.Message, StringComparison.Ordinal);
+        Assert.Contains("CompanyIdentity:DisplayName", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A company may supply either variant, both, or neither: they are separate assets. A positive logo alone is
+    /// the ordinary case, and it simply means the dark header shows the name (V-4).
+    /// </summary>
+    [Fact]
+    public void Either_logo_variant_may_be_supplied_on_its_own()
+    {
+        var positiveOnly = new CompanyIdentityOptions { DisplayName = "Testfirma", LogoPath = "/brand/logo.svg" };
+        var reversedOnly = new CompanyIdentityOptions { DisplayName = "Testfirma", LogoOnDarkPath = "/brand/logo-invers.svg" };
+
+        positiveOnly.Validate();
+        reversedOnly.Validate();
+
+        Assert.True(positiveOnly.HasLogo);
+        Assert.False(positiveOnly.HasLogoOnDark);
+        Assert.False(reversedOnly.HasLogo);
+        Assert.True(reversedOnly.HasLogoOnDark);
+    }
+
     /// <summary>A name without a logo is entirely ordinary — that is today's state.</summary>
     [Fact]
     public void A_display_name_without_a_logo_is_valid()

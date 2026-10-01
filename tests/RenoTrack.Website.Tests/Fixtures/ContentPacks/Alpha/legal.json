@@ -1,0 +1,10 @@
+{
+  "Legal": {
+    "//": "FICTIONAL TEST FIXTURE — not legal text (D100).",
+    "Impressum": {
+      "Sections": [
+        { "Heading": "Testüberschrift", "Paragraphs": [ { "Text": "Erfundener Testtext, kein Impressum (Testdaten)." } ] }
+      ]
+    }
+  }
+}

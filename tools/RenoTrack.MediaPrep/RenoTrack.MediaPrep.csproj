@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The offline photo preparation tool (Phase 13 Slice 5a, D106, S5-4). Runs on an operator's machine against the
+    company's private content repository; never referenced by the Website, never deployed, never run at request time.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Pinned exactly: output bytes are reproducible only for one encoder build (D106). Changing either version is an
+      encoding-settings change and needs the same review, including the real-media budget check in
+      MEDIA_PREPARATION.md.
+    -->
+    <PackageReference Include="SkiaSharp" Version="[4.152.0]" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="[4.152.0]" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The Website's own derivative specification and byte-level inspector, linked rather than copied, so the tool
+      cannot produce a file the site would refuse. No project reference: the tool must not pull in ASP.NET Core.
+    -->
+    <Compile Include="..\..\src\RenoTrack.Website\Site\MediaDerivatives.cs" Link="Shared\MediaDerivatives.cs" />
+    <Compile Include="..\..\src\RenoTrack.Website\Site\ImageFileInspector.cs" Link="Shared\ImageFileInspector.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RenoTrack.MediaPrep.Tests" />
+  </ItemGroup>
+
+</Project>

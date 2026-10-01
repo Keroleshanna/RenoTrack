@@ -1,0 +1,1788 @@
+/*
+  The public marketing site's visual system (Phase 13 Slice 2, D103; re-aligned in Slice 5v, D107).
+
+  Separate from customer.css on purpose: the token-link pages keep their own self-contained stylesheet and
+  are never styled by this file. Named marketing.css, not site.css, because ScaffoldRemovalTests pins
+  /css/site.css as a removed scaffold asset that must answer 404.
+
+  Mobile-first. No JavaScript is involved anywhere, and nothing here is loaded from another origin: the font
+  is self-hosted (CSP font-src 'self') and the brand colours arrive as custom properties from the generated
+  /site/theme.css, which is built from validated #RRGGBB values only.
+
+  Slice 5v's direction, in one paragraph: dark bands frame the page (header, hero, one mid band, the contact
+  band, the footer), warm off-white carries the reading, and the accent is the action colour rather than a
+  decoration. Depth comes from layering beside and over photographs — an offset frame behind the hero photo
+  and a fact panel across the hero's bottom edge — never from text on a photograph, which stays forbidden.
+  Every surface pairing here is contrast-checked at startup (ThemeOptions, D107).
+*/
+
+/* ---- Typography: Figtree (SIL OFL 1.1, see /fonts/figtree/OFL.txt) ------------------------------ */
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/fonts/figtree/figtree-latin-400-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("/fonts/figtree/figtree-latin-600-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("/fonts/figtree/figtree-latin-700-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---- Design tokens ------------------------------------------------------------------------------- */
+
+:root {
+    /*
+      Brand roles come from /site/theme.css, each derived from the company's two configured colours and
+      contrast-checked at startup (D107). The fallbacks here equal the product defaults, so this file renders
+      correctly even if the generated stylesheet is missing.
+    */
+    --color-primary: var(--brand-primary, #2B3A4A);
+    --color-accent: var(--brand-accent, #C8D3DE);
+    --color-night: var(--brand-night, #1A232C);
+    --color-navy: var(--brand-navy, #2B3A4A);
+    --color-accent-bright: var(--brand-accent-bright, #C8D3DE);
+    --color-accent-strong: var(--brand-accent-strong, #4C5966);
+    --color-on-dark: #ffffff;
+
+    /* Product neutrals: they sit under every company's palette, so they are not brand colours. */
+    --color-ink: #1A2129;
+    --color-ink-muted: #4A5561;
+    --color-on-dark-muted: #B9C2CC;
+    --color-paper: #ffffff;
+    --color-stone: #F5F1EA;
+    --color-sand: #EAE2D5;
+    --color-line: #DCD7CC;
+    --color-line-dark: rgba(255, 255, 255, 0.18);
+
+    /*
+      One focus ring, redefined per surface rather than overridden per component: a dark band sets --focus to
+      the bright accent, so every focusable thing inside it is visible without its own rule (D107).
+    */
+    --focus: #1A5FB4;
+
+    --font-sans: "Figtree", system-ui, "Segoe UI", Arial, sans-serif;
+
+    --space-1: 0.5rem;
+    --space-2: 1rem;
+    --space-3: 1.5rem;
+    --space-4: 2rem;
+    --space-6: 3rem;
+    --space-8: 4rem;
+    --space-12: 6rem;
+    --space-16: 8rem;
+
+    --radius: 2px;
+    --container: 72rem;
+    --container-wide: 80rem;
+    --measure: 42rem;
+    --callbar-height: 3.5rem;
+    --rule-width: 2.5rem;
+}
+
+/*
+  A dark band: text, links and focus all switch together, so nothing inside needs its own override.
+
+  .page-hero and .page-contact are dark bands too — they paint their own surfaces — so every "on dark" rule
+  below names all three. Found at the Slice 5v prototype checkpoint: with ".surface-dark X" alone, the hero's
+  eyebrow measured 2.65:1 and the process steps' text 1.18:1 against their own backgrounds, because neither
+  band carries that class. One group keeps the next dark band from discovering it the same way.
+*/
+.surface-dark {
+    background: var(--color-night);
+    color: var(--color-on-dark);
+    --focus: var(--color-accent-bright);
+}
+
+/* The second dark surface, so two dark bands never look like one (D107). */
+.surface-navy {
+    background: var(--color-navy);
+}
+
+.surface-stone {
+    background: var(--color-stone);
+}
+
+.surface-paper {
+    background: var(--color-paper);
+}
+
+.surface-sand {
+    background: var(--color-sand);
+}
+
+/* ---- Base ---------------------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    /*
+      Keyboard focus scrolled into view must clear the fixed call bar (WCAG 2.4.11). Found in Slice 3 QA at 400%
+      zoom: without this, Tab stopped on a contact button half behind the bar (D104).
+    */
+    scroll-padding-bottom: calc(var(--callbar-height) + env(safe-area-inset-bottom, 0px) + var(--space-1));
+}
+
+body.site {
+    margin: 0;
+    background: var(--color-stone);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    /* Room for the fixed call bar on narrow screens, so it never covers the footer. */
+    padding-bottom: calc(var(--callbar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+.site a {
+    color: var(--color-accent-strong);
+    text-underline-offset: 0.15em;
+}
+
+.site a:hover {
+    text-decoration-thickness: 2px;
+}
+
+/* Visible focus on everything focusable, never removed. */
+.site :focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+}
+
+.site-container {
+    width: 100%;
+    max-width: var(--container);
+    margin-inline: auto;
+    padding-inline: var(--space-2);
+}
+
+.site-container-wide {
+    max-width: var(--container-wide);
+}
+
+.site-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ---- Skip link ----------------------------------------------------------------------------------- */
+
+.site-skip-link {
+    position: absolute;
+    left: var(--space-2);
+    top: -10rem;
+    z-index: 100;
+    padding: var(--space-1) var(--space-2);
+    background: var(--color-accent);
+    color: var(--color-night) !important;
+    font-weight: 700;
+    border-radius: var(--radius);
+}
+
+.site-skip-link:focus {
+    top: var(--space-1);
+}
+
+/* ---- Eyebrow: the recurring brand motif ---------------------------------------------------------- */
+
+/*
+  A short bronze rule above a small uppercase label. It opens a section, and it is the only uppercase on the
+  page: German compounds set uppercase at display size are hard to read and hyphenate badly, so headings stay
+  sentence case (D107).
+*/
+.page-eyebrow {
+    display: block;
+    margin: 0 0 var(--space-2);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-accent-strong);
+    overflow-wrap: anywhere;
+}
+
+.page-eyebrow::before {
+    content: "";
+    display: block;
+    width: var(--rule-width);
+    height: 3px;
+    margin-bottom: 0.75rem;
+    background: var(--color-accent);
+}
+
+.surface-dark .page-eyebrow,
+.page-hero .page-eyebrow,
+.page-contact .page-eyebrow {
+    color: var(--color-accent-bright);
+}
+
+/* ---- Header -------------------------------------------------------------------------------------- */
+
+/*
+  The header is composed to the approved reference (Slice 5h): a near-black band, a brand zone bleeding to the
+  left edge of the viewport and cut off by an angled edge, then the navigation and one prominent call to action
+  on the right.
+
+  The band is full width and carries no container: the brand zone has to reach the viewport's left edge, which a
+  centred container could not do. Only the right-hand group is inset.
+*/
+.site-header {
+    background: var(--color-night);
+    color: var(--color-on-dark);
+    --focus: var(--color-accent-bright);
+}
+
+/*
+  align-items: stretch, so the brand zone is as tall as the band — the angled edge runs the band's full height,
+  as in the reference. The row still wraps, which is what keeps the brand from being squeezed into a one-word
+  column at 200% text (found in Slice 3 QA at 375 px, D104).
+*/
+.site-header-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 0 var(--space-2);
+    min-height: 4rem;
+}
+
+/*
+  The brand zone: accent-coloured, bleeding left, with the angled right edge drawn by a decorative pseudo-element
+  behind it. The clip-path is on the ::before and never on the zone itself — clipping an element that contains a
+  link cuts that link's focus ring off at the diagonal, which is a WCAG 2.4.7 failure that looks like a styling
+  detail.
+*/
+.site-brand-zone {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-inline: var(--space-2) var(--space-6);
+    padding-block: var(--space-2);
+}
+
+.site-brand-zone {
+    background: var(--color-accent);
+}
+
+/*
+  The angled edge: a band-coloured notch drawn over the zone's right end, rather than a clip-path on the zone.
+  Two reasons, both found by measuring rather than by looking. A clip-path on the zone cuts the brand link's
+  focus ring off at the diagonal; and painting the accent on a pseudo-element leaves the name's real background
+  the night band, which measures 1.00:1 — right on screen, unverifiable, and wrong the moment the pseudo-element
+  does not paint. The notch sits inside the zone's right padding, so it never covers the name.
+*/
+.site-brand-zone::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    /*
+      One pixel past the zone's edge: a clip-path is rasterised against the pseudo-element's own box, which left
+      a one-pixel accent hairline down the band at 2x device pixel ratio. Measured in the screenshots, invisible
+      to every geometry check.
+    */
+    inset-inline-end: -1px;
+    width: calc(2.75rem + 1px);
+    height: 100%;
+    background: var(--color-night);
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* Above the painted zone, so the name and its focus ring are never behind it. */
+.site-brand {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    min-height: 44px;
+}
+
+/*
+  The right-hand group: navigation and the call to action on one baseline, inset from the viewport edge by the
+  same gutter the page's container uses.
+*/
+.site-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    /*
+      A gutter on both sides, not just the end: when the row wraps below the brand zone it starts at the
+      viewport's left edge, and the first navigation entry sat hard against it. Found in the narrow-width
+      screenshots, not in the measurements — nothing overflowed, it just touched the edge.
+    */
+    padding-inline: var(--space-2);
+    padding-block: var(--space-1);
+}
+
+/*
+  The brand links to the homepage (D104); it reads as the brand, not as body-copy link text. On the accent zone
+  its colour is the night one — the pairing ThemeOptions checks at 4.5:1 (D107) — not white, which would fail
+  against a light accent.
+*/
+.site a.site-brand {
+    color: var(--color-night);
+    text-decoration: none;
+}
+
+/* Focus on the accent zone: the page-level ring is tuned for the dark band and would disappear here. */
+.site-brand-zone :focus-visible {
+    outline-color: var(--color-night);
+}
+
+.site a.site-brand:hover .site-brand-name {
+    text-decoration: underline;
+}
+
+/* The zone grows with its content; the navigation and the call to action keep to the right of the band. */
+.site-nav {
+    margin-inline-start: auto;
+}
+
+.site-brand-logo {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: none;
+    object-fit: contain;
+}
+
+.site-brand-name {
+    font-weight: 700;
+    font-size: 1.0625rem;
+    line-height: 1.15;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+}
+
+.site-nav-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.site-nav-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--color-on-dark) !important;
+    border-bottom: 2px solid transparent;
+}
+
+.site-nav-link:hover {
+    text-decoration: underline;
+}
+
+/* The current page is marked by the accent, and by aria-current in the markup. */
+.site-nav-link[aria-current="page"] {
+    border-bottom-color: var(--color-accent);
+}
+
+/* ---- Buttons ------------------------------------------------------------------------------------- */
+
+/*
+  One solid button per view. The primary is the accent filled with night-coloured text — the pairing
+  ThemeOptions checks at 4.5:1 (D107) — and everything else is an outline or a link.
+*/
+.site-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius);
+    background: var(--color-accent);
+    color: var(--color-night) !important;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.site-button:hover {
+    text-decoration: underline;
+}
+
+/* On a dark band: a white outline, never a second filled button. */
+.page-button-outline {
+    background: transparent;
+    border: 2px solid var(--color-on-dark);
+    color: var(--color-on-dark) !important;
+}
+
+/* On a light band: the same shape drawn in ink. */
+.page-button-secondary {
+    background: transparent;
+    border: 2px solid var(--color-primary);
+    color: var(--color-primary) !important;
+}
+
+/* Kept from D104: the light button variant used where the accent would sit on itself. */
+.page-button-light {
+    background: var(--color-accent);
+    color: var(--color-night) !important;
+}
+
+/*
+  The header's call to action is inverted, as in the reference: a light rectangle carrying brand-coloured text,
+  rather than the accent-filled button the page body uses (D107). --brand-accent-strong is derived to clear
+  4.5:1 on the darker of the two warm surfaces, so it clears it on white as well.
+
+  On narrow screens the fixed call bar carries the phone number; the header keeps the brand (D103).
+*/
+.site-header-call {
+    display: none;
+    background: var(--color-paper);
+    color: var(--color-accent-strong) !important;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0;
+    font-size: 0.9375rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* ---- Main ---------------------------------------------------------------------------------------- */
+
+.site-main {
+    padding-block: var(--space-6) var(--space-8);
+}
+
+.site-main:focus {
+    outline: none;
+}
+
+.site-page-title {
+    margin: 0 0 var(--space-3);
+    font-size: clamp(1.875rem, 1.4rem + 2vw, 2.75rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    overflow-wrap: anywhere;
+}
+
+.site-lead {
+    max-width: 38rem;
+    margin: 0 0 var(--space-3);
+    font-size: 1.1875rem;
+    color: var(--color-ink-muted);
+}
+
+/* Legal documents rendered by the shared _LegalDocument partial. */
+.site .legal-section {
+    max-width: var(--measure);
+    margin-bottom: var(--space-4);
+}
+
+.site .legal-heading {
+    margin: 0 0 var(--space-1);
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.site .legal-paragraph {
+    margin: 0 0 var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+/*
+  ---- Page components -------------------------------------------------------------------------------
+  Hero, sections, cards, actions and the contact section are used by the homepage, the services overview and
+  every service page. Only what exists on the homepage alone keeps a home-* name.
+*/
+
+/* A full-width page draws its own bands, so the main element adds no vertical padding of its own. */
+.site-main.site-main-full {
+    padding-block: 0;
+}
+
+.page-hero {
+    position: relative;
+    background: var(--color-night);
+    color: var(--color-on-dark);
+    padding-block: var(--space-8);
+    --focus: var(--color-accent-bright);
+}
+
+.page-hero-title {
+    max-width: 16ch;
+    margin: 0 0 var(--space-2);
+    font-size: clamp(2.25rem, 1.5rem + 3.2vw, 3.75rem);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+}
+
+.page-hero-lead {
+    max-width: 34rem;
+    margin: 0 0 var(--space-3);
+    font-size: clamp(1.125rem, 1.05rem + 0.4vw, 1.3125rem);
+    line-height: 1.55;
+    color: var(--color-on-dark);
+    overflow-wrap: anywhere;
+}
+
+/* The service area is the hero's eyebrow: a company fact, set as the label above the headline. */
+.page-hero-area {
+    margin: 0 0 var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+/*
+  Photos (Slice 5a, D106). Content photography is always an <img> in a <picture>, never a CSS background, and is
+  never cropped here: no object-fit, no fixed height. The derivative is the owner-approved 3:2 crop, and
+  width/height on the <img> reserve its space so nothing shifts while it loads.
+
+  The layered hero (Slice 5v, D107): the text column first and the photo beside it from 1024 px, where the photo
+  column runs to the viewport edge and the band ends above the photo's lower edge, so the photo crosses into the
+  section below. Below 1024 px the photo simply follows the actions, so the headline and the call to action stay
+  first on a phone. Text never sits on the photo.
+*/
+.page-hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+}
+
+.page-hero-media img,
+.page-card-media img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+}
+
+.page-hero-media {
+    position: relative;
+}
+
+.page-hero-media picture {
+    position: relative;
+    z-index: 1;
+    display: block;
+}
+
+.page-hero-split .page-actions {
+    margin-bottom: 0;
+}
+
+.page-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.page-actions .site-button {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+/* Below 768 px the fixed call bar is the phone CTA (D103), so the hero does not repeat it. */
+.page-hero-call {
+    display: none !important;
+}
+
+/* Text a contact action carries on paper only, e.g. the email address behind "E-Mail schreiben" (D104). */
+.page-print-only {
+    display: none;
+}
+
+/* ---- Fact panel ---------------------------------------------------------------------------------- */
+
+/*
+  The company's four facts — phone, email, availability, service area — in one panel that crosses the seam
+  between the hero and the section under it from 1024 px (D107). Below that it is an ordinary block directly
+  after the hero: the overlap is a wide-screen composition device, never something a phone has to scroll past.
+
+  Every cell is a content-pack fact and an unconfigured one is omitted whole (D100).
+*/
+.page-facts {
+    background: var(--color-paper);
+    border-top: 3px solid var(--color-accent);
+}
+
+.page-facts-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-2);
+}
+
+.page-fact-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-accent-strong);
+}
+
+.page-fact-value {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.page-fact-value a {
+    color: var(--color-ink);
+}
+
+.page-fact-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-weight: 600;
+}
+
+.page-fact-list abbr {
+    text-decoration: none;
+}
+
+/* ---- Sections ------------------------------------------------------------------------------------ */
+
+.page-section {
+    padding-block: var(--space-8);
+}
+
+/* Kept for compatibility with pages written in Slices 3–4; it is the warm light surface. */
+.page-section-warm {
+    background: var(--color-sand);
+}
+
+/*
+  The bronze rule opens every section, as a drawn decoration rather than a label. No section carries an invented
+  German eyebrow word: the only text in this position is a company fact (the hero's service area) or a heading the
+  pages already had. Product chrome is neutral vocabulary; marketing voice is the company's to write (D100).
+*/
+.page-section-title::before {
+    content: "";
+    display: block;
+    width: var(--rule-width);
+    height: 3px;
+    margin-bottom: var(--space-2);
+    background: var(--color-accent);
+}
+
+.page-section-title {
+    max-width: 20ch;
+    overflow-wrap: anywhere;
+    margin: 0 0 var(--space-3);
+    font-size: clamp(1.875rem, 1.3rem + 2vw, 2.75rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+}
+
+/*
+  A section's heading row: the eyebrow and heading on the left, an intro or a link on the right from 1024 px.
+  It is what keeps a section from reading as a heading stacked on a grid of boxes.
+*/
+.page-section-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    margin-bottom: var(--space-6);
+}
+
+.page-section-intro {
+    margin: 0;
+    max-width: var(--measure);
+    color: var(--color-ink-muted);
+    overflow-wrap: anywhere;
+}
+
+.surface-dark .page-section-intro,
+.page-hero .page-section-intro,
+.page-contact .page-section-intro {
+    color: var(--color-on-dark-muted);
+}
+
+.page-cards,
+.home-steps {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* ---- Service cards ------------------------------------------------------------------------------- */
+
+/*
+  A service card is a panel, not a UI tile: no border, no shadow and almost no radius. Its own surface against
+  the section's is what separates it, and the accent rule plus the index numeral is what makes a row of them
+  read as a catalogue of work rather than as a component library (D107).
+*/
+.page-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3);
+    background: var(--color-paper);
+    border-radius: var(--radius);
+}
+
+.surface-dark .page-card,
+.page-contact .page-card {
+    background: var(--color-navy);
+    color: var(--color-on-dark);
+}
+
+.page-card-title {
+    margin: 0 0 var(--space-1);
+    font-size: 1.3125rem;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.page-card-text {
+    margin: 0;
+    color: var(--color-ink-muted);
+    overflow-wrap: anywhere;
+}
+
+.surface-dark .page-card-text,
+.page-contact .page-card-text {
+    color: var(--color-on-dark-muted);
+}
+
+/* The card's index: content order drawn as a numeral, never a claim about anything. */
+.page-cards {
+    counter-reset: page-card;
+}
+
+.page-card-linked {
+    counter-increment: page-card;
+}
+
+.page-card-index {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--color-accent-strong);
+}
+
+.surface-dark .page-card-index,
+.page-contact .page-card-index {
+    color: var(--color-accent-bright);
+}
+
+.page-card-index::before {
+    content: "";
+    display: block;
+    width: var(--rule-width);
+    height: 3px;
+    margin-bottom: 0.75rem;
+    background: var(--color-accent);
+    transition: width 150ms ease;
+}
+
+.page-card-linked:hover .page-card-index::before {
+    width: 4.5rem;
+}
+
+.page-card-index::after {
+    content: counter(page-card, decimal-leading-zero);
+}
+
+/* The first offerings of a service: pack facts, so the card says what the work actually includes. */
+.page-card-offerings {
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--color-ink-muted);
+    font-size: 0.9375rem;
+}
+
+.surface-dark .page-card-offerings,
+.page-contact .page-card-offerings {
+    color: var(--color-on-dark-muted);
+}
+
+.page-card-offering {
+    position: relative;
+    padding-inline-start: 1.25rem;
+    overflow-wrap: anywhere;
+}
+
+.page-card-offering::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0.65em;
+    width: 0.5rem;
+    height: 2px;
+    background: var(--color-accent);
+}
+
+/*
+  The card's footer line. It is an ordinary element in flow at the end of the card, which is why the decoration
+  can no longer land on the photo: Slice 5a fixed that with CSS specificity (D106, mutation 23), and 5v removes
+  the possibility instead — the arrow simply comes after the photo, the heading and the text.
+*/
+.page-card-go {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: auto;
+    padding-top: var(--space-2);
+    font-weight: 700;
+    color: var(--color-accent-strong);
+}
+
+.surface-dark .page-card-go,
+.page-contact .page-card-go {
+    color: var(--color-accent-bright);
+}
+
+/* An arrow drawn with borders: decoration only, no text for a screen reader to announce. */
+.page-card-go::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-top: 2px solid currentColor;
+    border-right: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 150ms ease;
+}
+
+.page-card-linked:hover .page-card-go::after {
+    transform: rotate(45deg) translate(2px, -2px);
+}
+
+/* ---- Advantages and process (homepage) ----------------------------------------------------------- */
+
+/*
+  Advantages are statements, not objects: a rule, a heading and a line of text, with no box around them. Boxing
+  them was what made the homepage read as a dashboard.
+*/
+.page-features {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.page-feature {
+    padding-top: var(--space-2);
+    border-top: 3px solid var(--color-accent);
+}
+
+.page-feature-title {
+    margin: 0 0 var(--space-1);
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.page-feature-text {
+    margin: 0;
+    color: var(--color-ink-muted);
+    overflow-wrap: anywhere;
+}
+
+/* The same list on a dark band: the homepage's process steps. */
+.surface-dark .page-feature-text,
+.page-contact .page-feature-text {
+    color: var(--color-on-dark-muted);
+}
+
+.home-owner {
+    margin: var(--space-4) 0 0;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-line);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+/* The list's own numbering carries the order; the counter only draws it. */
+.home-steps {
+    counter-reset: home-step;
+}
+
+.home-step {
+    counter-increment: home-step;
+    position: relative;
+    padding-inline-start: 4rem;
+}
+
+/*
+  A large accent numeral rather than a filled circle: a stepper component is exactly what this page should not
+  look like (D107).
+*/
+.home-step::before {
+    content: counter(home-step, decimal-leading-zero);
+    position: absolute;
+    inset-inline-start: 0;
+    top: -0.35rem;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--color-accent-bright);
+}
+
+/* ---- Contact band -------------------------------------------------------------------------------- */
+
+.page-contact {
+    background: var(--color-navy);
+    color: var(--color-on-dark);
+    border-bottom: 3px solid var(--color-accent);
+    --focus: var(--color-accent-bright);
+}
+
+.page-contact-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+}
+
+.page-contact .page-actions {
+    margin-bottom: 0;
+}
+
+/* The phone number reads as a headline, because calling is what this band is for. */
+.page-contact-phone {
+    display: inline-block;
+    margin: 0 0 var(--space-3);
+    font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.25rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    color: var(--color-accent-bright) !important;
+    overflow-wrap: anywhere;
+}
+
+.page-contact-panel {
+    padding: var(--space-3);
+    background: var(--color-night);
+    border-top: 3px solid var(--color-accent);
+}
+
+.page-contact-heading {
+    margin: 0 0 var(--space-1);
+    font-size: 1.0625rem;
+    font-weight: 700;
+}
+
+.page-hours {
+    margin: 0 0 var(--space-2);
+    padding: 0;
+    list-style: none;
+}
+
+.page-hours abbr {
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.page-contact-note {
+    margin: 0 0 var(--space-1);
+    color: var(--color-on-dark-muted);
+    overflow-wrap: anywhere;
+}
+
+/* ---- Service pages (Slice 4, D105) --------------------------------------------------------------- */
+
+/* Long German compounds ("Leistungsumfang") break at syllables on narrow and text-enlarged screens. */
+.page-hero-title,
+.page-section-title,
+.page-card-title,
+.page-feature-title,
+.page-prose-title,
+.page-checklist-item {
+    hyphens: auto;
+}
+
+.page-section-more {
+    margin: var(--space-3) 0 0;
+}
+
+.page-more-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    font-weight: 700;
+}
+
+.page-more-link::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-top: 2px solid currentColor;
+    border-right: 2px solid currentColor;
+    transform: rotate(45deg);
+}
+
+.surface-dark .page-more-link,
+.page-hero .page-more-link,
+.page-contact .page-more-link {
+    color: var(--color-accent-bright);
+}
+
+/*
+  A linked service card: one link, on the heading, stretched over the whole card by a pseudo-element, so the card
+  is one click target with one accessible name. The link keeps its own focus outline; the card shows it too.
+*/
+.site a.page-card-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.page-card-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+
+.site .page-card-linked:hover .page-card-link {
+    text-decoration: underline;
+}
+
+.page-card-linked:has(.page-card-link:focus-visible) {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+}
+
+/*
+  A card photo sits flush with the card's edges above the heading and outside the link. Its geometry is identical
+  in both states, so enabling photography changes what a card shows, never how the grid is composed (D107).
+*/
+.page-card-media {
+    margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) var(--space-3);
+}
+
+/*
+  The breadcrumb sits on the sand surface, which is darker than stone — so accent text has to clear its
+  contrast there, not on the lighter one. Measured at 4.11:1 at the checkpoint before --brand-accent-strong
+  was re-derived against sand (D107).
+*/
+.page-breadcrumb-bar {
+    background: var(--color-sand);
+}
+
+.page-breadcrumb-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.9375rem;
+}
+
+.page-breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    overflow-wrap: anywhere;
+}
+
+/* The separator is drawn, never typed, so it is not read out as punctuation. */
+.page-breadcrumb-item + .page-breadcrumb-item::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-inline: 0.625rem;
+    border-top: 1.5px solid var(--color-ink-muted);
+    border-right: 1.5px solid var(--color-ink-muted);
+    transform: rotate(45deg);
+    flex: none;
+}
+
+.page-breadcrumb-item [aria-current="page"] {
+    font-weight: 600;
+}
+
+.page-checklist {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.page-checklist-item {
+    position: relative;
+    padding-inline-start: 2.25rem;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+    overflow-wrap: anywhere;
+}
+
+/* A check mark drawn with borders: decoration only; the list itself carries the meaning. */
+.page-checklist-item::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0.375rem;
+    top: 0.3em;
+    width: 0.5rem;
+    height: 0.875rem;
+    border-bottom: 3px solid var(--color-accent-strong);
+    border-right: 3px solid var(--color-accent-strong);
+    transform: rotate(45deg);
+}
+
+.page-section-text + .page-section-text {
+    padding-top: 0;
+}
+
+.page-prose {
+    max-width: var(--measure);
+}
+
+.page-prose-title {
+    margin: 0 0 var(--space-2);
+    font-size: clamp(1.375rem, 1.2rem + 0.7vw, 1.75rem);
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.page-prose-paragraph {
+    margin: 0 0 var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.page-prose-paragraph:last-child {
+    margin-bottom: 0;
+}
+
+/* ---- Footer -------------------------------------------------------------------------------------- */
+
+.site-footer {
+    background: var(--color-night);
+    color: var(--color-on-dark);
+    --focus: var(--color-accent-bright);
+}
+
+.site-footer a,
+.site-footer .site-footer-link {
+    color: var(--color-on-dark-muted);
+}
+
+.site-footer a:hover,
+.site-footer .site-footer-link:hover {
+    color: var(--color-on-dark);
+}
+
+/*
+  minmax(0, 1fr), not 1fr: a bare 1fr track cannot shrink below its longest unbreakable word. Found in Slice 4 QA at
+  200% text and 375 px, when the footer's services column put a long service name there and the page overflowed (D105).
+*/
+.site-footer-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding-block: var(--space-8);
+}
+
+.site-footer-brand .site-footer-name {
+    margin: 0 0 var(--space-2);
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.site-footer-logo {
+    display: block;
+    width: 3rem;
+    height: 3rem;
+    margin-bottom: var(--space-2);
+}
+
+.site-footer-heading {
+    margin: 0 0 var(--space-2);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1.3;
+    color: var(--color-accent-bright);
+}
+
+.site-address {
+    font-style: normal;
+}
+
+.site-address-line {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.site-address-line a {
+    display: inline-block;
+    padding-block: 0.25rem;
+}
+
+.site-hours,
+.site-footer-links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.site-hours abbr {
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.site-footer-links a {
+    display: inline-block;
+    max-width: 100%;
+    padding-block: 0.25rem;
+    overflow-wrap: anywhere;
+}
+
+.site-footer-text,
+.site-footer-note {
+    margin: 0 0 var(--space-1);
+}
+
+.site-footer-note {
+    color: var(--color-on-dark-muted);
+}
+
+.site-footer-bottom {
+    border-top: 1px solid var(--color-line-dark);
+}
+
+.site-footer-bottom-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+    padding-block: var(--space-2);
+}
+
+.site-copyright {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--color-on-dark-muted);
+}
+
+.site-legal-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.9375rem;
+}
+
+/* ---- Mobile call bar ----------------------------------------------------------------------------- */
+
+.site-callbar {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--color-night);
+    border-top: 3px solid var(--color-accent);
+}
+
+.site-callbar-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--callbar-height);
+    color: var(--color-accent-bright) !important;
+    font-weight: 700;
+    font-size: 1.0625rem;
+    text-decoration: none;
+}
+
+.site-callbar-link:focus-visible {
+    outline: 3px solid var(--color-accent-bright);
+    outline-offset: -6px;
+}
+
+/* ---- Wider screens ------------------------------------------------------------------------------- */
+
+@media (min-width: 480px) {
+    .site-container {
+        padding-inline: var(--space-3);
+    }
+
+    .page-facts-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding-inline: var(--space-3);
+    }
+}
+
+@media (min-width: 768px) {
+    html {
+        scroll-padding-bottom: 0;
+    }
+
+    body.site {
+        padding-bottom: 0;
+    }
+
+    .site-callbar {
+        display: none;
+    }
+
+    .site-header-call {
+        display: inline-flex;
+    }
+
+    .site-header-inner {
+        min-height: 5rem;
+    }
+
+    .site-brand-zone {
+        flex: 0 1 auto;
+        padding-inline: var(--space-2) var(--space-6);
+    }
+
+    .site-brand-logo {
+        width: 3rem;
+        height: 3rem;
+    }
+
+    .site-brand-name {
+        font-size: 1.125rem;
+    }
+
+    /*
+      When the brand's own width pushes the actions onto a second row, they stay right-aligned under the band:
+      the row wraps by design (D104 keeps the brand from being squeezed), and a left-aligned remainder would
+      read as an accident rather than as the narrow composition.
+    */
+    .site-header-actions {
+        gap: var(--space-2);
+        padding-inline: var(--space-2) var(--space-3);
+        justify-content: flex-end;
+        flex: 1 1 auto;
+    }
+
+    .site-main {
+        padding-block: var(--space-8) var(--space-12);
+    }
+
+    .site-main.site-main-full {
+        padding-block: 0;
+    }
+
+    .page-hero {
+        padding-block: var(--space-12);
+    }
+
+    .page-hero-call {
+        display: inline-flex !important;
+    }
+
+    .page-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .page-section {
+        padding-block: var(--space-12);
+    }
+
+    .page-cards,
+    .page-features {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .home-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-4);
+    }
+
+    .page-checklist {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .site-footer-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .site-footer-brand {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (min-width: 1024px) {
+    .site-container {
+        padding-inline: var(--space-4);
+    }
+
+    /* The reference's proportions: a band about 92 px tall with a generous gutter on the right. */
+    .site-header-inner {
+        min-height: 5.75rem;
+    }
+
+    .site-brand-zone {
+        padding-inline: var(--space-4) var(--space-12);
+    }
+
+    .site-brand-name {
+        font-size: 1.25rem;
+    }
+
+    .site-header-actions {
+        gap: var(--space-4);
+        padding-inline: var(--space-2) var(--space-4);
+    }
+
+    .site-nav-list {
+        gap: var(--space-4);
+    }
+
+    .page-cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .page-features {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    /*
+      The layered hero. Mirrored by PictureSizes.Hero: the photo column is 7 of 12 tracks after the gap, and it
+      runs past the container to the viewport edge, which is what makes the composition read as a photograph the
+      page is built around rather than as two columns of equal weight.
+    */
+    .page-hero-grid {
+        grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+        gap: var(--space-8);
+        align-items: center;
+    }
+
+    .page-hero-split {
+        padding-bottom: var(--space-16);
+    }
+
+    .page-hero-split .site-container {
+        max-width: var(--container-wide);
+    }
+
+    /*
+      The photo crosses into the section below, which is the layering the composition is built on. It is a
+      vertical overlap on purpose: a horizontal bleed to the viewport edge needs 100vw, which includes the
+      scrollbar and overflows by its width wherever one is shown.
+    */
+    .page-hero-split .page-hero-media {
+        margin-bottom: calc(-1 * var(--space-12));
+    }
+
+    /*
+      The offset frame: a solid accent block behind the photo, down and to the left. Decoration only, drawn
+      rather than loaded, removed in print, and introduced only at this width — inside a narrow screen's
+      container padding the same block would push the page wider than the viewport.
+    */
+    .page-hero-media::before {
+        content: "";
+        position: absolute;
+        inset: var(--space-4) auto auto calc(-1 * var(--space-4));
+        width: 10rem;
+        height: 60%;
+        background: var(--color-accent);
+        z-index: 0;
+    }
+
+    /* The fact panel crosses the hero's lower edge; below this width it is an ordinary block (D107). */
+    .page-facts {
+        position: relative;
+        margin-top: calc(-1 * var(--space-8));
+        margin-bottom: var(--space-4);
+    }
+
+    .page-facts-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-4);
+        padding: var(--space-4);
+    }
+
+    .page-section-head {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        align-items: end;
+        gap: var(--space-8);
+    }
+
+    .page-contact-grid {
+        grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+        gap: var(--space-8);
+    }
+
+    /* Up to four steps read as one row; more wrap in two columns (set above). */
+    .home-steps:not(:has(> li:nth-child(5))) {
+        grid-template-columns: none;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+    }
+
+    .site-footer-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-8);
+    }
+
+    .site-footer-brand {
+        grid-column: auto;
+    }
+
+    /*
+      The header follows the page on wide, tall screens only. At 400% zoom the CSS viewport is short, and a sticky
+      band would take a third of it and can obscure focus (WCAG 2.4.11) — so the height condition is part of the
+      rule, not an afterthought.
+    */
+    @media (min-height: 40em) {
+        .site-header {
+            position: sticky;
+            top: 0;
+            z-index: 60;
+        }
+    }
+}
+
+@media (min-width: 1280px) {
+    .page-checklist {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* ---- Motion and print ---------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+    .site *,
+    .site *::before,
+    .site *::after {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+@media print {
+    body.site {
+        padding-bottom: 0;
+        background: none;
+    }
+
+    .site-callbar,
+    .site-skip-link,
+    .site-header-call,
+    .site-nav {
+        display: none !important;
+    }
+
+    .site-header {
+        background: none;
+        color: #000000;
+        border-bottom: 1pt solid #000000;
+    }
+
+    .site-brand-zone::before {
+        display: none !important;
+    }
+
+    .site-brand-zone {
+        padding-inline: 0;
+    }
+
+    .site a.site-brand,
+    .site-brand-name {
+        color: #000000 !important;
+    }
+
+    .site-footer {
+        background: none;
+        color: #000000;
+    }
+
+    /*
+      Every footer link, however specific its screen rule. Found by printing to PDF in Slice 2 QA:
+      ".site-footer a" alone lost to ".site-footer .site-footer-link", so the phone number, email
+      and legal links printed white on the removed background — present in the document, invisible
+      on paper.
+    */
+    .site-footer a,
+    .site-footer .site-footer-link,
+    .site-footer-heading,
+    .site-copyright,
+    .site-footer-note {
+        color: #000000 !important;
+    }
+
+    /*
+      Homepage (D104). The hero band prints as dark text on paper. A link cannot be followed on paper, so each
+      contact action prints as the information it stands for: "Anrufen: <phone>" and
+      "E-Mail schreiben: <address>", in black, with no button chrome. The phone action is shown in print at
+      every paper width; only the fixed call bar stays hidden.
+    */
+    .page-hero,
+    .page-section-warm,
+    .page-contact,
+    .page-contact-panel,
+    .page-facts,
+    .surface-dark,
+    .surface-navy,
+    .surface-stone,
+    .surface-sand {
+        background: none !important;
+        color: #000000 !important;
+    }
+
+    .page-hero-lead,
+    .page-contact-note,
+    .page-contact-phone,
+    .page-card-go,
+    .page-eyebrow,
+    .page-card-index,
+    .home-step::before,
+    .surface-dark .page-section-intro {
+        color: #000000 !important;
+    }
+
+    .page-actions {
+        display: block !important;
+    }
+
+    .page-actions .site-button,
+    .page-actions .page-hero-call {
+        display: block !important;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: #000000 !important;
+        text-align: start;
+        text-decoration: none;
+    }
+
+    .page-actions .site-visually-hidden {
+        position: static;
+        width: auto;
+        height: auto;
+        margin: 0;
+        overflow: visible;
+        clip: auto;
+        white-space: normal;
+    }
+
+    .page-print-only {
+        display: inline;
+    }
+
+    .page-hero,
+    .page-section {
+        padding-block: var(--space-3);
+    }
+
+    /* Decoration that costs ink and says nothing on paper. */
+    .page-hero-media::before,
+    .page-eyebrow::before,
+    .page-card-index::before,
+    .page-card-go::after,
+    .page-more-link::after {
+        display: none !important;
+    }
+
+    /*
+      Service pages (D105). The breadcrumb stays on paper — it says where the page sits — but loses its band; card
+      and breadcrumb links print as black text; the drawn chevrons are screen affordances and are dropped. The check
+      marks stay, drawn in black.
+    */
+    .page-breadcrumb-bar {
+        background: none;
+        border: 0;
+    }
+
+    .site .page-breadcrumb-link,
+    .site a.page-card-link,
+    .site a.page-more-link,
+    .site .page-fact-value a {
+        color: #000000 !important;
+        text-decoration: none;
+    }
+
+    .page-checklist-item::before {
+        border-color: #000000;
+    }
+
+    .page-feature,
+    .page-facts {
+        border-color: #000000;
+    }
+
+    /*
+      Photos (D106). The hero photo is decoration of the screen layout and costs a page of ink, so it is not printed;
+      the hero's text is. Card photos print at a bounded height and never split across a page.
+    */
+    .page-hero-media {
+        display: none !important;
+    }
+
+    .page-hero-grid,
+    .page-contact-grid,
+    .page-facts-grid,
+    .page-section-head {
+        display: block;
+    }
+
+    .page-card-media img {
+        width: auto;
+        max-height: 8cm;
+    }
+
+    .page-card-media,
+    picture {
+        break-inside: avoid;
+    }
+}

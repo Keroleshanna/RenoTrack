@@ -1,14 +1,19 @@
 @page "/datenschutz"
 @model RenoTrack.Website.Pages.DatenschutzModel
+@using RenoTrack.Website.Site
 @{
-    Layout = "_CustomerLayout";
+    // Shared by both surfaces (D103): the marketing layout when this endpoint carries marketing-page
+    // metadata, which only the startup convention adds and only when the marketing site is enabled;
+    // otherwise the customer layout, exactly as before Phase 13. Never decided from configuration.
+    Layout = SiteLayout.For(HttpContext);
     ViewData["Title"] = Model.PageName;
+    var titleClass = HttpContext.IsMarketingPage() ? "site-page-title" : "customer-title";
 }
 @*
     SRS FR-1.4, the second required page. Identical in shape to the Impressum by design: the two
     differ only in which configured document they render, and both inherit the 404-when-unconfigured
     rule from LegalPageModel so it has exactly one definition.
 *@
-<h1 class="customer-title">@Model.PageName</h1>
+<h1 class="@titleClass">@Model.PageName</h1>
 
 @{ await Html.RenderPartialAsync("_LegalDocument", Model.Document); }

@@ -1,0 +1,131 @@
+@page "/"
+@model RenoTrack.Website.Pages.StartseiteModel
+@using RenoTrack.Website.Content
+@using RenoTrack.Website.Site
+@inject MarketingSite Marketing
+@inject CompanyIdentityOptions Company
+@{
+    Layout = SiteLayout.Path;
+    ViewData.SetFullWidth();
+
+    var home = Marketing.Home;
+
+    // Required on an enabled site and validated at startup; used verbatim, with no company-name suffix (D104).
+    ViewData.SetDocumentTitle(home.MetaTitle!.Trim());
+    if (home.HasSubheadline)
+    {
+        ViewData.SetDescription(home.Subheadline!.Trim());
+    }
+
+    var headline = home.HasHeadline ? home.Headline : Company.DisplayName;
+    var hasOwner = !string.IsNullOrWhiteSpace(Company.OwnerName);
+
+    // Hoisted rather than written inline in the attribute: a string literal inside a quoted attribute is the trap
+    // CLAUDE.md §24 records.
+    var contact = new ContactSectionModel(HeadingId: "home-contact");
+
+    var heroText = new HeroTextModel("home-title", headline!, home.HasSubheadline ? home.Subheadline : null, new HeroActionsModel());
+    var heroImage = Marketing.HeroImage;
+    ViewData.SetSocialImage(heroImage);
+}
+@*
+    The homepage (Phase 13 Slice 3, D104). Every fact comes from the content pack; an optional section whose
+    content is not configured is omitted whole, with no heading over nothing (D100).
+
+    Service cards link to their pages, and "Alle Leistungen ansehen" to the overview, since those exist (Slice 4,
+    D105). Still not here, each arriving with the page it links to: the projects teaser (Slice 5b), the about and FAQ
+    teasers (Slice 6) and the inquiry CTA (Slice 8). No link to a page that does not exist, no price, rating or
+    counter.
+
+    The hero photo (Slice 5a, D106) sits beside the text from 1024 px and after the actions below it; text never sits
+    on the photo. Without a hero photo the text-only hero is the finished layout, not a fallback.
+
+    Slice 5v (D107) sets the page's rhythm: dark hero → fact panel across its edge → stone services → paper
+    advantages → dark process → dark contact band → dark footer. No two adjacent surfaces are the same, and the
+    contact band is the night surface whenever the section above it is the navy one, so two dark bands never read
+    as one. When the projects, about and FAQ sections arrive (Slices 5b and 6) they take their places between the
+    services and the contact band, and the alternation rule decides their surfaces the same way.
+
+    No script and no style attribute: the marketing CSP is script-src 'none' and style-src 'self'.
+*@
+
+@if (heroImage is null)
+{
+    <section class="page-hero" aria-labelledby="home-title">
+        <div class="site-container">
+            <partial name="@SiteLayout.HeroText" model="heroText" />
+        </div>
+    </section>
+}
+else
+{
+    <section class="page-hero page-hero-split" aria-labelledby="home-title">
+        <div class="site-container page-hero-grid">
+            <div class="page-hero-text">
+                <partial name="@SiteLayout.HeroText" model="heroText" />
+            </div>
+            <div class="page-hero-media">
+                <partial name="@SiteLayout.Picture" model="new PictureModel(heroImage, PictureSizes.Hero, PictureLoading.Priority)" />
+            </div>
+        </div>
+    </section>
+}
+
+<partial name="@SiteLayout.FactPanel" />
+
+<section class="page-section surface-stone" aria-labelledby="home-services">
+    <div class="site-container site-container-wide">
+        <div class="page-section-head">
+            <h2 id="home-services" class="page-section-title">Leistungen</h2>
+            <p class="page-section-more"><a class="page-more-link" href="@MarketingSite.ServicesPath">Alle Leistungen ansehen</a></p>
+        </div>
+        <partial name="@SiteLayout.ServiceCards" model="new ServiceCardsModel(Marketing.Services, headingLevel: 3)" />
+    </div>
+</section>
+
+@if (home.Advantages.Count > 0)
+{
+    <section class="page-section surface-paper" aria-labelledby="home-advantages">
+        <div class="site-container">
+            <h2 id="home-advantages" class="page-section-title">Ihre Vorteile</h2>
+            <ul class="page-features">
+                @foreach (var advantage in home.Advantages)
+                {
+                    <li class="page-feature">
+                        <h3 class="page-feature-title">@advantage.Title</h3>
+                        <p class="page-feature-text">@advantage.Text</p>
+                    </li>
+                }
+            </ul>
+            @if (hasOwner)
+            {
+                @* A factual identity field, deliberately with no claim about the person's role (D104). *@
+                <p class="home-owner">Inhaber: @Company.OwnerName</p>
+            }
+        </div>
+    </section>
+}
+
+@if (home.Process.Count > 0)
+{
+    @*
+        The process band is the night surface, not the navy one: the contact band below it is navy, and two
+        adjacent dark bands of the same colour read as one long band (measured at the Slice 5v checkpoint).
+    *@
+    <section class="page-section surface-dark" aria-labelledby="home-process">
+        <div class="site-container">
+            <h2 id="home-process" class="page-section-title">So läuft es ab</h2>
+            <ol class="home-steps">
+                @foreach (var step in home.Process)
+                {
+                    <li class="home-step">
+                        <h3 class="page-feature-title">@step.Title</h3>
+                        <p class="page-feature-text">@step.Text</p>
+                    </li>
+                }
+            </ol>
+        </div>
+    </section>
+}
+
+<partial name="@SiteLayout.ContactSection" model="contact" />

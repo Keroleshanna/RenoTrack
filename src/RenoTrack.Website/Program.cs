@@ -6,10 +6,23 @@ using Microsoft.Extensions.WebEncoders;
 using RenoTrack.Website.Content;
 using RenoTrack.Website.PublicApi;
 using RenoTrack.Website.Security;
+using RenoTrack.Website.Site;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddRazorPages();
+// The company's content pack (D102), loaded before anything binds configuration so identity, site
+// content and legal text all see it. Read from the host's own configuration — a pack cannot name its
+// own location. Each pack file enters through an isolated provider that can contribute nothing outside
+// that file's allowed sections, so the pack can never touch logging, the API origin, the forwarder
+// trust list or any other product setting. Do not replace it with AddJsonFile.
+var contentPack = builder.Configuration.GetSection(ContentPackOptions.SectionName).Get<ContentPackOptions>()
+    ?? new ContentPackOptions();
+contentPack.Validate();
+contentPack.AddTo(((IConfigurationBuilder)builder.Configuration).Sources);
+
+// Lists merge entry by entry across configuration sources, silently; a list must come from one source.
+ContentListSourceGuard.EnsureSingleSource(builder.Configuration);
+
 
 // Load-bearing, not tidiness: stops ASP.NET creating the per-request logging scope whose RequestPath
 // is the customer's token on /angebot/{token}. Without it every warning or error logged during a
@@ -55,6 +68,42 @@ var companyIdentity = builder.Configuration.GetSection(CompanyIdentityOptions.Se
     .Get<CompanyIdentityOptions>() ?? new CompanyIdentityOptions();
 companyIdentity.Validate();
 builder.Services.AddSingleton(companyIdentity);
+
+// The marketing site's canonical origin and services (D102). Validated against the identity it
+// presents: an enabled site with half an identity fails startup naming every missing key, while a
+// deployment without Site:PublicBaseUrl keeps exactly the behaviour it had before.
+var site = builder.Configuration.GetSection(SiteOptions.SectionName).Get<SiteOptions>() ?? new SiteOptions();
+site.Validate(companyIdentity);
+builder.Services.AddSingleton(site);
+
+// The marketing site's shape is decided here, once (D103). When it is enabled, the startup convention gives
+// the marketing pages their endpoint metadata, and every request-time marketing behaviour — CSP, canonical
+// paths, the site layout — decides from that metadata alone. When it is disabled, the convention is never
+// registered, no endpoint carries the metadata, and the legal pages behave exactly as before Phase 13.
+builder.Services.AddRazorPages(options =>
+{
+    if (site.IsEnabled)
+    {
+        MarketingPageConvention.Apply(options.Conventions);
+    }
+});
+
+// Every published photo derivative, verified byte by byte before the site may start (D106): it must exist, stay within
+// its budget, match its format and exact size, and carry no EXIF, XMP, IPTC or other metadata. Only files this catalog
+// lists are ever served. Loaded only for an enabled site; a token-only deployment has no photos and no /medien/.
+var mediaCatalog = site.IsEnabled
+    ? MediaCatalog.Load(site, contentPack.MediaRootFor(builder.Environment.ContentRootPath))
+    : MediaCatalog.Empty;
+
+// A startup snapshot, so marketing pages render from the values the pipeline was composed with rather than
+// re-reading options per request.
+if (site.IsEnabled)
+{
+    builder.Services.AddSingleton(new MarketingSite(site, mediaCatalog));
+}
+
+var themeStylesheet = new ThemeStylesheet(site.Theme);
+builder.Services.AddSingleton(themeStylesheet);
 
 // The two legally required pages' content (SRS FR-1.4, D100). Registered as a validated singleton
 // rather than through IOptions, matching PublicApiOptions: the pages and the layout need the same
@@ -117,11 +166,29 @@ if (trustedForwarders.IsConfigured)
 
 app.UseHttpsRedirection();
 
+// Before routing, so the re-executed request is routed afresh. 404 only, GET/HEAD only, never from a token
+// route (D103) — and only when the marketing site exists: a token-only deployment keeps its bare 404s.
+if (site.IsEnabled)
+{
+    app.UseSiteNotFoundPage();
+}
+
 app.UseRouting();
 
 // After UseRouting, because the token-route rules read the matched endpoint's route values —
 // registered earlier they would find none and the strict headers would silently never apply.
 app.UseCustomerSecurityHeaders();
+
+// Marketing pages only, decided from the matched endpoint's metadata (D103). Token routes can never carry
+// that metadata (MarketingPageGuard below), so their headers stay exactly as UseCustomerSecurityHeaders sets them.
+app.UseMarketingSecurityHeaders();
+
+// The canonical host (derived www alias) and canonical marketing paths, with the origin captured now. Only
+// when the marketing site is enabled; nothing in it reads configuration per request.
+if (site.IsEnabled)
+{
+    app.UseCanonicalRedirects(site.CanonicalOrigin);
+}
 
 app.UseAuthorization();
 
@@ -136,7 +203,10 @@ app.UseAuthorization();
 // customer-facing origin, and the narrower mount serves only what a deployment deliberately placed
 // there. ServeUnknownFileTypes stays false, so an unrecognised extension is not served at all
 // rather than guessed at.
-var brandRoot = Path.Combine(builder.Environment.ContentRootPath, CompanyIdentityOptions.BrandAssetsDirectoryName);
+//
+// With a content pack configured, the mount serves the pack's own brand/ instead (D102) — and only
+// that directory: site.json and legal.json sit beside it and are never reachable.
+var brandRoot = contentPack.BrandRootFor(builder.Environment.ContentRootPath);
 if (Directory.Exists(brandRoot))
 {
     app.UseStaticFiles(new StaticFileOptions
@@ -150,6 +220,19 @@ if (Directory.Exists(brandRoot))
 app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();
+
+ThemeStylesheet.Map(app, themeStylesheet);
+
+// Photos: an allowlist of verified derivatives, never a directory mount (D106, S5-2). The requested name is a key in
+// the catalog, so no request can reach a file the manifest does not list.
+if (site.IsEnabled)
+{
+    MediaEndpoint.Map(app, mediaCatalog);
+}
+
+// Marketing metadata must never reach a route whose URL is a customer credential. Checked against the endpoints
+// actually built, by route parameter, so it also covers token routes nobody has written yet (D103).
+MarketingPageGuard.EnsureNoTokenRoutes(MarketingPageGuard.EndpointsOf(app));
 
 // Reported once, at startup, so an unset identity is visible to an operator rather than silently
 // producing a nameless page. Deliberately a warning and not a failure: this is copy, not wiring.
@@ -189,6 +272,27 @@ if (companyIdentity.HasLogo)
             companyIdentity.LogoPath,
             brandRoot);
     }
+}
+
+// Counts and a path only — never content values (D101 governs what this application logs).
+if (contentPack.IsConfigured)
+{
+    app.Logger.LogInformation(
+        "Content pack loaded from '{PackRoot}': marketing site {SiteState}, {ServiceCount} service(s), {PhotoCount} " +
+        "photo(s) in {FileCount} verified file(s).",
+        contentPack.ResolvedRootPath,
+        site.IsEnabled ? "enabled" : "disabled",
+        site.Services.Count,
+        mediaCatalog.ImageCount,
+        mediaCatalog.FileCount);
+}
+
+if (!site.IsEnabled)
+{
+    app.Logger.LogWarning(
+        "Configuration '{Key}' is not set, so the marketing site is disabled; the customer token pages and " +
+        "the legal pages are unaffected.",
+        $"{SiteOptions.SectionName}:{nameof(SiteOptions.PublicBaseUrl)}");
 }
 
 foreach (var (key, configured) in new[]

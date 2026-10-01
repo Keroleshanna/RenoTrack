@@ -900,7 +900,9 @@ In the unconfigured run the header and footer render **empty rather than placeho
 
 ---
 
-## 11. Slice 8 — Completion Gate (in progress)
+## 11. Slice 8 — Completion Gate (closed/parked 2026-09-16)
+
+> **Closed/parked by Tech Lead decision on 2026-09-16**, when Phase 13 (Public Website) started. `main` remains canonical. The items in §11.4 are not lost. FR-1.4 content and company identity move to the company's private content repository, which Phase 13 introduces (`PHASE13_PROGRESS.md` §2, Q9). The rest stay operator or deployment decisions. The text below is the record as it stood at parking.
 
 ### 11.1 Automated end-to-end run — merged
 
