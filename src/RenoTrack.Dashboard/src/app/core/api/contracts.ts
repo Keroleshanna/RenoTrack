@@ -452,6 +452,35 @@ export interface ProjectInvoiceBalanceDto {
   readonly remaining: number;
 }
 
+// ---- Customers (Admin only — PermissionMatrix.md §5, Phase 14 Slice 2b, D112) -----------------
+
+/**
+ * A Customer as the Admin's address panel reads it. **Deliberately narrow**: email and phone exist on
+ * the Customer and are not here, because nothing on this screen renders them — an API test pins the
+ * server's exact property set to these four.
+ */
+export interface CustomerDto {
+  readonly id: number;
+  readonly leadId: number;
+  readonly name: string;
+  readonly address: string | null;
+}
+
+/**
+ * The body of `PUT /api/v1/customers/{id}/address`. The address only: name, email and phone are not
+ * correctable (D112), and the Customer and the acting Admin come from the route and the token (D61).
+ */
+export interface CorrectCustomerAddressRequestDto {
+  readonly address: string;
+}
+
+/**
+ * The longest customer address the server accepts, mirrored from `Customer.MaxAddressLength` (D112).
+ * The form enforces it so an Admin is told at the field, not by a 400, and a spec pins the value —
+ * the same treatment as {@link INVOICE_DESCRIPTION_MAX}.
+ */
+export const CUSTOMER_ADDRESS_MAX = 500;
+
 // ---- Inspections --------------------------------------------------------------------------------
 
 /** What scheduling returns — the aggregate itself, without the Lead's contact details. */

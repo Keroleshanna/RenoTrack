@@ -25,8 +25,10 @@ namespace RenoTrack.Application.Common.Documents;
 ///   </item>
 ///   <item>
 ///     A customer with no address — <c>Customer.Address</c> is optional because the website contact
-///     form does not collect one, and BR-5 requires it. No correction path exists yet; that is a
-///     separate, planned slice (D111), and printing around the gap is not an option.
+///     form does not collect one, and BR-5 requires it. An Admin supplies it through
+///     <c>Customer.CorrectAddress</c> (Phase 14 Slice 2b, D112); until then the refusal stands, and
+///     printing around the gap is not an option. The address is read from the Customer passed in,
+///     so a correction reaches every later render without any change to the Invoice.
 ///   </item>
 /// </list>
 /// <para>

@@ -1868,6 +1868,8 @@ No Customers workspace and no `GET /api/v1/customers`. Customer identity surface
 
 Recorded so the absence reads as a decision rather than an oversight. **Revisit trigger:** the first documented requirement that lets someone *act* on a Customer.
 
+> **Amended by D112 (Phase 14 Slice 2b).** The revisit trigger fired: BR-5 requires the customer's address on every invoice, and a Customer converted from a website Lead has none. The aggregate gains exactly one command — an Admin's correction of `Customer.Address` — and one Admin-only single-Customer read for the panel that performs it. **Everything else here stands:** no Customers workspace, no `GET /api/v1/customers` list, no search, and no correction of name, email or phone.
+
 ---
 
 ## D92 — BR-10's Immutability Keeps a Named Escape Hatch: `Inspection.Reopen`
@@ -2268,6 +2270,12 @@ Left alone, that is a **silent widening**: an operator who wrote a host address 
 | Rendering the API's ProblemDetails `detail` on the customer page | D97 | Authored for an API caller, in English, and may name an aggregate or an id (D59) |
 | Reporting an API outage as an invalid link | D97 | Sends a customer away permanently over a transient fault |
 | Refusing to remove a line that had been saved to the Catalog | D95 | Invents a rule no document states, and contradicts CLAUDE.md §2's "a draft line is unsent working material" |
+| Adding `customerAddress` to `ProjectDetailDto` | D112 | That read is Inspector-readable and unscoped, so every Inspector would see every customer's address — personal data no document grants them |
+| Correcting a customer's name, email and phone alongside the address | D112 | BR-5 is the only documented requirement; widening the permission by analogy with D87 is the mistake CLAUDE.md §2 records |
+| Letting a correction clear the address | D112 | No use case is documented, and clearing it only makes invoices unrenderable again |
+| Propagating a Lead's address edits to its Customer | D112 | Reverses Phase 7's copy-at-commit decision; a correction is made to the Customer deliberately, never inherited |
+| `Customer.MaxAddressLength` as an alias of `Lead.MaxAddressLength` | D112 | Couples one aggregate to another's type; each owns its limit, and a test keeps the Lead's limit from exceeding the Customer's |
+| A concurrency token on `Customers` for the address correction | D112 | The guard reads only its argument, never stored state, so there is no read-then-write race to protect (D96's test) |
 
 ---
 
@@ -3152,7 +3160,7 @@ So `EmbeddedFontResolver` answers **every** family request with **Liberation San
 - **Migration #14** (`AddInvoiceDescriptionServicePeriodAndVatLines`) adds `Description nvarchar(500) NOT NULL`, `ServicePeriodStart`/`ServicePeriodEnd date NULL`, and the `InvoiceVatLines` table with its cascade FK and unique index. Reviewed by hand: exactly those operations.
 - **A row created before it gets an empty description and no lines.** None is invented, and the split is **not** recomputed from today's Angebot, which may have changed (the immutability of an approved Angebot is what makes the live read safe at creation time, not years later). The row still loads — `Invoice`'s constructor carries no guard (CLAUDE.md §2) — and is refused as a document.
 - **`InvoiceDocumentFactory.Create(Invoice, Customer)`** assembles the `InvoiceDocument` and refuses, naming every gap at once and never a value: an empty description, a positive gross with no VAT lines, or a customer without an address. It throws `InvalidOperationException`, the type the generator already throws for an incomplete company identity (D110).
-- **`Customer.Address` is optional** (the website contact form does not collect one) **and nothing can correct it** (D91: the aggregate has no command). BR-5 requires it. The assembler refuses; correcting a customer's address is recorded as its own future slice, and BR-5 is the documented requirement D91's revisit trigger asked for.
+- **`Customer.Address` is optional** (the website contact form does not collect one) **and nothing can correct it** (D91: the aggregate has no command). BR-5 requires it. The assembler refuses; correcting a customer's address is recorded as its own future slice, and BR-5 is the documented requirement D91's revisit trigger asked for. **Built in Phase 14 Slice 2b — see D112.** The refusal is unchanged; an Admin can now supply the address it asks for.
 - **`DocumentFormatting`** is the one tested place document figures are formatted (`de-DE`, explicit). Slice 1's `AngebotDocument` described such a place, but no assembler or formatter existed yet; this slice creates it and does not touch the Angebot path.
 - **The invoice date is the issue instant's calendar date in Europe/Berlin** — see Part 6. (This slice's first draft printed the UTC date; the final review found it, and Part 6 is the approved correction.)
 - **`RenderInvoice` and the assembler have no production caller yet**, exactly as `RenderAngebot` has none. Slice 3 (archive at send, download, email attachment) is where they are wired; no artificial caller was added to satisfy a usage rule.
@@ -3191,3 +3199,48 @@ Driven against a fresh database migrated through the real startup path (never th
 - **The printed invoice date is `InvoiceCalendar.DateOf(IssueDate)`.** The due date and the service period are calendar dates already and are printed as entered.
 - **Tests:** the calendar at 22:30 UTC on 1 October (→ 2 October), 23:30 UTC on 31 December (→ 1 January, next year) and 22:59 UTC (→ still 31 December), six instants around each daylight-saving change, a database-loaded `Unspecified` value both as a unit test and through real LocalDB, a refused local time, and a zone the host cannot resolve; the handler on both sides of New Year's midnight with a hand-written fake `TimeProvider`, a single clock read shared by number and date, and no clock read on a rejected request; the document date; the eager registration and the real container's system clock. **Eight mutations** — no zone conversion, a different zone, the UTC year, a second clock read, `Create` ignoring `issuedAt`, `Create` accepting a non-UTC instant, the document printing the UTC date, and a lazy registration — were each caught and restored byte-identical.
 - **QA:** the real handler, repositories and number sequence, run against the QA database with a fixed clock: 23:30 UTC on 31 December produced `RE-2027-…` dated 01.01.2027; 22:59 UTC produced `RE-2026-…` dated 31.12.2026. The running API, with the system clock from the real composition, numbered an invoice `RE-2026-00004`.
+
+---
+
+## D112 — Customer Address Correction: One Admin Command, an Admin-Only Read, and a Constant the Customer Owns
+
+**Phase 14 Slice 2b.** Approved before implementation, with one design correction (the length constant). The trigger was D111 Part 3: `InvoiceDocumentFactory` refuses an invoice whose customer has no address, BR-5 requires one, and nothing could supply it.
+
+### Context
+
+- **Every Customer converted from a website Lead has no address.** The anonymous contact form collects none, `Customer.Create` copies the Lead's `null`, and a Customer is a copy: Phase 7 deliberately never refreshes it from the Lead. So the Lead's own contact correction (D87) fixes the invoice address only if it happens *before* conversion.
+- **The aggregate had no mutator at all**, pinned by `CustomerTests.ExposesNoPublicMutator`, whose comment read the copy-at-creation guarantee as "nothing may rewrite who it was agreed with".
+- **`PermissionMatrix.md` had no Customer row anywhere.**
+
+### Decision
+
+1. **The address, and only the address, can be corrected.** `Customer.CorrectAddress(string address)` — required, trimmed, at most `Customer.MaxAddressLength` after trimming. It sets or corrects and never clears. Name, email and phone stay uncorrectable.
+2. **Admin `F`, Inspector `—`, role-based only.** No `IOwnershipValidator` call (CLAUDE.md §16). Customers exist only in the Project/Invoice world, where every action is Admin-only.
+3. **`PUT /api/v1/customers/{id}/address`** with `{ address }`, returning `CustomerDto`. The Customer comes from the route and the acting Admin from the JWT (D61).
+4. **`GET /api/v1/customers/{id}`, Admin only**, for the panel that corrects it. The address is **not** added to `ProjectDetailDto`: that read is Inspector-readable and unscoped, so doing so would show every customer's address to every Inspector.
+5. **`CustomerDto` is exactly `Id, LeadId, Name, Address`.** Email and phone exist on the Customer and are deliberately absent; an API test pins the property set.
+6. **`Customer` owns `MaxAddressLength = 500`.** It is not an alias of `Lead.MaxAddressLength`: the 500-character rule is a Customer.Address constraint, and the aggregate references no other aggregate's type. The command validator and `CustomerConfiguration` read the same constant (D109's pattern). Because conversion copies a Lead's address into a Customer, a Domain test asserts `Lead.MaxAddressLength <= Customer.MaxAddressLength` — a guard against drift that lives in a test, not in a reference between the aggregates.
+7. **Audited** as `CustomerAddressCorrected` against the Customer, after the save, by the acting Admin, with **no before/after values** — `LeadContactDetailsUpdated`'s precedent and reasoning, with the added weight that this value is printed on a legal document.
+8. **SRS FR-7.5** records the requirement; `PermissionMatrix.md` §5 gains the two rows.
+9. **Dashboard:** an Admin-only "Rechnungsanschrift" panel on the Project detail, with a multi-line textarea, because the PDF generator already prints the address's own line breaks. The flag lives in the tested `customer-capabilities.ts`; an Inspector never sees the panel, so the address is never requested on their behalf.
+
+### What the copy-at-creation guarantee means
+
+Phase 7's guarantee is about the *source*: later edits to a Lead never leak into a committed Customer. That still holds — nothing reads through to the Lead and nothing propagates. It never meant the Customer itself could not be deliberately corrected. The pinned test became `ExposesExactlyTheDocumentedMutators`, which allows `CorrectAddress` and nothing else.
+
+### Invoices
+
+`InvoiceDocumentFactory` reads the Customer it is given at render time; nothing about the customer is snapshotted on an Invoice. A corrected address therefore reaches every later render **with no change to any Invoice**. The factory's refusal is unchanged. **Consequence recorded for Slice 3:** once a PDF is archived at send, it freezes the address as sent, while a draft picks up later corrections.
+
+### What deliberately did not change
+
+- No migration: the column's length is unchanged at 500, so the model is unchanged.
+- No concurrency token: `CorrectAddress`'s guards read only its argument, never stored state, so two corrections cannot race past a guard — the later simply wins, exactly as a Lead contact correction does (D96's test applied).
+- No notification (none is documented), no Customers workspace, list or search (D91 stands), no structured address, no normalisation or format validation, and no propagation in either direction between Lead and Customer.
+- `StateMachine.md` and `Sequence Diagram.md` are unchanged: a Customer has no states, and the flow is a single correction that needs no diagram. Their silence is deliberate.
+
+### Found while implementing
+
+- **The API suite cannot catch a handler that skips its own `SaveChangesAsync`.** With the save removed, the address still reached the database, because `AuditService.LogAsync` saves on the request's shared `DbContext` and flushed the pending change — the hazard `NEXT_STEPS.md` §5a already records. The Application tests catch that mutation; the API tests cannot, by construction. Not changed here, because it alters no current behaviour, but it is the second time this hazard has hidden a defect from an end-to-end test.
+- **A historical empty-string address loads and can be corrected.** An all-whitespace Lead address converted earlier is stored as `""`; the constructor stays guard-free, so the row materialises, and the factory treats it as missing.
+- **Browser QA found one layout defect**, fixed: the new panel sat flush against the Rechnungen panel with no gap.

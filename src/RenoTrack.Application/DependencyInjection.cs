@@ -26,6 +26,9 @@ using RenoTrack.Application.CatalogItems.Commands.SaveAngebotItemAsCatalogItem;
 using RenoTrack.Application.CatalogItems.Commands.UpdateCatalogItem;
 using RenoTrack.Application.CatalogItems.Dtos;
 using RenoTrack.Application.CatalogItems.Queries.SearchCatalogItems;
+using RenoTrack.Application.Customers.Commands.CorrectCustomerAddress;
+using RenoTrack.Application.Customers.Dtos;
+using RenoTrack.Application.Customers.Queries.GetCustomerById;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
 using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
@@ -181,6 +184,9 @@ public static class DependencyInjection
         services.AddScoped<IValidator<GetProjectByIdQuery>, GetProjectByIdQueryValidator>();
         services.AddScoped<IValidator<GetProjectInvoiceBalanceQuery>, GetProjectInvoiceBalanceQueryValidator>();
 
+        services.AddScoped<IValidator<CorrectCustomerAddressCommand>, CorrectCustomerAddressCommandValidator>();
+        services.AddScoped<IValidator<GetCustomerByIdQuery>, GetCustomerByIdQueryValidator>();
+
         services.AddScoped<IValidator<CreateInvoiceCommand>, CreateInvoiceCommandValidator>();
         services.AddScoped<IValidator<SendInvoiceCommand>, SendInvoiceCommandValidator>();
         services.AddScoped<IValidator<RecordPaymentCommand>, RecordPaymentCommandValidator>();
@@ -235,6 +241,9 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<PutProjectOnHoldCommand, ProjectDto>, PutProjectOnHoldCommandHandler>();
         services.AddScoped<ICommandHandler<ResumeProjectCommand, ProjectDto>, ResumeProjectCommandHandler>();
 
+        // BR-5 / FR-7.5 (D112) — a converted Customer gains the address its invoices must print.
+        services.AddScoped<ICommandHandler<CorrectCustomerAddressCommand, CustomerDto>, CorrectCustomerAddressCommandHandler>();
+
         // FR-8.1 — the only path by which an Invoice may come into existence.
         services.AddScoped<ICommandHandler<CreateInvoiceCommand, InvoiceDto>, CreateInvoiceCommandHandler>();
         services.AddScoped<ICommandHandler<SendInvoiceCommand, InvoiceDto>, SendInvoiceCommandHandler>();
@@ -265,6 +274,8 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetProjectByIdQuery, ProjectDetailDto>, GetProjectByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetProjectsQuery, PagedResult<ProjectListItemDto>>, GetProjectsQueryHandler>();
         services.AddScoped<IQueryHandler<GetProjectInvoiceBalanceQuery, ProjectInvoiceBalanceDto>, GetProjectInvoiceBalanceQueryHandler>();
+
+        services.AddScoped<IQueryHandler<GetCustomerByIdQuery, CustomerDto>, GetCustomerByIdQueryHandler>();
 
         // Last in the Invoice group, matching the Angebot group above: the customer's read is the
         // final step, after the document has been created and sent.

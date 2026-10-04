@@ -18,6 +18,12 @@ namespace RenoTrack.Infrastructure.Persistence.Configurations;
 /// conversion time a value the Lead row already accepted.
 /// </para>
 /// <para>
+/// <b>The address column reads <see cref="Customer.MaxAddressLength"/></b> (Phase 14 Slice 2b,
+/// D112), the same constant <c>Customer.CorrectAddress</c> and its validator read — one definition,
+/// so no layer can disagree about what fits. The value is unchanged at 500, so the model is
+/// unchanged and no migration exists for it.
+/// </para>
+/// <para>
 /// <b><c>Address</c> is nullable</b>, matching the Domain property and ERD.md's corrected diagram.
 /// The public contact form does not collect an address, so a required column here would make
 /// conversion of a website-sourced Lead impossible — see `PHASE7_PROGRESS.md`, decision 1.
@@ -34,7 +40,7 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(c => c.Name).IsRequired().HasMaxLength(200);
         builder.Property(c => c.Email).IsRequired().HasMaxLength(320);
         builder.Property(c => c.Phone).IsRequired().HasMaxLength(50);
-        builder.Property(c => c.Address).HasMaxLength(500);
+        builder.Property(c => c.Address).HasMaxLength(Customer.MaxAddressLength);
 
         // No navigation property on either side — Customer relates to its Lead by id only
         // (CLAUDE.md §2), so the relationship is declared with the generic HasOne<Lead>() overload

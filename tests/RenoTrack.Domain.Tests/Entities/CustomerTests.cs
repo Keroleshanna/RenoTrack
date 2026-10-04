@@ -147,19 +147,149 @@ public class CustomerTests
     }
 
     /// <summary>
-    /// The copy-at-creation guarantee (the same reasoning BR-8 applies to <c>AngebotItem</c>):
-    /// once the work is committed, nothing may rewrite who it was agreed with. There is no
-    /// mutator at all, so this holds structurally.
+    /// Replaces Phase 7's <c>ExposesNoPublicMutator</c>, keeping its intent (D112). The
+    /// copy-at-creation guarantee — later Lead edits never rewrite a committed Customer — still
+    /// holds, because nothing reads through to the Lead. What Slice 2b adds is exactly one
+    /// deliberate correction, of the address BR-5 requires; name, email and phone stay
+    /// uncorrectable, and a second mutator appearing here should fail this test until a document
+    /// grants it.
     /// </summary>
     [Fact]
-    public void ExposesNoPublicMutator()
+    public void ExposesExactlyTheDocumentedMutators()
     {
         var publicMutators = typeof(Customer)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(m => !m.IsSpecialName)
+            .Select(m => m.Name)
             .ToArray();
 
-        Assert.Empty(publicMutators);
+        Assert.Equal([nameof(Customer.CorrectAddress)], publicMutators);
+    }
+
+    // ---- CorrectAddress -----------------------------------------------
+
+    [Fact]
+    public void CorrectAddress_SetsAnAddressOnACustomerThatHadNone()
+    {
+        var customer = CreateValid();
+
+        customer.CorrectAddress("Musterstr. 1\n12345 Berlin");
+
+        Assert.Equal("Musterstr. 1\n12345 Berlin", customer.Address);
+    }
+
+    [Fact]
+    public void CorrectAddress_ReplacesAnExistingAddress()
+    {
+        var customer = Customer.Create(
+            ValidLeadId, ValidName, ValidEmail, ValidPhone, address: "Alte Str. 9");
+
+        customer.CorrectAddress("Neue Str. 3, 10115 Berlin");
+
+        Assert.Equal("Neue Str. 3, 10115 Berlin", customer.Address);
+    }
+
+    [Fact]
+    public void CorrectAddress_TrimsTheValue()
+    {
+        var customer = CreateValid();
+
+        customer.CorrectAddress("  Musterstr. 1  ");
+
+        Assert.Equal("Musterstr. 1", customer.Address);
+    }
+
+    /// <summary>
+    /// H4: correction can set or correct, never clear. An empty address is exactly what makes an
+    /// invoice unrenderable, so accepting one here would reintroduce the gap the method exists to
+    /// close.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\n\t ")]
+    [InlineData(null)]
+    public void CorrectAddress_RejectsAMissingAddress(string? address)
+    {
+        var customer = Customer.Create(
+            ValidLeadId, ValidName, ValidEmail, ValidPhone, address: "Bleibt Str. 1");
+
+        var ex = Assert.Throws<ArgumentException>(() => customer.CorrectAddress(address!));
+
+        Assert.Equal("address", ex.ParamName);
+        Assert.Equal("Bleibt Str. 1", customer.Address);
+    }
+
+    [Fact]
+    public void CorrectAddress_AcceptsExactlyTheMaximumLength()
+    {
+        var customer = CreateValid();
+        var longest = new string('a', Customer.MaxAddressLength);
+
+        customer.CorrectAddress(longest);
+
+        Assert.Equal(longest, customer.Address);
+    }
+
+    [Fact]
+    public void CorrectAddress_RejectsOneCharacterOverTheMaximumLength()
+    {
+        var customer = CreateValid();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => customer.CorrectAddress(new string('a', Customer.MaxAddressLength + 1)));
+
+        Assert.Equal("address", ex.ParamName);
+        Assert.Null(customer.Address);
+    }
+
+    /// <summary>The length is the stored value's, so it is measured after trimming (D109's rule).</summary>
+    [Fact]
+    public void CorrectAddress_MeasuresTheLengthAfterTrimming()
+    {
+        var customer = CreateValid();
+        var longest = new string('a', Customer.MaxAddressLength);
+
+        customer.CorrectAddress("   " + longest + "   ");
+
+        Assert.Equal(longest, customer.Address);
+    }
+
+    [Fact]
+    public void CorrectAddress_ChangesNoOtherField()
+    {
+        var customer = CreateValid();
+
+        customer.CorrectAddress("Musterstr. 1");
+
+        Assert.Equal(ValidLeadId, customer.LeadId);
+        Assert.Equal(ValidName, customer.Name);
+        Assert.Equal(ValidEmail, customer.Email);
+        Assert.Equal(ValidPhone, customer.Phone);
+        Assert.Equal(0, customer.Id);
+    }
+
+    // ---- Length constant ----------------------------------------------
+
+    /// <summary>The value D112 approved, owned by Customer itself.</summary>
+    [Fact]
+    public void MaxAddressLength_Is500()
+    {
+        Assert.Equal(500, Customer.MaxAddressLength);
+    }
+
+    /// <summary>
+    /// Conversion copies a Lead's address into a Customer verbatim. The two aggregates own their
+    /// limits independently (D112), so this test — not a reference between them — is what keeps a
+    /// future increase to the Lead's limit from producing addresses the Customers column cannot hold.
+    /// </summary>
+    [Fact]
+    public void LeadAddressLimit_NeverExceedsTheCustomerAddressLimit()
+    {
+        Assert.True(
+            Lead.MaxAddressLength <= Customer.MaxAddressLength,
+            $"Lead.MaxAddressLength ({Lead.MaxAddressLength}) exceeds Customer.MaxAddressLength "
+            + $"({Customer.MaxAddressLength}); conversion would copy addresses the Customer cannot hold.");
     }
 
     [Fact]
