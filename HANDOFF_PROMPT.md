@@ -2,10 +2,9 @@
 
 Copy everything in the code block below into the first message of a brand-new conversation.
 
-**Last updated: 2026-10-03, on `feature/phase-14-slice-2b-customer-address` (Phase 14 Slice 2b,
-D112, implemented and locally verified; not yet merged).** Until that branch is merged, `origin/main`
-does not contain 2b — verify which is true before relying on this file. Keep this file current
-whenever a phase or slice is merged — it is the one file a fresh session is pointed at first.
+**Last updated: 2026-10-04, at `origin/main` = `a87d7a5` (PR #34, Phase 14 Slice 2b merged and
+verified).** Keep this file current whenever a phase or slice is merged — it is the one file a fresh
+session is pointed at first.
 
 ---
 
@@ -30,26 +29,29 @@ READ FIRST, IN THIS ORDER, AND READ THEM IN FULL:
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: dff57c4165fdc3bb648a9b91c1c3a16379f69ba5 ("Merge pull request #32 from
-  Keroleshanna/feature/phase-14-slice-2-invoice-document").
-- PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31 (handoff) and
-  #32 (Phase 14 Slice 2) are MERGED.
+- origin/main: a87d7a57864dc805808df1a0f4339c9737b90b2c ("Merge pull request #34 from
+  Keroleshanna/feature/phase-14-slice-2b-customer-address") — a true merge commit whose second
+  parent is the slice head, 62c749aabd743a4f838dcdb00d328c23cdb47096. A later handoff-only docs PR
+  may sit on top of it; nothing else should.
+- PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31 and #33 (handoffs),
+  #32 (Phase 14 Slice 2) and #34 (Phase 14 Slice 2b) are MERGED.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests, measured in CI on PR #32 — 3,055 passing, 0 failing:
-  Domain 429 · Application 530 · Infrastructure 419 (LocalDB) · Api 498 (LocalDB) ·
+- Tests, measured in CI on PR #34 — 3,114 passing, 0 failing:
+  Domain 442 · Application 552 · Infrastructure 424 (LocalDB) · Api 517 (LocalDB) ·
   Website 1,136 · MediaPrep 20 · Documents 23.
   The 23 Documents (PDF) tests cannot run on the development machine (see the environment notes);
-  CI's Linux job ran them and they passed. CI does not build or test the Dashboard: locally it has
-  94 specs passing, lint clean. Re-run everything yourself before relying on it.
-- Migrations: 14 (#14 AddInvoiceDescriptionServicePeriodAndVatLines, Slice 2).
-- Phase 14 Slice 2b, on its branch and measured locally: Domain 442 · Application 552 ·
-  Infrastructure 424 · Api 517 · Website 1,136 · MediaPrep 20 — 3,091 passing; Documents 23 is
-  CI-only; expected CI total 3,114. Dashboard 105 specs. Still 14 migrations (2b adds none).
+  CI's Linux job ran them and all 23 passed. CI does not build or test the Dashboard: locally it has
+  108 specs passing, lint clean, build succeeding. Re-run everything yourself before relying on it.
+- Migrations: 14 (#14 AddInvoiceDescriptionServicePeriodAndVatLines, Slice 2; 2b added none).
 
 PHASES: 0–12 complete and merged. Phase 13 (public website) is PARKED BY DECISION after Slices
-5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slice 1 and Slice 2 are COMPLETE, MERGED AND
-VERIFIED; Slice 2b (customer address correction, D112) is IMPLEMENTED on its branch, pending
-review and merge. NO OTHER SLICE HAS STARTED.
+5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slice 1, Slice 2 and Slice 2b are COMPLETE,
+MERGED AND VERIFIED. NO LATER SLICE HAS STARTED — not Slice 3, not A, not B, not the time-policy
+slice.
+
+PHASE 14 SLICE 2b IS CLOSED. Do not re-review it: its design, implementation, tests, QA, mutations
+and documents were all reviewed and approved before merge (D112 is the record). Start from the next
+design-first decision instead.
 
 WHAT EARLIER SESSIONS DID, AND WHY
 
@@ -105,8 +107,8 @@ WHAT EARLIER SESSIONS DID, AND WHY
      customer without an address — it never invents or recomputes anything.
    - CUSTOMER ADDRESS CORRECTION IS OUTSIDE SLICE 2 (it is 2b, below).
 
-5. Phase 14 Slice 2b — CUSTOMER ADDRESS CORRECTION (D112, SRS FR-7.5). Approved before
-   implementation; do not reopen silently:
+5. Phase 14 Slice 2b — CUSTOMER ADDRESS CORRECTION (D112, SRS FR-7.5) — merged (PR #34) and
+   verified in CI. Approved before implementation; do not reopen silently:
    - Customer.CorrectAddress(string) is the aggregate's ONLY mutator: required, trimmed, at most
      Customer.MaxAddressLength = 500 (the Customer's OWN constant, not an alias of Lead's; a test
      pins Lead.MaxAddressLength <= Customer.MaxAddressLength), never cleared.
@@ -119,8 +121,13 @@ WHAT EARLIER SESSIONS DID, AND WHY
      a migration, a concurrency token, a notification.
    - The invoice document reads the Customer at render time, so a correction needs no Invoice
      change. Slice 3 must decide what an archived PDF freezes (the address as sent).
+   - CARRIED FORWARD, NOT FIXED: the API suite cannot detect a handler that omits its own
+     SaveChangesAsync while it audits afterwards — AuditService saves on the request's shared
+     DbContext and flushes the pending change. A pre-existing hazard (NEXT_STEPS.md §5a, §8f); only
+     the Application tests catch it. Also in §8f: customer name/email/phone correction, and the D109
+     length gap on PUT /api/v1/leads/{id}.
 
-THE NEXT TASK: THE PRODUCT OWNER CHOOSES THE NEXT SLICE — DO NOT START ONE
+THE NEXT TASK: THE PRODUCT OWNER CHOOSES THE NEXT SLICE, FRESH FROM THIS MAIN — DO NOT START ONE
 
 None of the following has started, and THEIR ORDER IS NOT DECIDED. Do not start one, and do not
 treat any suggested order as approved. NEXT_STEPS.md §8 is the full record:
@@ -192,8 +199,10 @@ ENVIRONMENT CONDITIONS YOU WILL HIT, ALL DOCUMENTED AND NONE A CODE DEFECT:
   `https` profile for Dashboard QA (NEXT_STEPS.md §8e). And do QA on a SEPARATE database — copy the
   gitignored appsettings.Development.json into the worktree with another database name and
   Database:Mode=Migrate — so an unmerged migration never reaches the shared development database.
-  A QA database from Slice 2, RenoTrack_Slice2QA, may still exist in LocalDB; it holds QA data only.
-  Ask the user before dropping it.
+  The QA database from Slice 2b, RenoTrack_Slice2bQA, still exists in LocalDB and holds QA data
+  only; ask the user before dropping it. (RenoTrack_Slice2QA, from Slice 2, no longer exists.)
+- A fresh worktree has no Dashboard node_modules. `npm ci` fails on a pre-existing Angular peer
+  conflict; `npm ci --legacy-peer-deps` installs the unchanged lockfile (Slice 2b).
 - Browser QA of the Website runs against `dotnet publish` output, started from the publish
   directory. Started from anywhere else, MapStaticAssets serves every static file as 200 with zero
   bytes and the page renders unstyled, which looks exactly like a CSS defect (CLAUDE.md §24).
