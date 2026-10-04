@@ -309,7 +309,7 @@ Phase 10 (the Dashboard) is complete on `feature/phase-10-dashboard` and accepte
 
 ## 8. After Phase 14 Slice 2 — Findings and Candidate Slices
 
-**Recorded 2026-10-01 during Slice 2's design review.** Phase 14 Slice 2 (the Invoice document, **D111**) is the active work. Everything below is **recorded, not approved for implementation, and not ordered**: the order of these slices is decided by the Product Owner after A and B have had their own design reviews. Nothing listed here is built by Slice 2.
+**Recorded 2026-10-01 during Slice 2's design review.** Phase 14 Slice 2 (the Invoice document, **D111**) was the active work then; it merged as PR #32, and Slice 2b (§8d, **D112**) merged as PR #34. No other candidate below has started. Everything below is **recorded, not approved for implementation, and not ordered**: the order of these slices is decided by the Product Owner after A and B have had their own design reviews. Nothing listed here is built by Slice 2.
 
 ### 8a. Three workflows that must stay separate
 

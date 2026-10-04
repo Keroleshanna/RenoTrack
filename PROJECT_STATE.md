@@ -1,5 +1,23 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-04 — Phase 14 Slice 2b (customer address correction, D112) is MERGED and VERIFIED. `origin/main` is authoritative at `a87d7a57864dc805808df1a0f4339c9737b90b2c` (PR #34, a true merge commit); the slice's head commit is `62c749aabd743a4f838dcdb00d328c23cdb47096`. No later slice has started.**
+>
+> **Tests, measured in CI on PR #34 — 3,114 passing, 0 failing:** Domain **442**, Application **552**, Infrastructure **424** (LocalDB), Api **517** (LocalDB), Website **1,136**, MediaPrep **20**, **Documents 23/23** — the PDF tests that cannot run on the development machine ran and passed in CI's Linux job, which closes 2b's last open verification. Build 0 warnings, 0 errors. Migrations: **14**, no pending model changes (2b added none). **Dashboard: 108 specs, lint clean and build succeeding — measured locally**, since CI does not build or test the Dashboard.
+>
+> **What 2b settled (approved before implementation; D112 is the full record):** an Admin sets or corrects `Customer.Address` — the one BR-5 prints on every invoice, and which every Customer converted from a website Lead lacks. `Customer.CorrectAddress` is the aggregate's only mutator (required, trimmed, at most the Customer's own `MaxAddressLength` = 500, never cleared). Admin-only `GET /api/v1/customers/{id}` and `PUT /api/v1/customers/{id}/address`; `CustomerDto` is exactly `id, leadId, name, address`. Audited as `CustomerAddressCorrected`. Dashboard: an Admin-only "Rechnungsanschrift" panel on the Project detail. **Unchanged:** Invoice behaviour, Lead, conversion, the contact form, `ProjectDetailDto`. No name/email/phone correction, no Customers list.
+>
+> **Verification is complete:** seven production mutations caught and restored byte-identical, the two Dashboard fixes each guarded by their own spec, and browser QA against a separate database.
+>
+> **Carried forward, deliberately not fixed:** the API suite cannot detect a handler that omits its own `SaveChangesAsync` while it audits afterwards, because `AuditService` saves on the request's shared `DbContext` and flushes the pending change — a recorded **pre-existing** hazard (`NEXT_STEPS.md` §5a and §8f), caught only by the Application tests. Also recorded in §8f: customer name/email/phone correction, and the D109 length gap on `PUT /api/v1/leads/{id}`.
+>
+> **Environment:** the LocalDB database **`RenoTrack_Slice2bQA` still exists and holds QA data only**; ask before dropping it. (`RenoTrack_Slice2QA`, from Slice 2, no longer exists.)
+>
+> **Next: chosen fresh from this `main`.** No Slice 3 work, and no work on A, B or the time-policy slice, has started. Candidates and their open decisions are in `NEXT_STEPS.md` §8, and their order is the Product Owner's to decide; each starts with a design review.
+>
+> `HANDOFF_PROMPT.md` is current as of this entry and is what a fresh session should be given.
+
+> *History — the entry below describes Slice 2b before it was committed, pushed and merged. Superseded by the entry above. (After that entry was written, review added two Dashboard fixes and a seventh mutation, bringing the Dashboard to 108 specs.)*
+
 > **2026-10-03 — Phase 14 Slice 2b (customer address correction, D112) is implemented on `feature/phase-14-slice-2b-customer-address`, off `main` at `debbcbf` (PR #33). Not committed, not pushed, not merged.**
 >
 > **What it does:** an Admin sets or corrects a Customer's address — the one BR-5 prints on every invoice, and which every Customer converted from a website Lead lacks (the contact form collects none). Approved before implementation (H1–H6 plus one correction):
