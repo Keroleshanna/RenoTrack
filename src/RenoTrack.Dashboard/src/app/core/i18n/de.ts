@@ -561,6 +561,18 @@ export const DE = {
     invoicePaid: 'Zahlung wurde gebucht.',
     invoiceVoided: 'Rechnung wurde storniert.',
 
+    // Phase 14 Slice 2b (D112) — the customer's billing address, Admin only.
+    billingAddress: 'Rechnungsanschrift',
+    billingAddressHint:
+      'Wird auf Rechnungen an diesen Kunden gedruckt. Änderungen an der ursprünglichen Anfrage werden hier nicht übernommen.',
+    noBillingAddress: 'Keine Anschrift hinterlegt.',
+    billingAddressLoadFailed: 'Die Rechnungsanschrift konnte nicht geladen werden.',
+    editBillingAddress: 'Anschrift bearbeiten',
+    addBillingAddress: 'Anschrift hinterlegen',
+    billingAddressDialogHint: 'Zeilenumbrüche werden so übernommen, wie sie hier stehen.',
+    billingAddressTooLong: 'Die Anschrift ist zu lang.',
+    billingAddressSaved: 'Rechnungsanschrift wurde gespeichert.',
+
     putOnHold: 'Projekt pausieren',
     holdTitle: 'Projekt pausieren?',
     holdBody:

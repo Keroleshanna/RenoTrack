@@ -1,5 +1,24 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-03 — Phase 14 Slice 2b (customer address correction, D112) is implemented on `feature/phase-14-slice-2b-customer-address`, off `main` at `debbcbf` (PR #33). Not committed, not pushed, not merged.**
+>
+> **What it does:** an Admin sets or corrects a Customer's address — the one BR-5 prints on every invoice, and which every Customer converted from a website Lead lacks (the contact form collects none). Approved before implementation (H1–H6 plus one correction):
+> - `Customer.CorrectAddress(string)` is the aggregate's **only** mutator: required, trimmed, at most **`Customer.MaxAddressLength` = 500**, never cleared. The constant is the Customer's own, not an alias of `Lead`'s; a Domain test pins `Lead.MaxAddressLength <= Customer.MaxAddressLength`.
+> - **Admin only, role-based** (no ownership check): `GET /api/v1/customers/{id}` and `PUT /api/v1/customers/{id}/address`. `CustomerDto` is exactly `id, leadId, name, address` — no email, no phone. The address is **not** on `ProjectDetailDto`, which every Inspector may read.
+> - Audited as `CustomerAddressCorrected` against the Customer, after the save, with no address in `details`.
+> - Dashboard: an Admin-only "Rechnungsanschrift" panel on the Project detail with a multi-line textarea (`customer-capabilities.ts`).
+> - **Unchanged:** Invoice behaviour (the document reads the Customer at render time), Lead, conversion, the contact form. No migration, no concurrency token, no notification, no Customers list. Name, email and phone stay uncorrectable.
+>
+> **Tests, measured locally from a clean rebuild** (baselines are the PR #32 CI figures): Domain 429 → **442** (+13), Application 530 → **552** (+22), Infrastructure 419 → **424** (+5, LocalDB), Api 498 → **517** (+19, LocalDB; 15 endpoint tests plus 4 cases the reflection-driven DI test discovered), Website **1,136** and MediaPrep **20** (unchanged) — **3,091 executed, all passing.** **Documents 23** (unchanged) could not run locally — Windows Application Control blocked a third-party DLL — so CI's Linux job is its verification. **Expected CI total: 3,114.** 0 warnings, 0 errors. Migrations: **14**, `has-pending-model-changes` reports none. Dashboard: 94 → **108** specs (+14), lint clean, build 392.71 kB.
+>
+> **Adversarial verification — six mutations, each caught and restored byte-identical (SHA-256 checked):** the controller's Admin role attribute (2 API tests), the Domain blank guard (4), the Domain length guard (1), the validator's maximum (1), the handler's save (2 Application tests — **the API suite cannot see it**, because `AuditService` saves on the shared `DbContext`; recorded in D112 and `NEXT_STEPS.md` §8f), and the Dashboard capability (2 specs).
+>
+> **Browser QA** against a separate, freshly migrated database (`RenoTrack_Slice2bQA`), seeded through the real API with a website Lead taken to a Project: the panel showed no address; a blank save was refused at the field with no request; a two-line address saved, persisted across a reload, printed both lines, and wrote one audit row by the Admin with no details; English strings correct; 501 characters refused at the field; a 500-character unbroken address and the dialog both fit a 375 px screen; the Inspector saw no panel and made no customer request, and the API answered the Inspector's GET and PUT with an empty 403. **One defect found and fixed:** the new panel sat flush against the invoices panel.
+>
+> **Next:** your review of the diff, then commit, push, PR and merge — each only with your permission, and merge only after CI (including the Documents job) is green.
+
+> *History — the entry below is the state before Slice 2b.*
+
 > **2026-10-01 — Phase 14 Slice 2 (the Invoice document, D111) is MERGED and VERIFIED. `main` is at `dff57c4165fdc3bb648a9b91c1c3a16379f69ba5` (PR #32). No later slice has started.**
 >
 > **Tests, measured in CI on PR #32 — 3,055 passing, 0 failing:** Domain **429**, Application **530**, Infrastructure **419** (LocalDB), Api **498** (LocalDB), Website **1,136**, MediaPrep **20**, **Documents 23** — the 23 PDF tests that cannot run on the development machine ran and passed in CI's Linux job, which closes Slice 2's open verification. Build 0 warnings, 0 errors. Migrations: **14**, no pending model changes. The Dashboard is not built or tested by CI; its figures are local: 94 specs (81 existing + 13 new), lint clean, build 391.77 kB.

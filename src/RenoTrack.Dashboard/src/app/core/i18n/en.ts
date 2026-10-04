@@ -550,6 +550,18 @@ export const EN: Strings = {
     invoicePaid: 'Payment recorded.',
     invoiceVoided: 'Invoice voided.',
 
+    // Phase 14 Slice 2b (D112) — the customer's billing address, Admin only.
+    billingAddress: 'Billing address',
+    billingAddressHint:
+      'Printed on invoices to this customer. Changes to the original enquiry are not carried over here.',
+    noBillingAddress: 'No address on file.',
+    billingAddressLoadFailed: 'The billing address could not be loaded.',
+    editBillingAddress: 'Edit address',
+    addBillingAddress: 'Add address',
+    billingAddressDialogHint: 'Line breaks are kept exactly as entered here.',
+    billingAddressTooLong: 'The address is too long.',
+    billingAddressSaved: 'Billing address saved.',
+
     putOnHold: 'Put on hold',
     holdTitle: 'Put this project on hold?',
     holdBody:

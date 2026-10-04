@@ -6,6 +6,8 @@ import { Observable } from 'rxjs';
 
 import { ApiError } from '../../core/api/api-error';
 import {
+  CUSTOMER_ADDRESS_MAX,
+  CustomerDto,
   INVOICE_DESCRIPTION_MAX,
   PAYMENT_METHODS,
   PaymentMethodDto,
@@ -19,6 +21,8 @@ import { Dialog } from '../../shared/ui/dialog';
 import { Notifier } from '../../shared/ui/notifier';
 import { ErrorState, Skeleton } from '../../shared/ui/state-panels';
 import { StatusChip } from '../../shared/ui/status-chip';
+import { customerAddressValidator, toCorrectCustomerAddressRequest } from './customer-address-form';
+import { customerCapabilitiesFor } from './customer-capabilities';
 import { invoiceCapabilitiesFor } from './invoice-capabilities';
 import {
   invoiceDescriptionValidator,
@@ -42,6 +46,15 @@ import {
  * and `—` on every Invoice action. That is exactly what this screen renders: the same figures for
  * both, with the action column present only for an Admin. The endpoints refuse an Inspector
  * regardless (CLAUDE.md §23).
+ *
+ * ## The billing address is Verwaltung's alone (Phase 14 Slice 2b, D112)
+ *
+ * BR-5 prints the customer's address on every invoice, and a Customer converted from a website Lead
+ * has none. The "Rechnungsanschrift" panel reads it from `GET /api/v1/customers/{id}` — Admin only,
+ * because the address is personal data and the Project detail read is open to every Inspector — and
+ * corrects it there. An Inspector never sees the panel, so the address is never requested on their
+ * behalf (D72). No warning pre-empts the invoice document's own refusal (CLAUDE.md §23): the panel
+ * shows what is on file, and says so when nothing is.
  *
  * ## BR-3 warns; it does not block
  *
@@ -84,6 +97,17 @@ export class ProjectDetailPage {
 
   protected readonly isAdmin = computed(() => this.auth.role() === 'admin');
 
+  /** §5, D112: Admin F, Inspector —. Decided in the tested capability module, not here. */
+  protected readonly canCorrectAddress = computed(
+    () => customerCapabilitiesFor(this.auth.role()).canCorrectAddress,
+  );
+
+  /** The Customer behind this Project, read only when the user may see the address. */
+  protected readonly customer = signal<CustomerDto | null>(null);
+
+  /** Set when the read fails, so the panel says so instead of loading forever (CLAUDE.md §23). */
+  protected readonly customerLoadFailed = signal(false);
+
   /** BR-3's warning: invoiced beyond the agreed total. Never hidden, never clamped. */
   protected readonly overInvoiced = computed(() => (this.project()?.remaining ?? 0) < 0);
 
@@ -114,6 +138,14 @@ export class ProjectDetailPage {
   protected readonly overrideDialogOpen = signal(false);
   protected readonly holdDialogOpen = signal(false);
   protected readonly resumeDialogOpen = signal(false);
+  protected readonly addressDialogOpen = signal(false);
+
+  // One free-text value, required and never cleared (D112); its own line breaks are printed as written.
+  protected readonly addressForm = new FormGroup({
+    address: new FormControl('', { nonNullable: true, validators: [customerAddressValidator] }),
+  });
+
+  protected readonly addressMax = CUSTOMER_ADDRESS_MAX;
 
   // The Admin states how much this invoice bills, what it is for and — optionally — when the work
   // was done. Never a VAT figure: the server splits the gross by the Angebot's rates (D111).
@@ -162,6 +194,7 @@ export class ProjectDetailPage {
       next: (project) => {
         this.project.set(project);
         this.loadState.set('ready');
+        this.loadCustomer(project.customerId);
       },
       error: (error: unknown) => {
         this.loadError.set(this.messageFor(error));
@@ -175,6 +208,69 @@ export class ProjectDetailPage {
       next: (project) => this.project.set(project),
       error: (error: unknown) => this.notifier.error(this.messageFor(error)),
     });
+  }
+
+  /**
+   * Reads the billing address, for an Admin only. A failure is reported rather than rendered as
+   * "no address" — an absent address and an unreadable one are different facts (CLAUDE.md §23).
+   */
+  private loadCustomer(customerId: number): void {
+    if (!this.canCorrectAddress()) {
+      return;
+    }
+
+    this.customerLoadFailed.set(false);
+
+    this.api.customer(customerId).subscribe({
+      next: (customer) => this.customer.set(customer),
+      error: (error: unknown) => {
+        this.customerLoadFailed.set(true);
+        this.notifier.error(this.messageFor(error));
+      },
+    });
+  }
+
+  // ---- Billing address (D112) --------------------------------------------------------------------
+
+  protected openAddressDialog(): void {
+    // Starts from what is on file, so a correction edits the truth rather than retyping it.
+    this.addressForm.reset({ address: this.customer()?.address ?? '' });
+    this.addressDialogOpen.set(true);
+  }
+
+  protected saveAddress(): void {
+    const customer = this.customer();
+    if (!customer) {
+      return;
+    }
+    if (this.addressForm.invalid) {
+      this.addressForm.markAllAsTouched();
+      return;
+    }
+
+    this.busy.set(true);
+
+    this.api
+      .correctCustomerAddress(
+        customer.id,
+        toCorrectCustomerAddressRequest(this.addressForm.getRawValue().address),
+      )
+      .subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.addressDialogOpen.set(false);
+          this.notifier.success(this.t().projectDetail.billingAddressSaved);
+          // Re-read rather than trusting the response shape (D81).
+          this.loadCustomer(customer.id);
+        },
+        error: (error: unknown) => {
+          this.busy.set(false);
+          // A refusal is terminal for this click; the dialog closes so it does not sit on top of
+          // the message explaining why (CLAUDE.md §23).
+          this.addressDialogOpen.set(false);
+          this.notifier.error(this.messageFor(error));
+        },
+      });
   }
 
   // ---- Which action a given Invoice accepts (StateMachine.md §3.3) -------------------------------

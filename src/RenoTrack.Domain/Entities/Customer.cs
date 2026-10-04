@@ -24,9 +24,28 @@ namespace RenoTrack.Domain.Entities;
 /// Angebot, inventing a business rule no document states. ERD.md was corrected to match rather
 /// than the Domain being bent to fit an unexamined non-null default.
 /// </para>
+/// <para>
+/// <b>The address can be corrected, and nothing else can (Phase 14 Slice 2b, D112).</b> BR-5 puts
+/// the customer's address on every invoice, and a Customer converted from a website Lead has none —
+/// so <see cref="CorrectAddress"/> is this aggregate's one mutator. The copy-at-creation guarantee
+/// above is about the <i>source</i>: later edits to the Lead never leak into a committed Customer.
+/// It never meant the Customer itself could not be deliberately corrected.
+/// </para>
 /// </summary>
 public sealed class Customer
 {
+    /// <summary>
+    /// The longest address a Customer may hold — 500 characters, read by
+    /// <see cref="CorrectAddress"/>, the command validator and the EF column alike (the D109 shape).
+    /// </summary>
+    /// <remarks>
+    /// <b>Owned here, not borrowed from <c>Lead</c></b> (D112). It is a Customer.Address constraint
+    /// and this aggregate references no other aggregate's type. Conversion copies a Lead's address
+    /// into a Customer, so <c>Lead.MaxAddressLength</c> must never exceed this value; that is pinned
+    /// by a test rather than by a reference between the two aggregates.
+    /// </remarks>
+    public const int MaxAddressLength = 500;
+
     public int Id { get; private set; }
     public int LeadId { get; private set; }
     public string Name { get; private set; }
@@ -76,5 +95,42 @@ public sealed class Customer
             throw new ArgumentException("Customer phone is required.", nameof(phone));
 
         return new Customer(leadId, name.Trim(), email.Trim(), phone.Trim(), address?.Trim());
+    }
+
+    /// <summary>
+    /// Sets or corrects the customer's address (BR-5, SRS FR-7.5, D112). Admin-only — that is
+    /// enforced by the API, not here: the Domain never encodes who is calling (CLAUDE.md §2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Required, so it can set or correct but never clear.</b> The address exists on this
+    /// aggregate to be printed on an invoice; clearing it has no documented use and would only make
+    /// invoices unrenderable again.
+    /// </para>
+    /// <para>
+    /// Trimmed, and the length is measured after trimming, because trimming is what is stored. These
+    /// are lifetime invariants of a corrected address, so they live in this method; the constructor
+    /// EF Core materialises rows through stays guard-free, so a historical row with no address — or
+    /// with the empty string an all-whitespace Lead address produced — still loads.
+    /// </para>
+    /// <para>
+    /// No other field changes. Name, email and phone are not correctable (D112).
+    /// </para>
+    /// </remarks>
+    public void CorrectAddress(string address)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+            throw new ArgumentException("Customer address is required.", nameof(address));
+
+        var trimmed = address.Trim();
+
+        if (trimmed.Length > MaxAddressLength)
+        {
+            throw new ArgumentException(
+                $"Customer address must be at most {MaxAddressLength} characters.",
+                nameof(address));
+        }
+
+        Address = trimmed;
     }
 }

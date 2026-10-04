@@ -12,6 +12,8 @@ import {
   AngebotSummaryDto,
   CatalogItemDto,
   CatalogItemWrite,
+  CorrectCustomerAddressRequestDto,
+  CustomerDto,
   CreateInvoiceRequestDto,
   PAGE_SIZE_DEFAULT,
   InspectionDetailDto,
@@ -415,6 +417,24 @@ export class RenoTrackApi {
    */
   convertAngebotToProject(angebotId: number): Observable<ProjectDto> {
     return this.http.post<ProjectDto>(`/api/v1/angebote/${angebotId}/convert-to-project`, {});
+  }
+
+  // ---- Customers (Admin only — §5, D112) ------------------------------------------------------
+
+  /**
+   * One Customer's name and address, for the Admin's "Rechnungsanschrift" panel. Admin only: the
+   * address is personal data, which is why it is not on the Inspector-readable Project detail.
+   */
+  customer(id: number): Observable<CustomerDto> {
+    return this.http.get<CustomerDto>(`/api/v1/customers/${id}`);
+  }
+
+  /**
+   * Sets or corrects the address BR-5 prints on every invoice. Admin only. The address is required:
+   * this corrects and never clears (D112).
+   */
+  correctCustomerAddress(id: number, request: CorrectCustomerAddressRequestDto): Observable<CustomerDto> {
+    return this.http.put<CustomerDto>(`/api/v1/customers/${id}/address`, request);
   }
 
   // ---- Inspections -----------------------------------------------------------------------------

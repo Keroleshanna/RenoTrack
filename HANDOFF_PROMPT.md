@@ -2,9 +2,10 @@
 
 Copy everything in the code block below into the first message of a brand-new conversation.
 
-**Last updated: 2026-10-01, at `origin/main` = `dff57c4` (PR #32, Phase 14 Slice 2 merged and
-verified).** Keep this file current whenever a phase or slice is merged — it is the one file a fresh
-session is pointed at first.
+**Last updated: 2026-10-03, on `feature/phase-14-slice-2b-customer-address` (Phase 14 Slice 2b,
+D112, implemented and locally verified; not yet merged).** Until that branch is merged, `origin/main`
+does not contain 2b — verify which is true before relying on this file. Keep this file current
+whenever a phase or slice is merged — it is the one file a fresh session is pointed at first.
 
 ---
 
@@ -24,7 +25,7 @@ READ FIRST, IN THIS ORDER, AND READ THEM IN FULL:
 2. PROJECT_STATE.md — where the project actually stands, newest entry first.
 3. NEXT_STEPS.md — known gaps and requirements that exist in the documents but are not built.
    §8 is the current list of candidate slices and recorded findings.
-4. ARCHITECTURE_DECISIONS.md — D1–D111. Read at least D100–D111 (the recent phases).
+4. ARCHITECTURE_DECISIONS.md — D1–D112. Read at least D100–D112 (the recent phases).
 5. PROJECT_ROADMAP.md — the phase map and what remains.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
@@ -41,10 +42,14 @@ CURRENT STATE AT A GLANCE — verify every line yourself; the repository is auth
   CI's Linux job ran them and they passed. CI does not build or test the Dashboard: locally it has
   94 specs passing, lint clean. Re-run everything yourself before relying on it.
 - Migrations: 14 (#14 AddInvoiceDescriptionServicePeriodAndVatLines, Slice 2).
+- Phase 14 Slice 2b, on its branch and measured locally: Domain 442 · Application 552 ·
+  Infrastructure 424 · Api 517 · Website 1,136 · MediaPrep 20 — 3,091 passing; Documents 23 is
+  CI-only; expected CI total 3,114. Dashboard 105 specs. Still 14 migrations (2b adds none).
 
 PHASES: 0–12 complete and merged. Phase 13 (public website) is PARKED BY DECISION after Slices
 5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slice 1 and Slice 2 are COMPLETE, MERGED AND
-VERIFIED. NO LATER SLICE HAS STARTED.
+VERIFIED; Slice 2b (customer address correction, D112) is IMPLEMENTED on its branch, pending
+review and merge. NO OTHER SLICE HAS STARTED.
 
 WHAT EARLIER SESSIONS DID, AND WHY
 
@@ -100,6 +105,21 @@ WHAT EARLIER SESSIONS DID, AND WHY
      customer without an address — it never invents or recomputes anything.
    - CUSTOMER ADDRESS CORRECTION IS OUTSIDE SLICE 2 (it is 2b, below).
 
+5. Phase 14 Slice 2b — CUSTOMER ADDRESS CORRECTION (D112, SRS FR-7.5). Approved before
+   implementation; do not reopen silently:
+   - Customer.CorrectAddress(string) is the aggregate's ONLY mutator: required, trimmed, at most
+     Customer.MaxAddressLength = 500 (the Customer's OWN constant, not an alias of Lead's; a test
+     pins Lead.MaxAddressLength <= Customer.MaxAddressLength), never cleared.
+   - ADMIN ONLY, role-based, no ownership check: GET /api/v1/customers/{id} and
+     PUT /api/v1/customers/{id}/address. CustomerDto is exactly id, leadId, name, address — NO email
+     or phone. The address is NOT on ProjectDetailDto, which every Inspector may read.
+   - Audited as CustomerAddressCorrected after the save, with no address in the details.
+   - NOT built: name/email/phone correction, clearing, structured addresses, normalisation, a
+     Customers list or search, Lead <-> Customer propagation, any Invoice change, any PDF wiring,
+     a migration, a concurrency token, a notification.
+   - The invoice document reads the Customer at render time, so a correction needs no Invoice
+     change. Slice 3 must decide what an archived PDF freezes (the address as sent).
+
 THE NEXT TASK: THE PRODUCT OWNER CHOOSES THE NEXT SLICE — DO NOT START ONE
 
 None of the following has started, and THEIR ORDER IS NOT DECIDED. Do not start one, and do not
@@ -107,8 +127,6 @@ treat any suggested order as approved. NEXT_STEPS.md §8 is the full record:
 - Slice 3: archive the invoice PDF at send time (an issued invoice stays exactly as sent), the
   authenticated Dashboard download, the token-based customer download, the email attachment.
   Whether it also archives the Angebot PDF at every send is a proposal, not approved.
-- 2b: correct a customer's address. Customer.Address is optional and has no command (D91), yet
-  BR-5 requires it — until this exists, an invoice to an address-less customer cannot be rendered.
 - A (design first): ADMIN EDITING OF AN INSPECTOR'S ANGEBOT. Today forbidden by documented decision
   (PermissionMatrix.md §3, Admin R). The Product Owner wants the Admin to have the Inspector's full
   operational capability on Angebote. Editable states, re-approval and concurrency (D96's revisit

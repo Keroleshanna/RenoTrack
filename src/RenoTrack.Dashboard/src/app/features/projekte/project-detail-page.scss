@@ -133,3 +133,16 @@
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: var(--rt-space-3);
 }
+
+// Phase 14 Slice 2b (D112): the billing address keeps the line breaks it was entered with, which
+// is how the invoice document prints it, and a long unbroken token cannot widen the page. The panel
+// keeps the same gap below it as the figures panel above, so it does not sit flush on the invoices.
+.billing-address {
+  margin-bottom: var(--rt-space-5);
+}
+
+.billing-address__value {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}

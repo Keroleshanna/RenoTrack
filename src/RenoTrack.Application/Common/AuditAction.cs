@@ -196,4 +196,24 @@ public enum AuditAction
     /// </para>
     /// </summary>
     InspectionReopened,
+
+    /// <summary>
+    /// An Admin set or corrected a Customer's address (BR-5, SRS FR-7.5, Phase 14 Slice 2b,
+    /// <b>D112</b>). Logged against the <c>Customer</c> — the aggregate that changed, and the one
+    /// no other aggregate's state moves with.
+    ///
+    /// <para>
+    /// <b>Audited on <see cref="LeadContactDetailsUpdated"/>'s precedent</b>: a correction to
+    /// committed business data other people then act on, and here the data is printed on a legal
+    /// document (BR-5). "Who changed the billing address, and when" is what a reader of a disputed
+    /// invoice needs to answer.
+    /// </para>
+    /// <para>
+    /// <c>details</c> carries no before/after values, for the reason given on
+    /// <see cref="LeadContactDetailsUpdated"/>: <c>AuditLog</c> is not a field-level change log,
+    /// and copying an address into it scatters personal data across a table with a different
+    /// retention story.
+    /// </para>
+    /// </summary>
+    CustomerAddressCorrected,
 }

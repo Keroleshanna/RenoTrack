@@ -51,6 +51,51 @@
         <p class="banner">{{ t().projectDetail.overInvoiced }}</p>
       }
 
+      <!--
+        Phase 14 Slice 2b (D112): the address BR-5 prints on every invoice. Admin only — §5 gives an
+        Inspector no access to it, and the address is never requested on their behalf. No warning
+        pre-empts the invoice document's own refusal (CLAUDE.md §23).
+      -->
+      @if (canCorrectAddress()) {
+        <section class="rt-panel billing-address" aria-labelledby="billing-address-title">
+          <header class="rt-panel__head">
+            <div>
+              <h2 id="billing-address-title" class="rt-subtitle">{{ t().projectDetail.billingAddress }}</h2>
+              <p class="rt-panel__sub">{{ t().projectDetail.billingAddressHint }}</p>
+            </div>
+            @if (customer(); as customer) {
+              <button
+                type="button"
+                class="rt-button"
+                [disabled]="busy()"
+                (click)="openAddressDialog()"
+              >
+                {{
+                  customer.address?.trim()
+                    ? t().projectDetail.editBillingAddress
+                    : t().projectDetail.addBillingAddress
+                }}
+              </button>
+            }
+          </header>
+
+          @if (customer(); as customer) {
+            @if (customer.address?.trim()) {
+              <p class="billing-address__value">{{ customer.address }}</p>
+            } @else {
+              <p class="rt-caption">{{ t().projectDetail.noBillingAddress }}</p>
+            }
+          } @else if (customerLoadFailed()) {
+            <!-- Unreadable is not the same fact as absent, so it is never shown as "no address". -->
+            <p class="rt-field__error">
+              {{ t().projectDetail.billingAddressLoadFailed }}
+            </p>
+          } @else {
+            <app-skeleton [lineCount]="2" />
+          }
+        </section>
+      }
+
       <section class="rt-panel invoices">
         <header class="rt-panel__head">
           <div>
@@ -180,6 +225,53 @@
       </section>
 
       <!-- ---- Dialogs -------------------------------------------------------------------------- -->
+
+      <!-- D112: required, never cleared; the textarea keeps the line breaks the invoice prints. -->
+      <app-dialog
+        [open]="addressDialogOpen()"
+        [heading]="t().projectDetail.billingAddress"
+        [description]="t().projectDetail.billingAddressHint"
+        (closed)="addressDialogOpen.set(false)"
+      >
+        <form [formGroup]="addressForm" class="stacked">
+          <div class="rt-field">
+            <label class="rt-field__label" for="billing-address">{{
+              t().projectDetail.billingAddress
+            }}</label>
+            <textarea
+              id="billing-address"
+              class="rt-textarea"
+              rows="4"
+              formControlName="address"
+              aria-describedby="billing-address-hint"
+            ></textarea>
+            <span id="billing-address-hint" class="rt-caption">
+              {{ t().projectDetail.billingAddressDialogHint }}
+              ({{ addressForm.controls.address.value.trim().length }} / {{ addressMax }})
+            </span>
+            @if (addressForm.controls.address.touched && addressForm.controls.address.errors?.['required']) {
+              <span class="rt-field__error">{{ t().angebotDetail.required }}</span>
+            }
+            @if (addressForm.controls.address.errors?.['maxlength']) {
+              <span class="rt-field__error">{{ t().projectDetail.billingAddressTooLong }}</span>
+            }
+          </div>
+        </form>
+
+        <ng-container dialogActions>
+          <button type="button" class="rt-button" (click)="addressDialogOpen.set(false)">
+            {{ t().actions.cancel }}
+          </button>
+          <button
+            type="button"
+            class="rt-button rt-button--primary"
+            [disabled]="busy()"
+            (click)="saveAddress()"
+          >
+            {{ t().actions.save }}
+          </button>
+        </ng-container>
+      </app-dialog>
 
       <!-- Wireframe E2. The remaining balance is shown because it is what the amount is judged against. -->
       <app-dialog

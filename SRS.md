@@ -187,6 +187,7 @@ Each feature below is written as: **Description**, **Actors**, **Requirements** 
 - FR-7.2: A Project shall have a status (e.g. Active, On Hold, Completed).
 - FR-7.3: The Admin shall be able to mark a Project as Completed once its final invoice has been paid.
 - FR-7.4: The Project detail page shall show its originating Lead, Inspection, Angebot, and all associated Invoices in one place.
+- FR-7.5: The Admin shall be able to set or correct a Customer's address, which every invoice to that Customer must carry (BR-5). The address is required once corrected and cannot be cleared; the Customer's name, email and phone are not correctable. *(Added in Phase 14 Slice 2b to formalise an approved Product-Owner requirement: a Customer converted from a website Lead has no address, because the contact form collects none — see `ARCHITECTURE_DECISIONS.md` D112.)*
 
 ### 3.8 Invoicing & Payments
 **Description:** Splits the agreed Angebot amount into one or more invoices and tracks their payment status.
