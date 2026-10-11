@@ -80,14 +80,14 @@ public class CompleteProjectCommandHandlerTests
             case InvoiceStatus.Draft:
                 break;
             case InvoiceStatus.Sent:
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 break;
             case InvoiceStatus.Overdue:
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 invoice.MarkOverdue(invoice.DueDate.AddDays(1));
                 break;
             case InvoiceStatus.Paid:
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, AdminId);
                 break;
             case InvoiceStatus.Void:

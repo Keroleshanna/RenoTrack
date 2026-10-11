@@ -124,6 +124,8 @@ The company's content is a **content pack**: a directory outside the application
 | `Email:Enabled` | Stated explicitly, so deployed behaviour is visible in a tracked file | `false` ⇒ `LoggingNoOpEmailSender`, and no email configuration is required |
 | `Email:*` when enabled | `Host`, `Port`, `SecurityMode`, `FromAddress`, `FromDisplayName`, `AdminRecipients` (≥1). Optional: `ReplyToAddress`; `Username`+`Password` together or not at all | Fails startup |
 | *(no key)* — **time-zone data for `Europe/Berlin`** | Not configuration: the operating system's time-zone database. Invoice dates and invoice-number years are read in that zone, fixed by decision (D111 Part 6) | **Fails startup**, naming the zone. Windows has it; on Linux install `tzdata` — some minimal container images ship without it |
+| `FileStorage:RootPath` | Where inspection photos and — since Phase 14 Slice 3a — **every issued invoice's archived PDF** are stored (`invoices/{id}/…`, **D113**) | Fails startup. The archived PDF *is* the issued invoice and is never regenerated (BR-15), so this directory holds legal records: it must be durable, outside the application directory, and backed up. How long invoices must be kept is a legal question for the company and its adviser; no retention period is set or enforced by the system. |
+| `CompanyLegalIdentity:*` | Read by the **API** (see the rows in §2.2 for each key) | Does not fail startup — it warns. **Since Phase 14 Slice 3a, sending an invoice renders its PDF**, so without a complete identity every invoice send fails with a **500** (a deployment defect, deliberately never a 409, **D113**) and nothing is issued. |
 | `DevelopmentBootstrap:*` | Development-only account provisioning | Three independent guards; **enabled outside Development throws**, never silently skips. No password is ever compiled in. |
 
 **`Email:AdminRecipients` is deliberately independent of the Identity Admin role (D71).** Holding the Admin role does not subscribe an account to operational mail, and appearing in this list confers no dashboard permission.
@@ -171,4 +173,6 @@ Both applications serve URLs whose path **is** a customer credential (`/angebot/
 - [ ] `TrustedForwarders` names the real proxy, and is not `0.0.0.0/0`.
 - [ ] No startup warning left unexplained — each one names a key that is genuinely intended to be unset.
 - [ ] Migrations applied by the deployment step; `Database:Mode` left at `Verify`.
+- [ ] `CompanyLegalIdentity:*` is complete on the **API** host — legal name, street, postal code, locality, and a tax number or VAT ID. Without it no invoice can be sent (D113). Check by sending one test invoice and opening its PDF.
+- [ ] `FileStorage:RootPath` is on durable storage that is backed up: it holds every issued invoice's archived PDF, which is never regenerated (BR-15). Agree the retention period with the company's adviser.
 - [ ] The API host has time-zone data for `Europe/Berlin` (on Linux, the `tzdata` package). Without it the API refuses to start — by design, since invoice dates and number years depend on it (D111 Part 6).

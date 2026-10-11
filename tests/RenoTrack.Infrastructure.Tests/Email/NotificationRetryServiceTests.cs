@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MimeKit;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
 using RenoTrack.Infrastructure.Email;
+using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
 using RenoTrack.Infrastructure.Persistence.Entities;
@@ -24,8 +26,25 @@ namespace RenoTrack.Infrastructure.Tests.Email;
 /// outcome, never against how the service reached it.
 /// </remarks>
 [Collection("Infrastructure Database")]
-public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixture)
+public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixture) : IDisposable
 {
+    /// <summary>
+    /// Real disk storage under a per-test root, so the invoice retry reads an archived document the
+    /// same way production does (Phase 14 Slice 3a, D113).
+    /// </summary>
+    private readonly string _storageRoot =
+        Path.Combine(Path.GetTempPath(), "RenoTrackRetryStorage", Guid.NewGuid().ToString("N"));
+
+    private LocalDiskFileStorage Storage => new(new FileStorageOptions { RootPath = _storageRoot });
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_storageRoot))
+        {
+            Directory.Delete(_storageRoot, recursive: true);
+        }
+    }
+
     private static int NextEntityId() => Random.Shared.Next(100_000, 999_999);
 
     // ---------- refusals that never touch SMTP ----------
@@ -452,6 +471,103 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
         Assert.Equal(before.LastAttemptAt, after.LastAttemptAt);
     }
 
+    // ---------- the archived invoice document (Phase 14 Slice 3a, D113, BR-15) ----------
+
+    private static readonly byte[] ArchivedPdf = [0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x37, 0x00, 0xFF];
+
+    /// <summary>
+    /// A retry re-sends what was issued: the attachment is the archived file read back byte for byte.
+    /// The executor has no PDF generator at all, so it could not render a second document even by
+    /// mistake.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_retry_attaches_the_archived_document_byte_for_byte()
+    {
+        await using var server = new InProcessSmtpServer();
+        var invoice = await SeedInvoiceAsync(InvoiceStatus.Sent, ArchivedPdf);
+        await SeedTokenLinkAsync(TokenLinkEntityType.Invoice, invoice.Id);
+        var delivery = await SeedDeliveryAsync(NotificationType.InvoiceReady, nameof(Invoice), invoice.Id);
+
+        await using var context = fixture.CreateContext();
+        var result = await CreateService(context, EnabledOptions(server.Port)).RetryAsync(delivery.Id, CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.Sent, result.Status);
+        var sent = MimeMessage.Load(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(Assert.Single(server.Messages))));
+        var attachment = Assert.IsType<MimePart>(Assert.Single(sent.Attachments));
+        Assert.Equal("application/pdf", attachment.ContentType.MimeType);
+        Assert.Equal($"Rechnung-{invoice.InvoiceNumber}.pdf", attachment.ContentDisposition!.FileName);
+
+        using var decoded = new MemoryStream();
+        attachment.Content!.DecodeTo(decoded);
+        Assert.Equal(ArchivedPdf, decoded.ToArray());
+    }
+
+    /// <summary>
+    /// A recorded key whose file is gone is a storage defect. The attempt is recorded as a
+    /// preparation failure — never quietly downgraded to a link-only email that withholds the
+    /// document, and never repaired by rendering a new one. Neither the log nor the stored failure
+    /// names the key.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_retry_whose_archived_file_is_missing_fails_and_sends_nothing()
+    {
+        await using var server = new InProcessSmtpServer();
+        var invoice = await SeedInvoiceAsync(InvoiceStatus.Sent, archivedPdf: null);
+        await SeedTokenLinkAsync(TokenLinkEntityType.Invoice, invoice.Id);
+        var delivery = await SeedDeliveryAsync(NotificationType.InvoiceReady, nameof(Invoice), invoice.Id);
+        var logs = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
+
+        await using var context = fixture.CreateContext();
+        var result = await CreateService(context, EnabledOptions(server.Port), loggerFactory)
+            .RetryAsync(delivery.Id, CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.Failed, result.Status);
+        Assert.Equal("The notification could not be prepared.", result.FailureMessage);
+        Assert.Empty(server.Messages);
+        Assert.False(Directory.Exists(Path.Combine(_storageRoot, "invoices", invoice.Id.ToString())));
+
+        var warning = Assert.Single(logs.EntriesFrom<SmtpEmailSender>(), entry => entry.Level == LogLevel.Warning);
+        Assert.IsType<FileNotFoundException>(warning.Exception);
+        Assert.DoesNotContain(invoice.DocumentFileUrl!, warning.Exception!.ToString());
+        Assert.DoesNotContain(_storageRoot, warning.Exception.ToString());
+        Assert.DoesNotContain(invoice.DocumentFileUrl!, warning.Message);
+    }
+
+    /// <summary>
+    /// An invoice sent before Slice 3a has no archived document and is never given one: its retry is
+    /// the link-only email it always was.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_sent_before_archiving_retries_link_only()
+    {
+        await using var server = new InProcessSmtpServer();
+        var invoice = await SeedInvoiceAsync(InvoiceStatus.Sent, archivedPdf: null);
+        await ClearDocumentKeyAsync(invoice.Id);
+        await SeedTokenLinkAsync(TokenLinkEntityType.Invoice, invoice.Id);
+        var delivery = await SeedDeliveryAsync(NotificationType.InvoiceReady, nameof(Invoice), invoice.Id);
+
+        await using var context = fixture.CreateContext();
+        var result = await CreateService(context, EnabledOptions(server.Port)).RetryAsync(delivery.Id, CancellationToken.None);
+
+        Assert.Equal(NotificationDeliveryStatus.Sent, result.Status);
+        var sent = MimeMessage.Load(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(Assert.Single(server.Messages))));
+        Assert.Empty(sent.Attachments);
+        Assert.Contains("/invoice/", sent.TextBody);
+    }
+
+    /// <summary>
+    /// What a pre-Slice-3a row looks like: <c>Sent</c> with no key. Not reachable through the
+    /// aggregate any more — which is the point of <c>Invoice.Send(key)</c> — so it is produced the way
+    /// such rows actually came to exist, by data rather than by the Domain.
+    /// </summary>
+    private async Task ClearDocumentKeyAsync(int invoiceId)
+    {
+        await using var context = fixture.CreateContext();
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE Invoices SET DocumentFileUrl = NULL WHERE Id = {invoiceId}");
+    }
+
     // ---------- delivery failure is not a refusal, and is never retried on its own ----------
 
     [Fact]
@@ -540,7 +656,8 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
     /// Composes the same two halves the container does: the service is unconditional, the executor
     /// is what only exists when delivery is enabled.
     /// </summary>
-    private NotificationRetryService CreateService(RenoTrackDbContext context, EmailOptions options)
+    private NotificationRetryService CreateService(
+        RenoTrackDbContext context, EmailOptions options, ILoggerFactory? logging = null)
     {
         var services = new ServiceCollection();
 
@@ -558,7 +675,8 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
                     new EmailMessageFactory(options, tokenLinkOptions),
                     new InspectorEmailLookup(context),
                     context,
-                    loggerFactory.CreateLogger<SmtpEmailSender>())));
+                    (logging ?? loggerFactory).CreateLogger<SmtpEmailSender>()),
+                Storage));
         }
 
         return new NotificationRetryService(context, options, services.BuildServiceProvider());
@@ -677,7 +795,12 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
         }
     }
 
-    private async Task<Invoice> SeedInvoiceAsync(InvoiceStatus status)
+    /// <summary>
+    /// Seeds an invoice driven to <paramref name="status"/> through its real transitions. Its archived
+    /// document is written to this test's storage only when <paramref name="archivedPdf"/> is given,
+    /// so a test can also produce an issued invoice whose file has gone.
+    /// </summary>
+    private async Task<Invoice> SeedInvoiceAsync(InvoiceStatus status, byte[]? archivedPdf = null)
     {
         var angebot = await SeedAngebotAsync();
 
@@ -702,7 +825,13 @@ public sealed class NotificationRetryServiceTests(RenoTrackDbContextFixture fixt
 
         // Driven through the real transitions rather than forced, so the seeded state is one the
         // aggregate actually permits.
-        invoice.Send();
+        var documentFileUrl = $"invoices/{invoice.Id}/{Guid.NewGuid()}.pdf";
+        invoice.Send(documentFileUrl);
+
+        if (archivedPdf is not null)
+        {
+            await Storage.SaveAsync(new MemoryStream(archivedPdf), documentFileUrl, CancellationToken.None);
+        }
 
         if (status == InvoiceStatus.Paid)
         {

@@ -13,6 +13,9 @@ public class InvoiceTests
 
     private const string ValidDescription = "Abschlag 1: Malerarbeiten Erdgeschoss";
 
+    /// <summary>The storage key the send handler computes before archiving (D113).</summary>
+    private const string ArchivedKey = "invoices/17/0f8fad5b-d9cb-469f-a165-70867728950e.pdf";
+
     // Against a single 19 % rate, 8,000.00 gross splits into 6,722.69 net (8,000 / 1.19, rounded per
     // BR-11) and 1,277.31 VAT — a realistic first-instalment split rather than round numbers that
     // would hide a cent error. The Invoice calculates both; the test only states the gross.
@@ -73,14 +76,14 @@ public class InvoiceTests
             case InvoiceStatus.Draft:
                 break;
             case InvoiceStatus.Sent:
-                invoice.Send();
+                invoice.Send(ArchivedKey);
                 break;
             case InvoiceStatus.Paid:
-                invoice.Send();
+                invoice.Send(ArchivedKey);
                 invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, ValidAdminId);
                 break;
             case InvoiceStatus.Overdue:
-                invoice.Send();
+                invoice.Send(ArchivedKey);
                 invoice.MarkOverdue(DueToday.AddDays(1));
                 break;
             case InvoiceStatus.Void:
@@ -462,7 +465,7 @@ public class InvoiceTests
     {
         var invoice = InState(InvoiceStatus.Draft);
 
-        invoice.Send();
+        invoice.Send(ArchivedKey);
 
         Assert.Equal(InvoiceStatus.Sent, invoice.Status);
     }
@@ -476,7 +479,7 @@ public class InvoiceTests
     {
         var invoice = InState(status);
 
-        var ex = Assert.Throws<InvalidOperationException>(invoice.Send);
+        var ex = Assert.Throws<InvalidOperationException>(() => invoice.Send(ArchivedKey));
 
         Assert.Contains(status.ToString(), ex.Message);
         Assert.Contains(nameof(InvoiceStatus.Draft), ex.Message);
@@ -488,10 +491,131 @@ public class InvoiceTests
     {
         var invoice = Create(gross: Money.Zero);
 
-        var ex = Assert.Throws<InvalidOperationException>(invoice.Send);
+        var ex = Assert.Throws<InvalidOperationException>(() => invoice.Send(ArchivedKey));
 
         Assert.Contains("greater than zero", ex.Message);
         Assert.Equal(InvoiceStatus.Draft, invoice.Status);
+        Assert.Null(invoice.DocumentFileUrl);
+    }
+
+    // ---- Send: the archived document (D113, BR-15) ----------------------
+
+    /// <summary>A Draft has not been issued, so it has no archived document.</summary>
+    [Fact]
+    public void Create_HasNoArchivedDocument()
+    {
+        Assert.Null(CreateValid().DocumentFileUrl);
+    }
+
+    [Fact]
+    public void Send_RecordsTheArchivedDocumentKey()
+    {
+        var invoice = CreateValid();
+
+        invoice.Send(ArchivedKey);
+
+        Assert.Equal(ArchivedKey, invoice.DocumentFileUrl);
+    }
+
+    /// <summary>
+    /// "Sent" and "archived" cannot come apart: a send without a key is refused before the status
+    /// moves, so no invoice sent from Slice 3a on lacks its document.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Send_RejectsABlankDocumentKey(string key)
+    {
+        var invoice = CreateValid();
+
+        var ex = Assert.Throws<ArgumentException>(() => invoice.Send(key));
+
+        Assert.Equal("documentFileUrl", ex.ParamName);
+        Assert.Equal(InvoiceStatus.Draft, invoice.Status);
+        Assert.Null(invoice.DocumentFileUrl);
+    }
+
+    [Fact]
+    public void Send_RejectsANullDocumentKey()
+    {
+        var invoice = CreateValid();
+
+        Assert.Throws<ArgumentNullException>(() => invoice.Send(null!));
+
+        Assert.Equal(InvoiceStatus.Draft, invoice.Status);
+    }
+
+    [Fact]
+    public void Send_AcceptsADocumentKeyOfExactlyTheMaximumLength()
+    {
+        var invoice = CreateValid();
+        var key = new string('k', Invoice.MaxDocumentFileUrlLength);
+
+        invoice.Send(key);
+
+        Assert.Equal(key, invoice.DocumentFileUrl);
+    }
+
+    [Fact]
+    public void Send_RejectsADocumentKeyOverTheMaximumLength()
+    {
+        var invoice = CreateValid();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => invoice.Send(new string('k', Invoice.MaxDocumentFileUrlLength + 1)));
+
+        Assert.Equal("documentFileUrl", ex.ParamName);
+        Assert.Equal(InvoiceStatus.Draft, invoice.Status);
+        Assert.Null(invoice.DocumentFileUrl);
+    }
+
+    [Fact]
+    public void Invoice_MaxDocumentFileUrlLength_Is1000()
+    {
+        Assert.Equal(1000, Invoice.MaxDocumentFileUrlLength);
+    }
+
+    /// <summary>
+    /// The archive is written once. A second send of an already-issued invoice is refused and cannot
+    /// replace the key with another document's (BR-15).
+    /// </summary>
+    [Theory]
+    [InlineData(InvoiceStatus.Sent)]
+    [InlineData(InvoiceStatus.Paid)]
+    [InlineData(InvoiceStatus.Overdue)]
+    public void Send_OfAnIssuedInvoice_NeverReplacesItsDocumentKey(InvoiceStatus status)
+    {
+        var invoice = InState(status);
+
+        Assert.Throws<InvalidOperationException>(() => invoice.Send("invoices/17/another.pdf"));
+
+        Assert.Equal(ArchivedKey, invoice.DocumentFileUrl);
+    }
+
+    /// <summary>
+    /// The archived document is the issued invoice whatever happens to it afterwards — a payment or a
+    /// void changes the status, never the document (BR-9, BR-15).
+    /// </summary>
+    [Fact]
+    public void DocumentKey_SurvivesPaymentAndVoid()
+    {
+        var paid = CreateValid();
+        paid.Send(ArchivedKey);
+        paid.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, ValidAdminId);
+
+        var voided = CreateValid();
+        voided.Send(ArchivedKey);
+        voided.Void("Issued against the wrong Project.");
+
+        Assert.Equal(ArchivedKey, paid.DocumentFileUrl);
+        Assert.Equal(ArchivedKey, voided.DocumentFileUrl);
+    }
+
+    /// <summary>A Draft voided before it was ever sent was never issued, so it has no document.</summary>
+    [Fact]
+    public void VoidingADraft_LeavesItWithoutADocument()
+    {
+        Assert.Null(InState(InvoiceStatus.Void).DocumentFileUrl);
     }
 
     /// <summary>
@@ -743,7 +867,7 @@ public class InvoiceTests
     {
         var invoice = InState(status);
 
-        Assert.Throws<InvalidOperationException>(invoice.Send);
+        Assert.Throws<InvalidOperationException>(() => invoice.Send(ArchivedKey));
         Assert.Throws<InvalidOperationException>(() => invoice.MarkOverdue(DueToday.AddDays(30)));
         Assert.Throws<InvalidOperationException>(
             () => invoice.MarkPaid(PaymentMethod.Cash, DateTime.UtcNow, ValidAdminId));
@@ -762,7 +886,7 @@ public class InvoiceTests
     {
         var invoice = CreateValid();
 
-        invoice.Send();
+        invoice.Send(ArchivedKey);
         Assert.Equal(ValidGross, invoice.GrossAmount);
 
         invoice.MarkOverdue(DueToday.AddDays(1));

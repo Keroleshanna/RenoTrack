@@ -527,7 +527,13 @@ export const EN: Strings = {
     send: 'Send',
     sendInvoiceTitle: 'Send this invoice to the customer?',
     sendInvoiceBody:
-      'The customer receives an email with a personal link to the invoice. This cannot be undone.',
+      'The invoice is created as a PDF and archived. The customer receives an email with the PDF attached and a personal link to the invoice. The sent invoice cannot be changed afterwards.',
+    // Phase 14 Slice 3a (D113) — the archived invoice PDF.
+    sendRefused:
+      'The invoice could not be sent. Please check that a billing address is on file and that the invoice has not already been sent.',
+    downloadPdf: 'PDF',
+    downloadPdfLabel: 'Download PDF: invoice',
+    documentDownloadFailed: 'The invoice document could not be loaded.',
     markPaid: 'Mark as paid',
     markPaidHint: 'The full invoice amount is always recorded.',
     paidAt: 'Paid on',

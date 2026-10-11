@@ -1,5 +1,6 @@
 using System.Globalization;
 using MimeKit;
+using RenoTrack.Application.Common.Documents;
 using RenoTrack.Application.Common.Notifications;
 using RenoTrack.Infrastructure.TokenLinks;
 
@@ -131,13 +132,21 @@ public sealed class EmailMessageFactory(EmailOptions options, TokenLinkOptions t
                 """);
 
     /// <summary>
-    /// Customer-facing. Carries no bank details, no payment instruction, no VAT rate and no
-    /// attachment or claim of one (G-4, G-5): none of them exists in this system, and Wireframe A4's
-    /// versions of them are recorded gaps rather than data. "Fällig am" states the notification's own
-    /// <c>DueDate</c> as data — it is not an instruction about how to pay.
+    /// Customer-facing. Carries no bank details, no payment instruction and no VAT rate (G-5): none
+    /// of them exists in this system, and Wireframe A4's versions of them are recorded gaps rather
+    /// than data. "Fällig am" states the notification's own <c>DueDate</c> as data — it is not an
+    /// instruction about how to pay.
+    ///
+    /// <para>
+    /// <b>The issued invoice is attached when there is one (Phase 14 Slice 3a, D113)</b> — the
+    /// archived bytes the notification carries, never a document rendered here. <b>The body text is
+    /// unchanged</b>: the copy is frozen (S1-2), and it never claimed or denied an attachment, so
+    /// adding one needed no rewording. An invoice sent before Slice 3a has no archived document and
+    /// gets the plain link-only message it always did.
+    /// </para>
     /// </summary>
     public MimeMessage CreateInvoiceReady(InvoiceReadyNotification notification) =>
-        Create(
+        WithAttachedInvoice(Create(
             recipients: [new MailboxAddress(notification.RecipientName, notification.RecipientEmail)],
             subject: $"Ihre Rechnung {notification.InvoiceNumber}",
             body: $"""
@@ -153,7 +162,33 @@ public sealed class EmailMessageFactory(EmailOptions options, TokenLinkOptions t
 
                 Mit freundlichen Grüßen
                 {options.FromDisplayName}
-                """);
+                """),
+            notification);
+
+    /// <summary>
+    /// Turns the plaintext message into <c>multipart/mixed</c> — the unchanged text part first, then
+    /// the PDF as a base64 attachment named by <see cref="InvoiceDocumentFileName"/>, the same name
+    /// the Admin's download uses. Without a document the message is returned exactly as built.
+    /// </summary>
+    private static MimeMessage WithAttachedInvoice(MimeMessage message, InvoiceReadyNotification notification)
+    {
+        if (notification.InvoicePdf is null)
+        {
+            return message;
+        }
+
+        var attachment = new MimePart("application", "pdf")
+        {
+            Content = new MimeContent(new MemoryStream(notification.InvoicePdf, writable: false)),
+            ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+            ContentTransferEncoding = ContentEncoding.Base64,
+            FileName = InvoiceDocumentFileName.For(notification.InvoiceNumber),
+        };
+
+        // Create always sets the plaintext body, so it is never null here.
+        message.Body = new Multipart("mixed") { message.Body!, attachment };
+        return message;
+    }
 
     /// <summary>
     /// The paths are <c>/angebot/</c> and <c>/invoice/</c> exactly as <c>Sequence Diagram.md</c> §6

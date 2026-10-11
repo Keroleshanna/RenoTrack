@@ -129,7 +129,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     public async Task StatusIsStoredAsAString()
     {
         var invoice = NewInvoice(await SeedProjectAsync());
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
 
         await using var context = fixture.CreateContext();
         context.Invoices.Add(invoice);
@@ -265,7 +265,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     {
         var adminId = await SeedUserAsync();
         var invoice = NewInvoice(await SeedProjectAsync());
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         var paidAt = new DateTime(2026, 8, 20, 14, 5, 0, DateTimeKind.Utc);
         invoice.MarkPaid(PaymentMethod.BankTransfer, paidAt, adminId);
 
@@ -298,7 +298,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     {
         var adminId = await SeedUserAsync();
         var invoice = TestInvoices.AtStandardRate(await SeedProjectAsync(), $"RE-{Guid.NewGuid():N}"[..17], DateTime.UtcNow, 12_345.67m);
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         invoice.MarkPaid(PaymentMethod.Cash, DateTime.UtcNow, adminId);
 
         await using var context = fixture.CreateContext();
@@ -317,7 +317,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     {
         var adminId = await SeedUserAsync();
         var invoice = NewInvoice(await SeedProjectAsync());
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         invoice.MarkPaid(PaymentMethod.Other, DateTime.UtcNow, adminId);
 
         await using var context = fixture.CreateContext();
@@ -354,7 +354,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     public async Task APaymentRecordedByNoRealUserIsRejected()
     {
         var invoice = NewInvoice(await SeedProjectAsync());
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, 999_999_999);
 
         await using var context = fixture.CreateContext();
@@ -373,7 +373,7 @@ public sealed class InvoicePersistenceTests(RenoTrackDbContextFixture fixture)
     {
         var adminId = await SeedUserAsync();
         var invoice = NewInvoice(await SeedProjectAsync());
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
 
         await using (var writeContext = fixture.CreateContext())
         {

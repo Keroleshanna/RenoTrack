@@ -201,11 +201,65 @@ public sealed class InvoicePdfTests
     [Fact]
     public void An_incomplete_company_identity_refuses_to_render_an_invoice()
     {
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DocumentConfigurationException>(() =>
             new MigraDocPdfGenerator(new CompanyLegalIdentityOptions { LegalName = "Nur ein Name (Testdaten)" })
                 .RenderInvoice(SampleDocument()));
 
         Assert.Contains("CompanyLegalIdentity:StreetAddress", error.Message, StringComparison.Ordinal);
+    }
+
+    // ---- Server faults are typed as server faults (Phase 14 Slice 3a, D113) ----------------
+
+    /// <summary>
+    /// The configuration refusal names keys and never a value: the message reaches the error log, and
+    /// a value would be the company's own data.
+    /// </summary>
+    [Fact]
+    public void The_configuration_refusal_names_keys_but_never_a_configured_value()
+    {
+        var error = Assert.Throws<DocumentConfigurationException>(() =>
+            new MigraDocPdfGenerator(new CompanyLegalIdentityOptions
+            {
+                LegalName = "Geheimname Beispiel GmbH (Testdaten)",
+                StreetAddress = "Geheimweg 9",
+            }).RenderInvoice(SampleDocument()));
+
+        Assert.Contains("CompanyLegalIdentity:PostalCode", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Geheimname", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Geheimweg", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Anything the library throws while composing or rendering is wrapped, so a BCL
+    /// <see cref="InvalidOperationException"/> or <see cref="ArgumentException"/> from deep inside
+    /// MigraDoc can never reach the API's 409/400 arms (D59) as if it were a Domain refusal. Provoked
+    /// here with a document the assembler would never produce.
+    /// </summary>
+    [Fact]
+    public void A_fault_while_rendering_is_wrapped_as_a_rendering_failure_and_keeps_its_cause()
+    {
+        var malformed = SampleDocument() with { VatBreakdown = null! };
+
+        var error = Assert.Throws<DocumentRenderingException>(() =>
+            new MigraDocPdfGenerator(CompleteIdentity()).RenderInvoice(malformed));
+
+        Assert.NotNull(error.InnerException);
+        Assert.Equal("The document could not be rendered.", error.Message);
+    }
+
+    /// <summary>
+    /// Both server-fault types derive from <see cref="Exception"/> directly. Deriving either from
+    /// <see cref="InvalidOperationException"/> or <see cref="ArgumentException"/> would turn an
+    /// operator's problem into a 409 or 400 aimed at an Admin who cannot fix it (D113).
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(DocumentConfigurationException))]
+    [InlineData(typeof(DocumentRenderingException))]
+    public void Server_fault_types_are_never_mapped_exception_types(Type exceptionType)
+    {
+        Assert.Equal(typeof(Exception), exceptionType.BaseType);
+        Assert.False(typeof(InvalidOperationException).IsAssignableFrom(exceptionType));
+        Assert.False(typeof(ArgumentException).IsAssignableFrom(exceptionType));
     }
 
     /// <summary>

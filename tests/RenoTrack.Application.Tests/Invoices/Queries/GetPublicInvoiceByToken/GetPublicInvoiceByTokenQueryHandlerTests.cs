@@ -48,7 +48,7 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
                 ProjectId, "RE-2026-00017", new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), 8_000.00m),
             InvoiceId);
 
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         return invoice;
     }
 

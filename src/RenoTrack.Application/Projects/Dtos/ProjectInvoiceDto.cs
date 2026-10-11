@@ -24,6 +24,11 @@ namespace RenoTrack.Application.Projects.Dtos;
 /// number alone. A pre-Slice-2 row carries an empty string, rendered as nothing.
 /// </para>
 /// <para>
+/// <b><c>HasDocument</c> was added in Phase 14 Slice 3a (D113)</b>, so an Admin's row can offer the
+/// archived PDF. It is a bare flag: this read is Inspector-visible, and neither the storage key nor
+/// anything the document prints — the customer's address above all (D112) — is carried here.
+/// </para>
+/// <para>
 /// <b>This is the internal <see cref="InvoiceStatus"/>, not the public one.</b> The Project detail
 /// read is a staff surface; <c>PublicInvoiceStatus</c> exists to *withhold* internal states from a
 /// customer and has no business here.
@@ -40,4 +45,5 @@ public sealed record ProjectInvoiceDto(
     decimal GrossAmount,
     InvoiceStatus Status,
     DateTime DueDate,
-    string Description);
+    string Description,
+    bool HasDocument);

@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -356,9 +356,22 @@ export class RenoTrackApi {
     return this.http.post<InvoiceDto>(`/api/v1/projects/${projectId}/invoices`, request);
   }
 
-  /** Sends a Draft Invoice as a token link (FR-8.3). No PDF is generated — that is Phase 14. */
+  /**
+   * Sends a Draft Invoice (FR-8.3): the server renders and archives its PDF, issues the customer's
+   * token link and emails both (Phase 14 Slice 3a, D113). The archived PDF is the issued invoice and
+   * is never regenerated.
+   */
   sendInvoice(id: number): Observable<InvoiceDto> {
     return this.http.post<InvoiceDto>(`/api/v1/invoices/${id}/send`, {});
+  }
+
+  /**
+   * The archived PDF of an issued invoice, Admin only (D113). The whole response is returned so the
+   * caller can read the server's file name from `Content-Disposition`. Fetched rather than linked
+   * because the bearer token lives in memory (D73) and a plain link cannot carry it.
+   */
+  invoiceDocument(id: number): Observable<HttpResponse<Blob>> {
+    return this.http.get(`/api/v1/invoices/${id}/document`, { observe: 'response', responseType: 'blob' });
   }
 
   /** Records full payment (FR-8.4, Wireframe E3). No amount exists to send — Phase 8 is full-only. */

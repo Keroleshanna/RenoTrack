@@ -335,7 +335,7 @@ Phase 10 (the Dashboard) is complete on `feature/phase-10-dashboard` and accepte
 ### 8d. Other candidate slices
 
 - ~~**2b — Correct a customer's address.**~~ **Built in Phase 14 Slice 2b (D112, SRS FR-7.5).** An Admin sets or corrects `Customer.Address` from the Project detail's "Rechnungsanschrift" panel; the invoice document reads it at render time, so no Invoice changes. **Consequence for Slice 3:** an archived PDF freezes the address as sent, while a draft picks up later corrections.
-- **3 — Archive, download and attach.** Generate and archive the invoice PDF at send time (an issued invoice must stay exactly as sent), the authenticated Dashboard download, the token-based customer download, and the email attachment. **Whether Slice 3 also archives the Angebot PDF at every send** is a proposal, not approved — it relates directly to finding B.
+- ~~**3 — Archive, download and attach.**~~ **Split by decision. 3a is built (D113, BR-15):** the invoice PDF is rendered once at send, archived as the issued document, downloadable by an Admin (`GET /api/v1/invoices/{id}/document`) and attached to the customer's email as the same bytes; a retry reads the archive. **3b is next, in its own slice:** the customer's `/invoice/{token}` page (a Void invoice shown as cancelled, its archived PDF still downloadable), `/invoice/{token}/pdf` proxying a public token endpoint (404/410 as the read, never consuming the link), `PublicInvoiceDto.documentAvailable`, and the token-exposure and logging rules extended to `/invoice/`. **Until 3b, the emailed `/invoice/{token}` link points at a Website page that does not exist** — the documented transitional state; the attachment is how the customer holds the document. **Whether every sent Angebot is archived** remains a proposal for finding B, not part of 3b.
 - **Phase 15** as in `PROJECT_ROADMAP.md`.
 
 ### 8e. Smaller items found during Slice 2
@@ -350,3 +350,11 @@ Phase 10 (the Dashboard) is complete on `feature/phase-10-dashboard` and accepte
 - **A Lead edit after conversion does not change the invoice address.** By design (Phase 7's copy-at-commit), and the Dashboard's panel says so. Recorded because an Admin may expect otherwise.
 - **`Lead.UpdateContactDetails` and its validator do not apply D109's length limits.** An over-long name, phone, email or address on `PUT /api/v1/leads/{id}` passes every guard and fails at the database as a 500, the defect D109 fixed for creation. Pre-existing; deliberately left alone by 2b's approved scope.
 - **The API suite cannot detect a handler that omits its own `SaveChangesAsync`** while it audits afterwards: `AuditService.LogAsync` saves on the shared `DbContext` and flushes the pending change (§5a). Found by mutation in Slice 2b; only the Application tests catch it.
+
+### 8g. Recorded during Slice 3a — not built, and not fixed in passing
+
+- **The printed invoice date is the creation date, while the document is issued at send.** A Draft created on 30 December and sent on 2 January prints the earlier date and year. Recorded for the legal reviewer (SRS Q20, D113); unchanged by decision.
+- **An invoice token link still expires after `TokenLink:LifetimeDays` (30) and cannot be re-issued** — D99's re-issue covers Angebote only — so a link may lapse before the due date. The attached PDF covers the gap; whether an invoice link re-issue is needed is a separate decision, outside 3b's approved scope.
+- **Operating-system I/O errors may still name a storage path in the server's error log.** The missing-file case is sanitised (D113); other disk faults carry the OS's own message. Response bodies never carry a path.
+- **`DEPLOYMENT_CONFIGURATION.md` lists the `CompanyLegalIdentity` keys under the Website's table (§2.2), though the API reads them.** Slice 3a added an API-section row pointing to them rather than moving existing text.
+- **`PublicController` and `PublicInvoiceDto` still say a PDF download is absent.** True until 3b, which owns that surface and its comments.

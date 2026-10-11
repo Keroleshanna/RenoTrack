@@ -8,10 +8,12 @@ namespace RenoTrack.Application.Common.Documents;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>A pure function, with no repository and no caller yet.</b> Slice 3 loads the two aggregates
-/// when it archives an invoice at send time and calls this; Slice 2 builds and tests it, and adds no
-/// artificial caller to satisfy a usage rule. The caller is responsible for passing the Customer of
-/// the Project the Invoice bills — neither aggregate can see the other (CLAUDE.md §2).
+/// <b>A pure function, with no repository.</b> Its caller is the send handler (Phase 14 Slice 3a,
+/// D113), which loads the two aggregates and calls this once, when the invoice is issued; the PDF
+/// rendered from the result is archived and never re-derived. The caller is responsible for passing
+/// the Customer of the Project the Invoice bills — neither aggregate can see the other (CLAUDE.md §2).
+/// Its refusals stay <see cref="InvalidOperationException"/> — a 409 — because every gap it names
+/// is business data an Admin can supply, unlike the generator's configuration refusal (a 500).
 /// </para>
 /// <para>
 /// <b>It refuses an invoice the document would misrepresent, naming every gap at once.</b> Three

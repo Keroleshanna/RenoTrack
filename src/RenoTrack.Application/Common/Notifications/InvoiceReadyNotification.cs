@@ -12,10 +12,11 @@ namespace RenoTrack.Application.Common.Notifications;
 /// URL it is interpolated into.
 /// </para>
 /// <para>
-/// <b>No PDF attachment field.</b> Sequence Diagram §9 draws one, but PDF generation is Phase 14's
-/// and no abstraction for it exists (approved Phase 8 decision G-4). FR-8.3 permits "a token link,
-/// by email as a PDF, or both" — this is the link. A field for an attachment nothing can produce
-/// would be a speculative contract.
+/// <b>The invoice PDF travels as <paramref name="InvoicePdf"/> (Phase 14 Slice 3a, D113)</b> —
+/// FR-8.3's "a token link, by email as a PDF, or both", now both. These are the archived document's
+/// bytes, never a second rendering: the send handler passes the very array it wrote to storage, and
+/// a retry reads the archive back. <see langword="null"/> only when an invoice sent before Slice 3a
+/// is retried — it has no archived document and keeps the link-only email it always had.
 /// </para>
 /// <para>
 /// <b>No bank details either</b>, which Wireframe A4 renders next to the payment instructions: no
@@ -35,4 +36,5 @@ public sealed record InvoiceReadyNotification(
     string RecipientEmail,
     decimal GrossAmount,
     DateTime DueDate,
-    string Token);
+    string Token,
+    byte[]? InvoicePdf);

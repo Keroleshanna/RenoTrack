@@ -16,6 +16,11 @@ namespace RenoTrack.Application.Invoices.Dtos;
 /// shape anywhere accepts it.
 /// </para>
 /// <para>
+/// <b><see cref="HasDocument"/> says whether an issued document was archived (Phase 14 Slice 3a,
+/// D113)</b> — what the Dashboard needs to offer a download. The storage key itself is never
+/// exposed: it is internal detail of the Invoice and the storage boundary.
+/// </para>
+/// <para>
 /// Monetary values are unwrapped from <see cref="RenoTrack.Domain.ValueObjects.Money"/> to plain
 /// <c>decimal</c>; <see cref="InvoiceStatus"/> and <see cref="VatRate"/> pass through as-is,
 /// serialized as their names (D61).
@@ -35,7 +40,8 @@ public sealed record InvoiceDto(
     string Description,
     DateOnly? ServicePeriodStart,
     DateOnly? ServicePeriodEnd,
-    IReadOnlyList<InvoiceVatLineDto> VatLines);
+    IReadOnlyList<InvoiceVatLineDto> VatLines,
+    bool HasDocument);
 
 /// <summary>One rate's share of an Invoice, as <c>Invoice.Create</c> calculated it.</summary>
 public sealed record InvoiceVatLineDto(VatRate Rate, decimal NetAmount, decimal VatAmount);
@@ -58,5 +64,6 @@ public static class InvoiceMappingExtensions
         invoice.ServicePeriodEnd,
         invoice.VatLines
             .Select(line => new InvoiceVatLineDto(line.Rate, line.NetAmount.Amount, line.VatAmount.Amount))
-            .ToList());
+            .ToList(),
+        invoice.DocumentFileUrl is not null);
 }

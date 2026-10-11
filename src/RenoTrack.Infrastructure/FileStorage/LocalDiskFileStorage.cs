@@ -42,9 +42,11 @@ public sealed class LocalDiskFileStorage : IFileStorage
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
         // FileMode.CreateNew, never Create: an existing file means a GUID collision or a bug, and
-        // silently overwriting would destroy evidence attached to an Inspection. Failing loudly is
-        // the correct response to something that should be impossible.
-        await using var target = new FileStream(
+        // silently overwriting would destroy evidence — a photo attached to an Inspection, or an
+        // issued invoice's archived document (D113). Failing loudly is the correct response to
+        // something that should be impossible. If this throws, nothing was created, so there is
+        // nothing to clean up — and an existing file is never touched.
+        var target = new FileStream(
             destination,
             FileMode.CreateNew,
             FileAccess.Write,
@@ -52,7 +54,59 @@ public sealed class LocalDiskFileStorage : IFileStorage
             bufferSize: 81920,
             useAsync: true);
 
-        await content.CopyToAsync(target, cancellationToken);
+        try
+        {
+            await using (target)
+            {
+                await content.CopyToAsync(target, cancellationToken);
+            }
+        }
+        catch
+        {
+            // A write that failed part-way (a full disk, a cancelled request, a failed flush) must not
+            // leave a truncated file that looks like a stored one (Phase 14 Slice 3a, D113). This
+            // request created the file a moment ago with CreateNew, so it is unambiguously ours to
+            // remove. Best-effort: the original failure stays the caller's answer.
+            TryDeletePartial(destination);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Opens a stored file for reading (Phase 14 Slice 3a, D113). The caller disposes the stream.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Containment is proved exactly as for writes, before the filesystem is touched.
+    /// </para>
+    /// <para>
+    /// <b>A missing file is reported without its path.</b> The BCL's own
+    /// <see cref="FileNotFoundException"/> names the resolved absolute path, which carries the storage
+    /// key and the server's directory layout; that exception reaches the error log and, on the
+    /// notification path, a delivery failure. So it is replaced by one that names nothing — and not
+    /// chained as an inner exception, which would carry the same path along with it.
+    /// </para>
+    /// </remarks>
+    public Task<Stream> OpenReadAsync(string fileUrl, CancellationToken cancellationToken)
+    {
+        var source = ResolveWithinRoot(fileUrl);
+
+        try
+        {
+            Stream stream = new FileStream(
+                source,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                useAsync: true);
+
+            return Task.FromResult(stream);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new FileNotFoundException("The requested stored file does not exist.");
+        }
     }
 
     public Task DeleteAsync(string fileUrl, CancellationToken cancellationToken)
@@ -73,6 +127,19 @@ public sealed class LocalDiskFileStorage : IFileStorage
         }
 
         return Task.CompletedTask;
+    }
+
+    private static void TryDeletePartial(string destination)
+    {
+        try
+        {
+            File.Delete(destination);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing more can be done here; the write's own exception is about to propagate and is
+            // the accurate description of what failed.
+        }
     }
 
     /// <summary>

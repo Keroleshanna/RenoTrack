@@ -114,7 +114,7 @@ public sealed class InvoiceQueriesTests(RenoTrackDbContextFixture fixture)
 
         await AddInvoiceAsync(projectId, 2_380m, DateTime.UtcNow.Date.AddDays(7), invoice =>
         {
-            invoice.Send();
+            invoice.Send("invoices/1/archived.pdf");
             invoice.MarkPaid(PaymentMethod.BankTransfer, paidAt, adminId);
         });
 
@@ -164,7 +164,7 @@ public sealed class InvoiceQueriesTests(RenoTrackDbContextFixture fixture)
         var (projectId, _) = await SeedProjectAsync();
         var today = DateTime.UtcNow.Date;
 
-        await AddInvoiceAsync(projectId, 100m, today.AddDays(-5), invoice => invoice.Send());
+        await AddInvoiceAsync(projectId, 100m, today.AddDays(-5), invoice => invoice.Send("invoices/1/archived.pdf"));
         await AddInvoiceAsync(projectId, 200m, today.AddDays(60));
 
         await using var context = fixture.CreateContext();
@@ -218,15 +218,15 @@ public sealed class InvoiceQueriesTests(RenoTrackDbContextFixture fixture)
             // Paid: counts toward invoiced and paid, never toward open.
             await AddInvoiceAsync(projectId, 1_000m, today.AddDays(-20), invoice =>
             {
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 invoice.MarkPaid(PaymentMethod.BankTransfer, today.AddDays(-15), adminId);
             });
 
             // Sent and past due: invoiced, open AND overdue.
-            await AddInvoiceAsync(projectId, 400m, today.AddDays(-1), invoice => invoice.Send());
+            await AddInvoiceAsync(projectId, 400m, today.AddDays(-1), invoice => invoice.Send("invoices/1/archived.pdf"));
 
             // Sent but not yet due: invoiced and open, never overdue.
-            await AddInvoiceAsync(projectId, 250m, today.AddDays(10), invoice => invoice.Send());
+            await AddInvoiceAsync(projectId, 250m, today.AddDays(10), invoice => invoice.Send("invoices/1/archived.pdf"));
 
             await using var after = fixture.CreateContext();
             var actual = await new InvoiceQueries(after).GetReceivablesAsync(today, default);
@@ -256,7 +256,7 @@ public sealed class InvoiceQueriesTests(RenoTrackDbContextFixture fixture)
         var (projectId, _) = await SeedProjectAsync();
         await AddInvoiceAsync(projectId, 900m, today.AddDays(-30), invoice =>
         {
-            invoice.Send();
+            invoice.Send("invoices/1/archived.pdf");
             invoice.Void("Doppelt erfasst");
         });
 
@@ -283,7 +283,7 @@ public sealed class InvoiceQueriesTests(RenoTrackDbContextFixture fixture)
         var dueDate = today.AddDays(5);
 
         var (projectId, _) = await SeedProjectAsync();
-        await AddInvoiceAsync(projectId, 750m, dueDate, invoice => invoice.Send());
+        await AddInvoiceAsync(projectId, 750m, dueDate, invoice => invoice.Send("invoices/1/archived.pdf"));
 
         await using var context = fixture.CreateContext();
         var queries = new InvoiceQueries(context);

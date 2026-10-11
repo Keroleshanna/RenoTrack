@@ -2,9 +2,10 @@
 
 Copy everything in the code block below into the first message of a brand-new conversation.
 
-**Last updated: 2026-10-04, at `origin/main` = `a87d7a5` (PR #34, Phase 14 Slice 2b merged and
-verified).** Keep this file current whenever a phase or slice is merged — it is the one file a fresh
-session is pointed at first.
+**Last updated: 2026-10-04, on the Phase 14 Slice 3a branch (`feature/phase-14-slice-3a-invoice-archive`,
+off `fd9e52b`), written to describe `main` once that branch's PR is merged.** The merge SHA and PR number
+are not known when this is written — verify them. Keep this file current whenever a phase or slice is
+merged — it is the one file a fresh session is pointed at first.
 
 ---
 
@@ -24,33 +25,31 @@ READ FIRST, IN THIS ORDER, AND READ THEM IN FULL:
 2. PROJECT_STATE.md — where the project actually stands, newest entry first.
 3. NEXT_STEPS.md — known gaps and requirements that exist in the documents but are not built.
    §8 is the current list of candidate slices and recorded findings.
-4. ARCHITECTURE_DECISIONS.md — D1–D112. Read at least D100–D112 (the recent phases).
+4. ARCHITECTURE_DECISIONS.md — D1–D113. Read at least D100–D113 (the recent phases).
 5. PROJECT_ROADMAP.md — the phase map and what remains.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: a87d7a57864dc805808df1a0f4339c9737b90b2c ("Merge pull request #34 from
-  Keroleshanna/feature/phase-14-slice-2b-customer-address") — a true merge commit whose second
-  parent is the slice head, 62c749aabd743a4f838dcdb00d328c23cdb47096. A later handoff-only docs PR
-  may sit on top of it; nothing else should.
-- PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31 and #33 (handoffs),
-  #32 (Phase 14 Slice 2) and #34 (Phase 14 Slice 2b) are MERGED.
+- origin/main: the merge commit of the Phase 14 Slice 3a PR (branch
+  feature/phase-14-slice-3a-invoice-archive), on top of fd9e52b553d9c379864b30646379b5c28e317bff
+  (PR #35, the handoff after Slice 2b). VERIFY the SHA and PR number yourself — they did not exist
+  when this was written.
+- PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31, #33 and #35 (handoffs),
+  #32 (Phase 14 Slice 2), #34 (Phase 14 Slice 2b) and the Slice 3a PR are MERGED.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests, measured in CI on PR #34 — 3,114 passing, 0 failing:
-  Domain 442 · Application 552 · Infrastructure 424 (LocalDB) · Api 517 (LocalDB) ·
-  Website 1,136 · MediaPrep 20 · Documents 23.
-  The 23 Documents (PDF) tests cannot run on the development machine (see the environment notes);
-  CI's Linux job ran them and all 23 passed. CI does not build or test the Dashboard: locally it has
-  108 specs passing, lint clean, build succeeding. Re-run everything yourself before relying on it.
-- Migrations: 14 (#14 AddInvoiceDescriptionServicePeriodAndVatLines, Slice 2; 2b added none).
+- Tests, measured LOCALLY on the Slice 3a branch from clean builds — 3,214 passing, 0 failing:
+  Domain 455 · Application 588 · Infrastructure 453 (LocalDB) · Api 535 (LocalDB) ·
+  Website 1,136 · MediaPrep 20 · Documents 27. Confirm against the PR's CI run, which is the
+  authority. CI does not build or test the Dashboard: locally it has 124 specs passing, lint clean,
+  build succeeding. Re-run everything yourself before relying on it.
+- Migrations: 15 (#15 AddInvoiceDocumentFileUrl, Slice 3a).
 
 PHASES: 0–12 complete and merged. Phase 13 (public website) is PARKED BY DECISION after Slices
-5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slice 1, Slice 2 and Slice 2b are COMPLETE,
-MERGED AND VERIFIED. NO LATER SLICE HAS STARTED — not Slice 3, not A, not B, not the time-policy
-slice.
+5a/5v/5h — see below. Phase 14 (PDF) is IN PROGRESS: Slices 1, 2, 2b and 3a are COMPLETE and MERGED.
+NO LATER SLICE HAS STARTED — not Slice 3b, not A, not B, not the time-policy slice.
 
-PHASE 14 SLICE 2b IS CLOSED. Do not re-review it: its design, implementation, tests, QA, mutations
-and documents were all reviewed and approved before merge (D112 is the record). Start from the next
+PHASE 14 SLICE 3a IS CLOSED. Do not re-review it: its design, implementation, tests, QA, mutations
+and documents were all reviewed and approved before merge (D113 is the record). Start from the next
 design-first decision instead.
 
 WHAT EARLIER SESSIONS DID, AND WHY
@@ -103,6 +102,7 @@ WHAT EARLIER SESSIONS DID, AND WHY
      Do not change them in passing.
    - PDF RENDERING IS PREPARED, NOT WIRED: InvoiceDocument, InvoiceDocumentFactory and
      IPdfGenerator.RenderInvoice exist with no production caller, deliberately. Slice 3 wires them.
+     (Historical: Slice 3a has since wired them — the send handler renders and archives; see 6.)
      The factory refuses an invoice with no description, no VAT lines (historical rows) or a
      customer without an address — it never invents or recomputes anything.
    - CUSTOMER ADDRESS CORRECTION IS OUTSIDE SLICE 2 (it is 2b, below).
@@ -127,13 +127,46 @@ WHAT EARLIER SESSIONS DID, AND WHY
      the Application tests catch it. Also in §8f: customer name/email/phone correction, and the D109
      length gap on PUT /api/v1/leads/{id}.
 
-THE NEXT TASK: THE PRODUCT OWNER CHOOSES THE NEXT SLICE, FRESH FROM THIS MAIN — DO NOT START ONE
+6. Phase 14 Slice 3a — THE ARCHIVED INVOICE PDF (D113, BR-15) — merged. Slice 3 was SPLIT by
+   decision: 3a (archive + Admin download + email attachment) is done; 3b is the customer side.
+   Approved before implementation; do not reopen silently:
+   - THE ARCHIVED PDF IS THE ISSUED INVOICE. Rendered ONCE at Draft → Sent, served byte for byte to
+     the Admin and attached to the email; a retry reads the archive. NEVER regenerated — not after
+     Paid or Void, not after an address correction, not to repair a missing file. Never deleted.
+     Invoices sent before 3a have no archive and are never given one (no backfill).
+   - Invoice.DocumentFileUrl, set only by Invoice.Send(documentFileUrl). Key
+     invoices/{invoiceId}/{guid}.pdf, computed before any I/O; never in a DTO, response or log.
+     IFileStorage gained OpenReadAsync; writes are create-only. Migration #15.
+   - Order: key → Invoice.Send(key) → assemble → render → write file → ONE SaveChangesAsync
+     (Invoice + token link, with CancellationToken.None) → audit → email with the same bytes.
+     ONLY a ConflictException (a lost race, provably rolled back) removes the file; any other commit
+     failure KEEPS it, because the row may have committed — an orphan is accepted, a deleted issued
+     invoice is not. A crash between write and commit also leaves an accepted orphan.
+   - Invoices.Status IS A CONCURRENCY TOKEN: a losing concurrent send is a 409 and its PDF is
+     removed; Send/Paid/Void races are 409 too (accepted).
+   - 409 for missing BUSINESS data (customer address, description, VAT lines); 500 with no detail
+     for missing CompanyLegalIdentity (DocumentConfigurationException) or any rendering fault
+     (DocumentRenderingException). Both derive directly from Exception — never "fix" that.
+   - GET /api/v1/invoices/{id}/document: ADMIN ONLY (Inspector empty 403 — the PDF prints the
+     customer's address, D112), any status with a document, no-store, nosniff, not audited.
+   - Dashboard: Admin "PDF" button (hasDocument); a refused send closes its dialog.
+   - TRANSITIONAL, BY DECISION: the emailed /invoice/{token} link still points at a Website page
+     that does not exist until 3b. The attachment carries the document meanwhile.
+   - For the legal reviewer (Q20), unchanged: the printed date is the CREATION date, while the
+     document is issued at SEND.
 
-None of the following has started, and THEIR ORDER IS NOT DECIDED. Do not start one, and do not
-treat any suggested order as approved. NEXT_STEPS.md §8 is the full record:
-- Slice 3: archive the invoice PDF at send time (an issued invoice stays exactly as sent), the
-  authenticated Dashboard download, the token-based customer download, the email attachment.
-  Whether it also archives the Angebot PDF at every send is a proposal, not approved.
+THE NEXT TASK: PHASE 14 SLICE 3b — DESIGN REVIEW FIRST, IN A NEW CHAT, FRESH FROM THIS MAIN
+
+Slice 3b is the approved next point. Its approved boundary (NEXT_STEPS.md §8d): the customer's
+read-only /invoice/{token} page (a Void invoice shown as cancelled, its archived PDF STILL
+downloadable — Product Owner decision), /invoice/{token}/pdf proxying a public token endpoint
+(404/410 as the read, never consuming the link), PublicInvoiceDto.documentAvailable, and the
+token-exposure and token-logging rules (CLAUDE.md §24) extended to /invoice/. It still begins with
+a design review and waits for approval. NOT in 3b: invoice link re-issue, the 30-day expiry versus
+due date (NEXT_STEPS.md §8g), any Angebot archiving.
+
+The other candidates have NOT started and THEIR ORDER IS NOT DECIDED. NEXT_STEPS.md §8 is the
+full record:
 - A (design first): ADMIN EDITING OF AN INSPECTOR'S ANGEBOT. Today forbidden by documented decision
   (PermissionMatrix.md §3, Admin R). The Product Owner wants the Admin to have the Inspector's full
   operational capability on Angebote. Editable states, re-approval and concurrency (D96's revisit
@@ -187,20 +220,22 @@ HOW TO WORK HERE — these are the user's standing rules, learned the hard way:
 
 ENVIRONMENT CONDITIONS YOU WILL HIT, ALL DOCUMENTED AND NONE A CODE DEFECT:
 
-- Windows Application Control intermittently blocks freshly built assemblies with 0x800711C7. For
-  this project's own assemblies, building with -p:Deterministic=false usually clears it. For
-  third-party DLLs (PdfSharp.System.dll) it does not, so RenoTrack.Documents.Tests cannot be run
-  locally at all — CI is its verification. In Slice 2 a block survived plain retries and Release:
-  what cleared it was `dotnet build <project> -p:Deterministic=false --no-incremental` followed by
-  `dotnet test <project> --no-build`. A suite that prints no Passed!/Failed! line was blocked, not
-  run — never count it.
+- Windows Application Control intermittently blocks freshly built assemblies with 0x800711C7 —
+  this project's own and third-party ones alike. What clears it: `dotnet build <project>
+  -p:Deterministic=false --no-incremental`, then `dotnet test <project> --no-build`, retried if it
+  recurs mid-run. CORRECTION: the earlier claim that RenoTrack.Documents.Tests can never run locally
+  was wrong — in Slice 3a it ran (27/27) after that rebuild. CI's Linux job is still its authority.
+  Since 3a, Api.Tests and Infrastructure.Tests load PdfSharp too, so they can be blocked the same
+  way. A suite that prints no Passed!/Failed! line, or fails with 0x800711C7, was blocked, not run —
+  never count it.
 - The Dashboard's dev proxy targets https://localhost:7060, but .claude/launch.json's `api` entry
   starts the http profile (5294 only), so the Dashboard gets ECONNREFUSED beside it. Run the API's
   `https` profile for Dashboard QA (NEXT_STEPS.md §8e). And do QA on a SEPARATE database — copy the
   gitignored appsettings.Development.json into the worktree with another database name and
   Database:Mode=Migrate — so an unmerged migration never reaches the shared development database.
-  The QA database from Slice 2b, RenoTrack_Slice2bQA, still exists in LocalDB and holds QA data
-  only; ask the user before dropping it. (RenoTrack_Slice2QA, from Slice 2, no longer exists.)
+  The QA databases RenoTrack_Slice2bQA (Slice 2b) and RenoTrack_Slice3aQA (Slice 3a) still exist in
+  LocalDB and hold QA data only; ask the user before dropping either. Invoice sends need a
+  (fictional, .test) CompanyLegalIdentity in that QA configuration, or every send is a 500 by design.
 - A fresh worktree has no Dashboard node_modules. `npm ci` fails on a pre-existing Angular peer
   conflict; `npm ci --legacy-peer-deps` installs the unchanged lockfile (Slice 2b).
 - Browser QA of the Website runs against `dotnet publish` output, started from the publish
@@ -208,7 +243,7 @@ ENVIRONMENT CONDITIONS YOU WILL HIT, ALL DOCUMENTED AND NONE A CODE DEFECT:
   bytes and the page renders unstyled, which looks exactly like a CSS defect (CLAUDE.md §24).
 
 CONFIRM YOU HAVE READ THE FIVE FILES ABOVE AND SUMMARISE THE CURRENT STATE BACK TO THE USER IN YOUR
-OWN WORDS. THEN ASK THE USER WHICH SLICE COMES NEXT — DO NOT CHOOSE ONE, AND DO NOT START ANY.
-WHATEVER THEY CHOOSE BEGINS WITH A DESIGN REVIEW AND WAITS FOR EXPLICIT APPROVAL — NEVER
-IMPLEMENTATION FIRST.
+OWN WORDS. SLICE 3b IS THE APPROVED NEXT POINT, BUT CONFIRM IT WITH THE USER BEFORE STARTING — AND
+IT BEGINS WITH A DESIGN REVIEW AND WAITS FOR EXPLICIT APPROVAL. NEVER IMPLEMENTATION FIRST, AND
+NEVER A SECOND SLICE IN THE SAME CHAT.
 ```

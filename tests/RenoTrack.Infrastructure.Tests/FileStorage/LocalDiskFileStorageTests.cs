@@ -163,4 +163,155 @@ public sealed class LocalDiskFileStorageTests : IDisposable
         await Assert.ThrowsAsync<ArgumentException>(
             () => storage.DeleteAsync("../../something.jpg", CancellationToken.None));
     }
+
+    // ---- A failed write leaves nothing behind (Phase 14 Slice 3a, D113) --------------------
+
+    /// <summary>
+    /// A write that fails part-way must not leave a truncated file that looks like a stored one —
+    /// for an invoice, a half-written PDF where the archive should be.
+    /// </summary>
+    [Fact]
+    public async Task SaveAsync_RemovesAPartiallyWrittenFileWhenTheWriteFails()
+    {
+        var storage = CreateStorage();
+
+        await Assert.ThrowsAsync<IOException>(
+            () => storage.SaveAsync(new FailingAfterFirstReadStream(), "invoices/3/partial.pdf", CancellationToken.None));
+
+        Assert.False(File.Exists(Path.Combine(_root, "invoices", "3", "partial.pdf")));
+    }
+
+    /// <summary>
+    /// The partial-write cleanup removes only what this call created: when CreateNew refuses because
+    /// the file already exists, that existing file — possibly an issued invoice — is untouched.
+    /// </summary>
+    [Fact]
+    public async Task SaveAsync_NeverRemovesAnExistingFileWhenRefusingToOverwriteIt()
+    {
+        var storage = CreateStorage();
+        await storage.SaveAsync(Content("issued"), "invoices/4/archived.pdf", CancellationToken.None);
+
+        await Assert.ThrowsAsync<IOException>(
+            () => storage.SaveAsync(Content("other"), "invoices/4/archived.pdf", CancellationToken.None));
+
+        Assert.Equal("issued", await File.ReadAllTextAsync(Path.Combine(_root, "invoices", "4", "archived.pdf")));
+    }
+
+    // ---- OpenReadAsync (Phase 14 Slice 3a, D113) --------------------------------------------
+
+    [Fact]
+    public async Task OpenReadAsync_ReturnsExactlyTheBytesThatWereSaved()
+    {
+        var storage = CreateStorage();
+        byte[] pdf = [0x25, 0x50, 0x44, 0x46, 0x00, 0xFF, 0x10, 0x0A];
+        await storage.SaveAsync(new MemoryStream(pdf), "invoices/5/doc.pdf", CancellationToken.None);
+
+        await using var read = await storage.OpenReadAsync("invoices/5/doc.pdf", CancellationToken.None);
+        using var buffer = new MemoryStream();
+        await read.CopyToAsync(buffer);
+
+        Assert.Equal(pdf, buffer.ToArray());
+    }
+
+    /// <summary>
+    /// Reading is not writing: an open read leaves the archived file exactly as it was, and two
+    /// readers can hold it at once (an Admin download alongside an email retry).
+    /// </summary>
+    [Fact]
+    public async Task OpenReadAsync_AllowsConcurrentReadersAndChangesNothing()
+    {
+        var storage = CreateStorage();
+        await storage.SaveAsync(Content("issued"), "invoices/6/doc.pdf", CancellationToken.None);
+
+        await using (var first = await storage.OpenReadAsync("invoices/6/doc.pdf", CancellationToken.None))
+        await using (var second = await storage.OpenReadAsync("invoices/6/doc.pdf", CancellationToken.None))
+        {
+            Assert.False(first.CanWrite);
+            Assert.False(second.CanWrite);
+        }
+
+        Assert.Equal("issued", await File.ReadAllTextAsync(Path.Combine(_root, "invoices", "6", "doc.pdf")));
+    }
+
+    /// <summary>
+    /// A missing file is a defect to report, and the report must not carry the key or the server's
+    /// directory layout — it reaches the error log and a notification's failure record. Nothing is
+    /// chained either, because the BCL exception's message names the absolute path.
+    /// </summary>
+    [Theory]
+    [InlineData("invoices/7/missing.pdf")]
+    [InlineData("invoices/never-created-directory/missing.pdf")]
+    public async Task OpenReadAsync_ReportsAMissingFileWithoutItsKeyOrPath(string fileUrl)
+    {
+        var storage = CreateStorage();
+        Directory.CreateDirectory(Path.Combine(_root, "invoices", "7"));
+
+        var thrown = await Assert.ThrowsAsync<FileNotFoundException>(
+            () => storage.OpenReadAsync(fileUrl, CancellationToken.None));
+
+        Assert.DoesNotContain("missing.pdf", thrown.ToString());
+        Assert.DoesNotContain("invoices", thrown.ToString());
+        Assert.DoesNotContain(_root, thrown.ToString());
+        Assert.Null(thrown.InnerException);
+        Assert.Null(thrown.FileName);
+    }
+
+    [Theory]
+    [InlineData("../escape.pdf")]
+    [InlineData("invoices/../../escape.pdf")]
+    [InlineData("/etc/passwd")]
+    [InlineData("C:\\Windows\\win.ini")]
+    public async Task OpenReadAsync_RejectsKeysResolvingOutsideTheRoot(string fileUrl)
+    {
+        var storage = CreateStorage();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => storage.OpenReadAsync(fileUrl, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task OpenReadAsync_RejectsAnEmptyKey(string fileUrl)
+    {
+        var storage = CreateStorage();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => storage.OpenReadAsync(fileUrl, CancellationToken.None));
+    }
+
+    /// <summary>Yields a few bytes, then fails — a disk filling up mid-write.</summary>
+    private sealed class FailingAfterFirstReadStream : Stream
+    {
+        private bool _served;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_served)
+                throw new IOException("The device is full.");
+
+            _served = true;
+            buffer[offset] = 0x25;
+            return 1;
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_served)
+                throw new IOException("The device is full.");
+
+            _served = true;
+            buffer.Span[0] = 0x25;
+            return ValueTask.FromResult(1);
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

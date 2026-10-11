@@ -146,6 +146,19 @@
                     </td>
                     @if (isAdmin()) {
                       <td class="row-actions">
+                        @if (canDownloadDocument(invoice)) {
+                          <!-- The archived PDF (D113): what was issued, whatever the status since. -->
+                          <button
+                            type="button"
+                            class="rt-button rt-button--small"
+                            [disabled]="downloadingInvoiceId() === invoice.id"
+                            [attr.aria-busy]="downloadingInvoiceId() === invoice.id"
+                            [attr.aria-label]="t().projectDetail.downloadPdfLabel + ' ' + invoice.invoiceNumber"
+                            (click)="downloadDocument(invoice)"
+                          >
+                            {{ t().projectDetail.downloadPdf }}
+                          </button>
+                        }
                         @if (canSend(invoice)) {
                           <button
                             type="button"

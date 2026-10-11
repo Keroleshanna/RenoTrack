@@ -24,7 +24,7 @@ namespace RenoTrack.Api.Tests.Invoices;
 /// </para>
 /// </summary>
 [Collection("Api")]
-public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
+public sealed partial class InvoiceEndpointsTests(RenoTrackApiFactory factory)
 {
     // ---- Creation ----------------------------------------------------------
 
@@ -991,7 +991,10 @@ public sealed class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         using (var scope = factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
-            var lead = Lead.Create("M. Klein", "0176 1234567", "m.klein@example.com", LeadSource.Phone);
+            // With an address, which conversion copies to the Customer: sending an invoice renders its
+            // document, and BR-5 requires the customer's address on it (D113).
+            var lead = Lead.Create(
+                "M. Klein", "0176 1234567", "m.klein@example.com", LeadSource.Phone, address: "Musterweg 1, 00000 Testort");
             context.Leads.Add(lead);
             await context.SaveChangesAsync();
 

@@ -450,6 +450,18 @@ sequenceDiagram
 ## 9. Sending an Invoice & Recording Payment
 **Covers:** FR-8.3, FR-8.4
 
+> **Phase 14 Slice 3a (D113, BR-15) — as built, the PDF now exists, in this order:** load the
+> Invoice, Project and Customer → compute the storage key → `Invoice.Send(key)` (the Domain guard
+> runs first, Architecture §9) → assemble and render the PDF → write it to `IFileStorage` → stage the
+> `TokenLink` → **one** `SaveChangesAsync` for the Invoice and the link (not cancellable by the
+> request; only a lost concurrency race removes the file — any other commit failure keeps it, since
+> the row may have committed) → audit → email with **the same bytes** attached. The diagram's order (PDF before
+> the status change) is superseded by that one. A missing customer address is a 409 before anything
+> is written; a missing company identity is a 500. The Admin's download, `GET
+> /api/v1/invoices/{id}/document`, serves the archive. **The customer's page and its PDF download
+> (the `WS` lane below) remain unbuilt until Slice 3b**; the attachment is how the customer holds
+> the document meanwhile. The note below is kept as written in Phase 8.
+>
 > **Reconciliation note, added in the Phase 8 completion sweep.** The `IPdfGenerator` participant
 > and its `GenerateAsync` step below are **deferred design intent, not implemented behaviour**.
 > Phase 8 decision **G-4** rejected a PDF generator outright — not even a placeholder abstraction —

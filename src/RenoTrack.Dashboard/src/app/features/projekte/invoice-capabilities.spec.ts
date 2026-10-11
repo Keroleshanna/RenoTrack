@@ -1,5 +1,5 @@
 import { INVOICE_STATUSES, InvoiceStatusDto } from '../../core/api/contracts';
-import { invoiceCapabilitiesFor } from './invoice-capabilities';
+import { canDownloadInvoiceDocument, invoiceCapabilitiesFor } from './invoice-capabilities';
 
 /**
  * The Invoice action rules, over every status — the same exhaustive discipline the Angebot
@@ -51,5 +51,31 @@ describe('Invoice capabilities', () => {
       expect(capabilities.canMarkPaid).toBeFalse();
       expect(capabilities.canVoid).toBeFalse();
     }
+  });
+});
+
+/**
+ * The archived PDF (Phase 14 Slice 3a, D113). Admin only because it prints the customer's address
+ * (D112); available for every status that has one, because a Paid or Void invoice's document is
+ * still exactly what was issued.
+ */
+describe('Invoice document download', () => {
+  // Status is deliberately not an input: whether a document exists is the whole question, so a
+  // Paid or Void invoice is offered its document exactly as a Sent one is.
+  it('lets Verwaltung download an archived document', () => {
+    expect(canDownloadInvoiceDocument('admin', true)).toBeTrue();
+  });
+
+  it('offers nothing to download where nothing was archived — a Draft, or an invoice sent before archiving', () => {
+    expect(canDownloadInvoiceDocument('admin', false)).toBeFalse();
+  });
+
+  it('never lets Bauleitung download a document, archived or not', () => {
+    expect(canDownloadInvoiceDocument('inspector', true)).toBeFalse();
+    expect(canDownloadInvoiceDocument('inspector', false)).toBeFalse();
+  });
+
+  it('gives an unresolved session no download', () => {
+    expect(canDownloadInvoiceDocument(null, true)).toBeFalse();
   });
 });

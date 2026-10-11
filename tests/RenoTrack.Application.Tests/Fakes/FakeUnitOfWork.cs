@@ -20,6 +20,16 @@ public sealed class FakeUnitOfWork : IUnitOfWork
     /// </summary>
     public int? SaveFailureOnCall { get; set; }
 
+    /// <summary>
+    /// Runs at the start of every <see cref="SaveChangesAsync"/>, before any configured failure — so
+    /// a test can observe what the handler had already done at the moment it committed (for example,
+    /// that the invoice document was written to storage <em>before</em> the commit, D113).
+    /// </summary>
+    public Action? OnSaveChanges { get; set; }
+
+    /// <summary>The token the most recent <see cref="SaveChangesAsync"/> call was given.</summary>
+    public CancellationToken LastSaveCancellationToken { get; private set; }
+
     public int BeginTransactionCallCount { get; private set; }
     public int CommitCallCount { get; private set; }
     public int TransactionDisposeCallCount { get; private set; }
@@ -35,6 +45,8 @@ public sealed class FakeUnitOfWork : IUnitOfWork
     public Task SaveChangesAsync(CancellationToken cancellationToken)
     {
         SaveChangesCallCount++;
+        LastSaveCancellationToken = cancellationToken;
+        OnSaveChanges?.Invoke();
 
         // Counted before throwing, so a test asserting "the commit was attempted once" still holds
         // when that attempt failed.

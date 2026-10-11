@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RenoTrack.Api.Invoices.Dtos;
 using RenoTrack.Application.Common;
+using RenoTrack.Application.Common.Documents;
 using RenoTrack.Domain.Enums;
 using RenoTrack.Application.Common.Exceptions;
 using RenoTrack.Application.Invoices.Commands.CreateInvoice;
@@ -10,6 +11,7 @@ using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
 using RenoTrack.Application.Invoices.Commands.VoidInvoice;
 using RenoTrack.Application.Invoices.Dtos;
+using RenoTrack.Application.Invoices.Queries.GetInvoiceDocument;
 using RenoTrack.Application.Invoices.Queries.GetInvoices;
 using RenoTrack.Application.Invoices.Queries.GetReceivables;
 
@@ -60,7 +62,8 @@ public sealed class InvoicesController(
     ICommandHandler<RecordPaymentCommand, InvoiceDto> recordPaymentHandler,
     ICommandHandler<VoidInvoiceCommand, InvoiceDto> voidInvoiceHandler,
     IQueryHandler<GetInvoicesQuery, PagedResult<InvoiceListItemDto>> getInvoicesHandler,
-    IQueryHandler<GetReceivablesQuery, ReceivablesSummaryDto> getReceivablesHandler) : ControllerBase
+    IQueryHandler<GetReceivablesQuery, ReceivablesSummaryDto> getReceivablesHandler,
+    IQueryHandler<GetInvoiceDocumentQuery, InvoiceDocumentFile> getInvoiceDocumentHandler) : ControllerBase
 {
     /// <summary>
     /// The Invoice list, filterable by status, Project and due date. Admin only (§5).
@@ -180,10 +183,19 @@ public sealed class InvoicesController(
     /// the token and its expiry are generated server-side.
     /// </para>
     /// <para>
+    /// **Sending issues the invoice (Phase 14 Slice 3a, D113, BR-15):** its PDF is rendered once,
+    /// archived, and attached to the customer's email; that archive is what
+    /// <c>GET /api/v1/invoices/{id}/document</c> serves from then on.
+    /// </para>
+    /// <para>
     /// 409 when the Invoice is not <c>Draft</c> (already sent, paid or voided) or its gross amount
     /// is zero — StateMachine.md §3.3's guard, raised by the aggregate itself and mapped by the one
-    /// exception handler (D59). **No PDF is generated and none is attached**: Sequence Diagram §9
-    /// draws one, but that is Phase 14's work (G-4), and FR-8.3 is satisfied by the link.
+    /// exception handler (D59) — when the document lacks business data an Admin can supply (the
+    /// customer's address, the invoice's description or VAT lines), and when a concurrent request
+    /// changed the Invoice first. **500** when the deployment cannot produce a document at all — the
+    /// company's legal identity is not configured, or the renderer failed. That is a server fault,
+    /// deliberately never a 409, and its body carries no detail. Nothing is committed in any of these
+    /// cases.
     /// </para>
     /// </remarks>
     [HttpPost("{id:int}/send")]
@@ -192,6 +204,7 @@ public sealed class InvoicesController(
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Send(int id, CancellationToken cancellationToken)
     {
         var invoice = await sendInvoiceHandler.HandleAsync(
@@ -199,6 +212,48 @@ public sealed class InvoicesController(
             cancellationToken);
 
         return Ok(invoice);
+    }
+
+    /// <summary>
+    /// The archived PDF of an issued Invoice (SRS FR-11.2, Phase 14 Slice 3a, D113). Admin only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **Admin only, like every action here — and here it matters more than usual.** The document
+    /// prints the customer's address, which D112 keeps from Inspectors; an Inspector reads a
+    /// Project's invoice list (`PermissionMatrix.md` §5) but never this file, and gets the class-level
+    /// role gate's empty-body 403.
+    /// </para>
+    /// <para>
+    /// **It serves the archive, byte for byte, and never renders (BR-15).** Status does not matter: a
+    /// <c>Paid</c> or <c>Void</c> invoice's document is still what was issued. 409 when there is no
+    /// archived document — a <c>Draft</c>, or an invoice sent before Slice 3a, which is never
+    /// backfilled. A recorded key whose file has gone is a storage defect: a 500 with no detail,
+    /// never repaired by regenerating.
+    /// </para>
+    /// <para>
+    /// Delivered as an attachment named by <c>InvoiceDocumentFileName</c>, with
+    /// <c>Cache-Control: no-store</c> — a legal document with personal data must not linger in a
+    /// shared cache — and <c>nosniff</c>, so it is only ever treated as the PDF it declares itself to
+    /// be. Not audited: reading a document is not a business milestone (CLAUDE.md §10).
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id:int}/document")]
+    [ProducesResponseType<FileStreamResult>(StatusCodes.Status200OK, InvoiceDocumentFileName.PdfContentType)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetDocument(int id, CancellationToken cancellationToken)
+    {
+        var document = await getInvoiceDocumentHandler.HandleAsync(
+            new GetInvoiceDocumentQuery(id),
+            cancellationToken);
+
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+
+        return File(document.Content, InvoiceDocumentFileName.PdfContentType, document.FileName);
     }
 
     /// <summary>

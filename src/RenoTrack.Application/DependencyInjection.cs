@@ -33,6 +33,7 @@ using RenoTrack.Application.Invoices.Commands.CreateInvoice;
 using RenoTrack.Application.Invoices.Commands.RecordPayment;
 using RenoTrack.Application.Invoices.Commands.SendInvoice;
 using RenoTrack.Application.Invoices.Commands.VoidInvoice;
+using RenoTrack.Application.Invoices.Queries.GetInvoiceDocument;
 using RenoTrack.Application.Invoices.Queries.GetInvoices;
 using RenoTrack.Application.Invoices.Queries.GetReceivables;
 using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
@@ -192,6 +193,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<RecordPaymentCommand>, RecordPaymentCommandValidator>();
         services.AddScoped<IValidator<VoidInvoiceCommand>, VoidInvoiceCommandValidator>();
         services.AddScoped<IValidator<GetPublicInvoiceByTokenQuery>, GetPublicInvoiceByTokenQueryValidator>();
+        services.AddScoped<IValidator<GetInvoiceDocumentQuery>, GetInvoiceDocumentQueryValidator>();
     }
 
     /// <summary>
@@ -283,6 +285,9 @@ public static class DependencyInjection
         services.AddScoped<IQueryHandler<GetInspectionByIdQuery, InspectionDetailDto>, GetInspectionByIdQueryHandler>();
         services.AddScoped<IQueryHandler<GetInspectionScheduleQuery, IReadOnlyList<InspectionDetailDto>>, GetInspectionScheduleQueryHandler>();
         services.AddScoped<IQueryHandler<GetReceivablesQuery, ReceivablesSummaryDto>, GetReceivablesQueryHandler>();
+
+        // The Admin's download of an issued invoice's archived PDF (Phase 14 Slice 3a, D113).
+        services.AddScoped<IQueryHandler<GetInvoiceDocumentQuery, InvoiceDocumentFile>, GetInvoiceDocumentQueryHandler>();
         services.AddScoped<IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto>, GetPublicInvoiceByTokenQueryHandler>();
     }
 

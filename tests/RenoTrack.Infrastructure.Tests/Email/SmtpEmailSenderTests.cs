@@ -233,7 +233,7 @@ public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
             new AngebotChangesRequestedNotification(5, "ANG-2026-00005", "Bitte korrigieren.", inspectorId), CancellationToken.None);
         await sender.SendAngebotReadyNotificationAsync(AngebotReady, CancellationToken.None);
         await sender.SendInvoiceReadyNotificationAsync(
-            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31), "tok-xyz789"),
+            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31), "tok-xyz789", InvoicePdf: null),
             CancellationToken.None);
         await sender.SendAngebotDecisionNotificationAsync(
             new AngebotDecisionNotification(5, "ANG-2026-00005", 7, "Familie Klein", Approved: true), CancellationToken.None);
@@ -256,7 +256,7 @@ public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
         var sender = CreateSender(Options(ClosedPort()), logProvider);
 
         await sender.SendInvoiceReadyNotificationAsync(
-            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31), "tok-xyz789"),
+            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31), "tok-xyz789", InvoicePdf: null),
             CancellationToken.None);
 
         var warning = AssertSingleWarning(logProvider);
@@ -475,7 +475,7 @@ public sealed class SmtpEmailSenderTests(RenoTrackDbContextFixture fixture)
             new AngebotChangesRequestedNotification(changesId, "ANG-2", "c", inspectorId), CancellationToken.None);
         await sender.SendAngebotReadyNotificationAsync(AngebotReadyFor(readyId), CancellationToken.None);
         await sender.SendInvoiceReadyNotificationAsync(
-            new InvoiceReadyNotification(invoiceId, "RE-1", "Familie Klein", "klein@example.invalid", 1m, new DateTime(2026, 8, 31), "tok"),
+            new InvoiceReadyNotification(invoiceId, "RE-1", "Familie Klein", "klein@example.invalid", 1m, new DateTime(2026, 8, 31), "tok", InvoicePdf: null),
             CancellationToken.None);
         await sender.SendAngebotDecisionNotificationAsync(
             new AngebotDecisionNotification(decisionId, "ANG-3", 7, "Familie Klein", Approved: true), CancellationToken.None);
