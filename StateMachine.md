@@ -143,7 +143,7 @@ stateDiagram-v2
 
 | From | Event | Guard | To | Side Effects |
 |---|---|---|---|---|
-| `Draft` | `Send` | Invoice has a valid GrossAmount > 0 | `Sent` | PDF generated; TokenLink created; email sent |
+| `Draft` | `Send` | Invoice has a valid GrossAmount > 0; the archived document's key is given (`Invoice.Send(documentFileUrl)`, D113) | `Sent` | PDF rendered once and archived as the issued invoice (BR-15); TokenLink created; email sent with the archived PDF attached. **Since Phase 14 Slice 3a** `Invoices.Status` is an optimistic-concurrency token, so a concurrent `Send`, `MarkPaid` or `Void` against the same row is refused (409) rather than overwritten |
 | `Draft` | `Void` | Admin provides a reason | `Void` | Invoice number is retained (not reused) |
 | `Sent` | `MarkPaid` | — | `Paid` | Payment record created; Project balance recalculated |
 | `Sent` | *(scheduled check)* | `DueDate < today` and not yet Paid | `Overdue` | No customer-facing email required for v1 (dashboard flag only) |

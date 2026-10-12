@@ -151,7 +151,8 @@ public sealed class AngebotPdfTests
     [Fact]
     public void An_incomplete_company_identity_refuses_to_render_and_names_every_missing_key()
     {
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        // A configuration defect, typed so the API reports it as a 500, never a 409 (D113).
+        var error = Assert.Throws<DocumentConfigurationException>(() =>
             Render(new CompanyLegalIdentityOptions { LegalName = "Nur ein Name (Testdaten)" }));
 
         Assert.Contains("CompanyLegalIdentity:StreetAddress", error.Message, StringComparison.Ordinal);

@@ -32,8 +32,9 @@ public interface IPdfGenerator
     /// <summary>
     /// Renders an Invoice (Phase 14 Slice 2, D111). The returned bytes are a complete PDF file.
     /// Build the document with <see cref="InvoiceDocumentFactory"/>, which refuses an invoice the
-    /// document would misrepresent. No production caller exists until Slice 3 archives an invoice
-    /// at send time — deliberately, rather than an artificial one.
+    /// document would misrepresent. Its one production caller is the send handler, which renders
+    /// an invoice exactly once and archives the bytes as the issued document (Phase 14 Slice 3a,
+    /// D113, BR-15). Nothing renders an issued invoice again.
     /// </summary>
     byte[] RenderInvoice(InvoiceDocument document);
 }

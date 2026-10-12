@@ -53,6 +53,13 @@ public sealed class Invoice
     /// </summary>
     public const int MaxDescriptionLength = 500;
 
+    /// <summary>
+    /// The maximum length of <see cref="DocumentFileUrl"/>, read by the guard in <see cref="Send"/>
+    /// and the EF configuration alike — the same width as <c>InspectionPhotos.FileUrl</c>, the other
+    /// reference into the storage abstraction (Phase 14 Slice 3a, D113).
+    /// </summary>
+    public const int MaxDocumentFileUrlLength = 1000;
+
     private readonly List<Payment> _payments = [];
     private readonly List<InvoiceVatLine> _vatLines = [];
 
@@ -79,6 +86,21 @@ public sealed class Invoice
 
     /// <summary>The last day of the service period; only ever present together with a start.</summary>
     public DateOnly? ServicePeriodEnd { get; private set; }
+
+    /// <summary>
+    /// The storage key of the PDF archived when this invoice was sent (Phase 14 Slice 3a, <b>D113</b>,
+    /// BR-15). That archived file <i>is</i> the issued invoice: every later download and every email
+    /// retry serves its bytes, and it is never regenerated — not after <c>Paid</c>, not after
+    /// <c>Void</c>, and not to repair a missing file.
+    ///
+    /// <para>
+    /// Set exactly once, by <see cref="Send"/>, so every invoice sent from Slice 3a on carries one.
+    /// <c>null</c> for a <c>Draft</c>, and for an invoice sent before Slice 3a — which has no archived
+    /// document, and is never given one after the fact (no backfill). The key is internal: no DTO,
+    /// response or caller-visible message ever carries it.
+    /// </para>
+    /// </summary>
+    public string? DocumentFileUrl { get; private set; }
 
     public IReadOnlyList<Payment> Payments => _payments;
 
@@ -245,20 +267,44 @@ public sealed class Invoice
     }
 
     /// <summary>
-    /// StateMachine.md §3.3: <c>Draft → Sent</c>, guarded on "Invoice has a valid GrossAmount &gt; 0".
-    /// The token link, the email and (from Phase 14) the PDF are all the Application layer's work
-    /// afterwards — this aggregate has no knowledge of any of them, exactly as <c>Angebot.Send</c>
-    /// has none.
+    /// StateMachine.md §3.3: <c>Draft → Sent</c>, guarded on "Invoice has a valid GrossAmount &gt; 0",
+    /// and recording the storage key of the document archived for this send (Phase 14 Slice 3a,
+    /// <b>D113</b>, BR-15).
     ///
+    /// <para>
+    /// <b>Sending is issuing, and an issued invoice has an archived document.</b> The key is a
+    /// parameter so that "sent" and "archived" cannot come apart for any invoice sent from now on:
+    /// the Application layer computes the key before any I/O, this guard runs, and only then is the
+    /// PDF rendered and written (CLAUDE.md §12, the same shape as <c>Inspection.AddPhoto(fileUrl)</c>).
+    /// A rejected send therefore writes nothing. Rendering, storage, the token link and the email
+    /// stay the Application layer's work — this aggregate knows a key, never a file.
+    /// </para>
+    /// <para>
+    /// The key is validated for shape only. Whether a file exists under it is storage's concern,
+    /// which this type cannot see.
+    /// </para>
     /// <para>
     /// <b>No <c>SentAt</c> is recorded</b>, because ERD.md's <c>Invoices</c> table has no such
     /// column. <c>Angebot</c> has one and this does not; that asymmetry is the documents', and
     /// adding a column here to remove it would be inventing schema.
     /// </para>
     /// </summary>
+    /// <exception cref="ArgumentNullException">The document key is null.</exception>
+    /// <exception cref="ArgumentException">The document key is blank or too long.</exception>
     /// <exception cref="InvalidOperationException">The Invoice is not <c>Draft</c>, or its gross amount is zero.</exception>
-    public void Send()
+    public void Send(string documentFileUrl)
     {
+        ArgumentNullException.ThrowIfNull(documentFileUrl);
+
+        if (string.IsNullOrWhiteSpace(documentFileUrl))
+            throw new ArgumentException("The archived document's key is required.", nameof(documentFileUrl));
+        if (documentFileUrl.Length > MaxDocumentFileUrlLength)
+        {
+            throw new ArgumentException(
+                $"The archived document's key may be at most {MaxDocumentFileUrlLength} characters.",
+                nameof(documentFileUrl));
+        }
+
         EnsureStatus(nameof(Send), InvoiceStatus.Draft);
 
         if (GrossAmount.Amount <= 0)
@@ -267,6 +313,7 @@ public sealed class Invoice
                 $"Cannot send Invoice {Id}: its gross amount is {GrossAmount.Amount} and must be greater than zero.");
         }
 
+        DocumentFileUrl = documentFileUrl;
         Status = InvoiceStatus.Sent;
     }
 

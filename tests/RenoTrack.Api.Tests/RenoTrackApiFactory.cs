@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using RenoTrack.Api.RateLimiting;
+using RenoTrack.Infrastructure.Documents;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
 using RenoTrack.Infrastructure.Persistence;
@@ -57,6 +58,16 @@ public sealed class RenoTrackApiFactory : WebApplicationFactory<Program>, IAsync
         // Each run gets its own storage root, deleted on teardown, so uploaded files never leak
         // between runs and a test can assert on the real directory's contents.
         builder.UseSetting($"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}", StorageRoot);
+
+        // Sending an invoice renders and archives its PDF (Phase 14 Slice 3a, D113), which needs the
+        // issuing company's legal identity. Fictional, as every fixture in this repository is (D100);
+        // supplied here rather than from a machine's configuration, for the JWT settings' reason.
+        // InvoiceDocumentEndpointsTests removes it deliberately to prove the 500 classification.
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.LegalName)}", "Musterbetrieb Beispiel GmbH (Testdaten)");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.StreetAddress)}", "Teststraße 1");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.PostalCode)}", "00000");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.Locality)}", "Testort");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.TaxNumber)}", "00/000/00000");
 
         // The public rate limiter partitions by client IP, and TestServer supplies none — so every
         // test in this collection shares one bucket. At the production limit of 30/minute the public

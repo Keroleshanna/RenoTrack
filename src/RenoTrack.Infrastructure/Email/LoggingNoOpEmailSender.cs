@@ -51,7 +51,12 @@ public sealed class LoggingNoOpEmailSender(ILogger<LoggingNoOpEmailSender> logge
 
     public Task SendInvoiceReadyNotificationAsync(InvoiceReadyNotification notification, CancellationToken cancellationToken)
     {
-        LogNotSent(nameof(SendInvoiceReadyNotificationAsync), $"InvoiceId={notification.InvoiceId}, InvoiceNumber={notification.InvoiceNumber}");
+        // The attachment's size, never its bytes (D113): enough to see in development that the
+        // archived document travelled with the notification.
+        LogNotSent(
+            nameof(SendInvoiceReadyNotificationAsync),
+            $"InvoiceId={notification.InvoiceId}, InvoiceNumber={notification.InvoiceNumber}, " +
+            $"AttachmentBytes={notification.InvoicePdf?.Length ?? 0}");
         return Task.CompletedTask;
     }
 

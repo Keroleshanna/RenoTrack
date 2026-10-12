@@ -185,7 +185,7 @@ public sealed class EmailMessageFactoryTests
                 "klein@example.invalid",
                 1234.56m,
                 new DateTime(2026, 8, 31),
-                "tok-xyz789"));
+                "tok-xyz789", InvoicePdf: null));
 
         Assert.Equal("Ihre Rechnung RE-2026-00009", message.Subject);
         Assert.Equal(
@@ -214,7 +214,7 @@ public sealed class EmailMessageFactoryTests
     public void InvoiceUrl_uses_the_invoice_path_not_rechnung()
     {
         var message = CreateFactory().CreateInvoiceReady(
-            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 100m, new DateTime(2026, 8, 31), "tok"));
+            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 100m, new DateTime(2026, 8, 31), "tok", InvoicePdf: null));
 
         Assert.Contains("/invoice/tok", Body(message));
         Assert.DoesNotContain("/rechnung/", Body(message));
@@ -248,7 +248,7 @@ public sealed class EmailMessageFactoryTests
         Assert.Contains(Sentence, Body(factory.CreateAngebotChangesRequested(new AngebotChangesRequestedNotification(5, "ANG", "c", 3), "i@example.invalid")));
 
         Assert.DoesNotContain(Sentence, Body(factory.CreateAngebotReady(new AngebotReadyNotification(5, "ANG", "K", "k@example.invalid", "tok"))));
-        Assert.DoesNotContain(Sentence, Body(factory.CreateInvoiceReady(new InvoiceReadyNotification(9, "RE", "K", "k@example.invalid", 1m, new DateTime(2026, 8, 31), "tok"))));
+        Assert.DoesNotContain(Sentence, Body(factory.CreateInvoiceReady(new InvoiceReadyNotification(9, "RE", "K", "k@example.invalid", 1m, new DateTime(2026, 8, 31), "tok", InvoicePdf: null))));
     }
 
     /// <summary>S1-2 decision 4: no validity period is stated, because the record carries no ExpiresAt.</summary>
@@ -260,7 +260,7 @@ public sealed class EmailMessageFactoryTests
         foreach (var body in new[]
         {
             Body(factory.CreateAngebotReady(new AngebotReadyNotification(5, "ANG", "K", "k@example.invalid", "tok"))),
-            Body(factory.CreateInvoiceReady(new InvoiceReadyNotification(9, "RE", "K", "k@example.invalid", 1m, new DateTime(2026, 8, 31), "tok"))),
+            Body(factory.CreateInvoiceReady(new InvoiceReadyNotification(9, "RE", "K", "k@example.invalid", 1m, new DateTime(2026, 8, 31), "tok", InvoicePdf: null))),
         })
         {
             Assert.DoesNotContain("gültig", body, StringComparison.OrdinalIgnoreCase);
@@ -273,7 +273,7 @@ public sealed class EmailMessageFactoryTests
     public void InvoiceReady_carries_no_bank_details_payment_instruction_vat_rate_or_attachment()
     {
         var message = CreateFactory().CreateInvoiceReady(
-            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31), "tok"));
+            new InvoiceReadyNotification(9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31), "tok", InvoicePdf: null));
 
         var body = Body(message);
 
@@ -282,6 +282,74 @@ public sealed class EmailMessageFactoryTests
         Assert.DoesNotContain("überweis", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("MwSt", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Anhang", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(message.Attachments);
+    }
+
+    // ---- The archived invoice attached (Phase 14 Slice 3a, D113) ----------------------------
+
+    private static readonly byte[] ArchivedPdf = [0x25, 0x50, 0x44, 0x46, 0x2D, 0x00, 0xFF, 0x0A, 0x0D];
+
+    private static MimeMessage InvoiceReadyWithAttachment() =>
+        CreateFactory().CreateInvoiceReady(
+            new InvoiceReadyNotification(
+                9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31),
+                "tok-xyz789", ArchivedPdf));
+
+    [Fact]
+    public void InvoiceReady_attaches_the_archived_bytes_unchanged_as_a_pdf()
+    {
+        var message = InvoiceReadyWithAttachment();
+
+        var attachment = Assert.IsType<MimePart>(Assert.Single(message.Attachments));
+        Assert.Equal("application/pdf", attachment.ContentType.MimeType);
+        Assert.Equal(ContentEncoding.Base64, attachment.ContentTransferEncoding);
+        Assert.True(attachment.IsAttachment);
+
+        using var decoded = new MemoryStream();
+        attachment.Content!.DecodeTo(decoded);
+        Assert.Equal(ArchivedPdf, decoded.ToArray());
+    }
+
+    /// <summary>The same name the Admin's download carries (InvoiceDocumentFileName).</summary>
+    [Fact]
+    public void InvoiceReady_names_the_attachment_by_the_invoice_number()
+    {
+        var attachment = Assert.Single(InvoiceReadyWithAttachment().Attachments);
+
+        Assert.Equal("Rechnung-RE-2026-00009.pdf", attachment.ContentDisposition!.FileName);
+    }
+
+    /// <summary>
+    /// The copy is frozen (S1-2): attaching the document changes the message's structure and not one
+    /// character of its text.
+    /// </summary>
+    [Fact]
+    public void InvoiceReady_with_an_attachment_keeps_the_frozen_text_exactly()
+    {
+        var withAttachment = InvoiceReadyWithAttachment();
+        var withoutAttachment = CreateFactory().CreateInvoiceReady(
+            new InvoiceReadyNotification(
+                9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1234.56m, new DateTime(2026, 8, 31),
+                "tok-xyz789", InvoicePdf: null));
+
+        var multipart = Assert.IsType<Multipart>(withAttachment.Body);
+        Assert.Equal("mixed", multipart.ContentType.MediaSubtype);
+        var text = Assert.IsType<TextPart>(multipart[0]);
+
+        Assert.Equal(Body(withoutAttachment), Normalize(text.Text));
+        Assert.Equal(withoutAttachment.Subject, withAttachment.Subject);
+    }
+
+    /// <summary>An invoice sent before Slice 3a has no archived document: the plain link-only message.</summary>
+    [Fact]
+    public void InvoiceReady_without_a_document_is_the_plain_single_part_message()
+    {
+        var message = CreateFactory().CreateInvoiceReady(
+            new InvoiceReadyNotification(
+                9, "RE-2026-00009", "Familie Klein", "klein@example.invalid", 1m, new DateTime(2026, 8, 31),
+                "tok", InvoicePdf: null));
+
+        Assert.IsType<TextPart>(message.Body);
         Assert.Empty(message.Attachments);
     }
 

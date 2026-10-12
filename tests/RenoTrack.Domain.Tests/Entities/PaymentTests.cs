@@ -76,7 +76,7 @@ public class PaymentTests
             servicePeriodStart: null,
             servicePeriodEnd: null);
 
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         return invoice;
     }
 

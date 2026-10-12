@@ -82,7 +82,7 @@ public sealed class InvoiceRepositoryTests(RenoTrackDbContextFixture fixture)
     {
         var (projectId, adminId) = await SeedProjectAsync();
         var invoice = NewInvoice(projectId);
-        invoice.Send();
+        invoice.Send("invoices/1/archived.pdf");
         invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, adminId);
 
         await using (var writeContext = fixture.CreateContext())
@@ -118,7 +118,7 @@ public sealed class InvoiceRepositoryTests(RenoTrackDbContextFixture fixture)
         await using (var mutateContext = fixture.CreateContext())
         {
             var loaded = await new InvoiceRepository(mutateContext).GetByIdAsync(invoice.Id, CancellationToken.None);
-            loaded!.Send();
+            loaded!.Send("invoices/1/archived.pdf");
             await mutateContext.SaveChangesAsync();
         }
 
@@ -157,14 +157,14 @@ public sealed class InvoiceRepositoryTests(RenoTrackDbContextFixture fixture)
             case InvoiceStatus.Draft:
                 break;
             case InvoiceStatus.Sent:
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 break;
             case InvoiceStatus.Overdue:
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 invoice.MarkOverdue(invoice.DueDate.AddDays(1));
                 break;
             case InvoiceStatus.Paid:
-                invoice.Send();
+                invoice.Send("invoices/1/archived.pdf");
                 invoice.MarkPaid(PaymentMethod.BankTransfer, DateTime.UtcNow, adminId);
                 break;
             case InvoiceStatus.Void:

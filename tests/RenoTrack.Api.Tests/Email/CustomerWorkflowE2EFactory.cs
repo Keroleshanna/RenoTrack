@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RenoTrack.Api.RateLimiting;
+using RenoTrack.Infrastructure.Documents;
 using RenoTrack.Infrastructure.Email;
 using RenoTrack.Infrastructure.FileStorage;
 using RenoTrack.Infrastructure.Identity;
@@ -61,11 +62,11 @@ public sealed class CustomerWorkflowE2EFactory(int smtpPort)
     public RecordingLoggerProvider Logs { get; } = new();
 
     /// <summary>
-    /// Where <c>LocalDiskFileStorage</c> would write. Nothing in this workflow uploads anything, but
-    /// the option is validated at composition, so a value is required for the host to start at all.
-    /// Unique per instance and removed on teardown, like <see cref="RenoTrackApiFactory"/>'s.
+    /// Where <c>LocalDiskFileStorage</c> writes — since Phase 14 Slice 3a, the archived invoice
+    /// documents, which the invoice workflow test reads back to compare with the emailed attachment
+    /// (D113). Unique per instance and removed on teardown, like <see cref="RenoTrackApiFactory"/>'s.
     /// </summary>
-    private string StorageRoot { get; } =
+    public string StorageRoot { get; } =
         Path.Combine(Path.GetTempPath(), "RenoTrackCustomerWorkflowE2E", Guid.NewGuid().ToString("N"));
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -83,6 +84,14 @@ public sealed class CustomerWorkflowE2EFactory(int smtpPort)
         // whether anything uploads a file. Omitting it failed all four tests at startup on the first
         // CI run — the guard doing exactly its job, on a harness that had not supplied the key.
         builder.UseSetting($"{FileStorageOptions.SectionName}:{nameof(FileStorageOptions.RootPath)}", StorageRoot);
+
+        // Sending an invoice renders and archives its PDF (D113), which needs the issuing company's
+        // legal identity. Fictional, as every fixture in this repository is (D100).
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.LegalName)}", "Musterbetrieb Beispiel GmbH (Testdaten)");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.StreetAddress)}", "Teststraße 1");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.PostalCode)}", "00000");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.Locality)}", "Testort");
+        builder.UseSetting($"{CompanyLegalIdentityOptions.SectionName}:{nameof(CompanyLegalIdentityOptions.TaxNumber)}", "00/000/00000");
 
         builder.UseSetting(DatabaseInitializationOptions.ModeKey, nameof(DatabaseInitializationMode.Migrate));
         builder.UseSetting(DevelopmentBootstrapOptions.EnabledKey, "false");

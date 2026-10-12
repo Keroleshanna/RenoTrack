@@ -335,6 +335,11 @@ export interface InvoiceDto {
   readonly servicePeriodStart: string | null;
   readonly servicePeriodEnd: string | null;
   readonly vatLines: readonly InvoiceVatLineDto[];
+  /**
+   * Whether the PDF issued at send time was archived (Phase 14 Slice 3a, D113). The storage key is
+   * never sent: the file is fetched by invoice id through `GET /api/v1/invoices/{id}/document`.
+   */
+  readonly hasDocument: boolean;
 }
 
 /**
@@ -420,6 +425,11 @@ export interface ProjectInvoiceDto {
   readonly dueDate: string;
   /** Empty only on an invoice created before Phase 14 Slice 2 (D111). */
   readonly description: string;
+  /**
+   * True once the invoice was sent and its PDF archived (D113); false for a Draft and for an invoice
+   * sent before Phase 14 Slice 3a, which has no archived document and is never given one.
+   */
+  readonly hasDocument: boolean;
 }
 
 /**

@@ -74,6 +74,8 @@ describe('i18n', () => {
       // "Pos." abbreviates Position in both languages — it is the column marker on the printed
       // quote, not prose.
       'angebotDetail.position',
+      // "PDF" is a file format's name in both languages; its accessible label is translated.
+      'projectDetail.downloadPdf',
     ]);
 
     const untranslated = Object.keys(german).filter(

@@ -44,7 +44,17 @@ public sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 
         // ERD.md: status enums stored as strings for readability in raw SQL during support work.
         // Width 20, matching every other Status column in this schema (Lead, Angebot, Project).
-        builder.Property(i => i.Status).IsRequired().HasConversion<string>().HasMaxLength(20);
+        //
+        // Optimistic concurrency (Phase 14 Slice 3a, D113). Every Invoice transition is a guard that
+        // reads Status and then writes it, and an aggregate's in-memory guard sees only what its own
+        // DbContext loaded (D96) — so two concurrent sends both passed Draft and would each have
+        // archived a document. The token goes on the column the guard reads: the second writer's
+        // UPDATE matches no row, UnitOfWork reports a ConflictException (409), and the losing send
+        // removes the PDF it wrote. Concurrent Send/MarkPaid/Void races are refused the same way,
+        // an accepted and documented consequence. No schema change — a non-rowversion token is
+        // client-side WHERE-clause behaviour — but it is recorded in the model snapshot (migration #15).
+        builder.Property(i => i.Status).IsRequired().HasConversion<string>().HasMaxLength(20)
+            .IsConcurrencyToken();
 
         // All three via the established MoneyConverter at decimal(18,2), identical to
         // Angebot.NetTotal/GrossTotal and Project.AgreedTotal. A narrower scale would silently
@@ -79,6 +89,12 @@ public sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         // DateOnly maps to SQL Server's date: a service period is calendar days, not instants.
         builder.Property(i => i.ServicePeriodStart);
         builder.Property(i => i.ServicePeriodEnd);
+
+        // Phase 14 Slice 3a (D113, BR-15): the storage key of the PDF archived at send. Nullable — a
+        // Draft has none, and neither has an invoice sent before this slice (no backfill). Width is
+        // Invoice.MaxDocumentFileUrlLength, the guard Invoice.Send reads, and the same as
+        // InspectionPhotos.FileUrl, the other reference into the storage abstraction.
+        builder.Property(i => i.DocumentFileUrl).HasMaxLength(Invoice.MaxDocumentFileUrlLength);
 
         // The per-rate VAT split Invoice.Create calculates (D111). Owned, because a line has no
         // identity or meaning apart from its Invoice and nothing ever addresses one on its own; an

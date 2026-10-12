@@ -255,9 +255,10 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
 
     /// <summary>
     /// An invoice row carries E1's four columns, the id its "Mark Paid" button needs and — since
-    /// Phase 14 Slice 2 (D111) — the description that tells several invoices apart. No net or VAT
-    /// split, no issue date, no void reason, no payments. Pinned against raw JSON so a typed read
-    /// cannot ignore an added field.
+    /// Phase 14 Slice 2 (D111) — the description that tells several invoices apart, and since Slice 3a
+    /// (D113) a bare hasDocument flag. No net or VAT split, no issue date, no void reason, no
+    /// payments, and never a storage key or the customer's address: this read is Inspector-visible.
+    /// Pinned against raw JSON so a typed read cannot ignore an added field.
     /// </summary>
     [Fact]
     public async Task An_invoice_row_exposes_exactly_the_documented_fields()
@@ -272,9 +273,10 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
         var row = body.GetProperty("invoices").EnumerateArray().Single();
 
         Assert.Equal(
-            ["id", "invoiceNumber", "grossAmount", "status", "dueDate", "description"],
+            ["id", "invoiceNumber", "grossAmount", "status", "dueDate", "description", "hasDocument"],
             row.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal("Draft", row.GetProperty("status").GetString());
+        Assert.False(row.GetProperty("hasDocument").GetBoolean());
     }
 
     /// <summary>
@@ -866,8 +868,11 @@ public sealed class ProjectEndpointsTests(RenoTrackApiFactory factory)
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<RenoTrackDbContext>();
 
+        // With an address, which conversion copies to the Customer: a Project whose invoices are sent
+        // needs one on every invoice document (BR-5, D113).
         var lead = Lead.Create(
-            "Convert project lead", "0176 5550007", $"convert-{Guid.NewGuid():N}@example.com", LeadSource.Phone);
+            "Convert project lead", "0176 5550007", $"convert-{Guid.NewGuid():N}@example.com", LeadSource.Phone,
+            address: "Musterweg 1, 00000 Testort");
         context.Leads.Add(lead);
         await context.SaveChangesAsync();
 

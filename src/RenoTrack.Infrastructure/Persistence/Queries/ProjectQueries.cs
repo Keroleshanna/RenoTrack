@@ -82,7 +82,8 @@ public sealed class ProjectQueries(RenoTrackDbContext dbContext) : IProjectQueri
                 invoice.GrossAmount.Amount,
                 invoice.Status,
                 invoice.DueDate,
-                invoice.Description))
+                invoice.Description,
+                invoice.DocumentFileUrl != null))
             .ToListAsync(cancellationToken);
 
         // StateMachine.md §3.3 excludes Void from remaining-balance math and excludes nothing else,

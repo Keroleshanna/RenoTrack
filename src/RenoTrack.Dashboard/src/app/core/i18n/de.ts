@@ -537,7 +537,13 @@ export const DE = {
     send: 'Senden',
     sendInvoiceTitle: 'Rechnung an Kunden senden?',
     sendInvoiceBody:
-      'Der Kunde erhält eine E-Mail mit einem persönlichen Link zur Rechnung. Dieser Schritt kann nicht rückgängig gemacht werden.',
+      'Die Rechnung wird als PDF erstellt und archiviert. Der Kunde erhält eine E-Mail mit dem PDF im Anhang und einem persönlichen Link zur Rechnung. Die versendete Rechnung kann danach nicht mehr geändert werden.',
+    // Phase 14 Slice 3a (D113) — the archived invoice PDF.
+    sendRefused:
+      'Die Rechnung konnte nicht versendet werden. Bitte prüfen Sie, ob eine Rechnungsanschrift hinterlegt ist und die Rechnung noch nicht versendet wurde.',
+    downloadPdf: 'PDF',
+    downloadPdfLabel: 'PDF herunterladen: Rechnung',
+    documentDownloadFailed: 'Das Rechnungsdokument konnte nicht geladen werden.',
     markPaid: 'Als bezahlt buchen',
     markPaidHint: 'Es wird immer der volle Rechnungsbetrag gebucht.',
     paidAt: 'Zahlungseingang am',

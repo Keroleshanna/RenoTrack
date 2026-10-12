@@ -30,6 +30,19 @@ export interface InvoiceCapabilities {
   readonly canVoid: boolean;
 }
 
+/**
+ * Whether the archived PDF of an invoice may be downloaded (Phase 14 Slice 3a, D113).
+ *
+ * **Admin only, and here the reason is personal data rather than workflow:** the document prints the
+ * customer's address, which `PermissionMatrix.md` §5 keeps from Inspectors (D112) even though they
+ * may read the Project's invoice list. **Status does not matter** — a Paid or Void invoice's document
+ * is still exactly what was issued — only whether one was archived at all: a Draft has none, and
+ * neither has an invoice sent before Slice 3a.
+ */
+export function canDownloadInvoiceDocument(role: Role | null, hasDocument: boolean): boolean {
+  return role === 'admin' && hasDocument;
+}
+
 export function invoiceCapabilitiesFor(
   role: Role | null,
   status: InvoiceStatusDto,

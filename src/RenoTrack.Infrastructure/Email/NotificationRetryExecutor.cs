@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MimeKit;
+using RenoTrack.Application.Common.Interfaces;
 using RenoTrack.Application.Common.Notifications;
 using RenoTrack.Domain.Entities;
 using RenoTrack.Domain.Enums;
@@ -35,7 +36,8 @@ public sealed class NotificationRetryExecutor(
     RenoTrackDbContext dbContext,
     EmailMessageFactory messageFactory,
     InspectorEmailLookup inspectorEmailLookup,
-    SmtpEmailSender emailSender)
+    SmtpEmailSender emailSender,
+    IFileStorage fileStorage)
 {
     /// <summary>
     /// Decides whether this notification may be re-sent at all. Returns <see langword="null"/> when it
@@ -357,7 +359,38 @@ public sealed class NotificationRetryExecutor(
             customer.Email,
             invoice.GrossAmount.Amount,
             invoice.DueDate,
-            link.Token);
+            link.Token,
+            await ReadArchivedDocumentAsync(invoice, cancellationToken));
+    }
+
+    /// <summary>
+    /// The attachment for a retried invoice email: the document archived when it was sent, read back
+    /// byte for byte (Phase 14 Slice 3a, D113, BR-15). <b>This class has no PDF generator</b> — a retry
+    /// re-sends what was issued and can never render a second, different document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No key</b> means an invoice sent before Slice 3a: it never had an archived document and is
+    /// never given one, so its retry stays the link-only email it always was.
+    /// </para>
+    /// <para>
+    /// <b>A key whose file cannot be read</b> throws inside the delivery boundary, which records the
+    /// attempt as <c>Failed</c> with the sanitized preparation message. It never falls back to a
+    /// link-only email: that would quietly withhold the document the customer is owed.
+    /// </para>
+    /// </remarks>
+    private async Task<byte[]?> ReadArchivedDocumentAsync(Invoice invoice, CancellationToken cancellationToken)
+    {
+        if (invoice.DocumentFileUrl is null)
+        {
+            return null;
+        }
+
+        await using var archived = await fileStorage.OpenReadAsync(invoice.DocumentFileUrl, cancellationToken);
+        using var buffer = new MemoryStream();
+        await archived.CopyToAsync(buffer, cancellationToken);
+
+        return buffer.ToArray();
     }
 
     private async Task<TokenLink> RequireUsableTokenLinkAsync(

@@ -26,6 +26,16 @@ namespace RenoTrack.Infrastructure.Documents;
 /// <b>The company's legal identity is read here</b>, from configuration, and an incomplete identity
 /// is refused rather than printed around (D110).
 /// </para>
+/// <para>
+/// <b>Every failure here is a server fault, and is typed so the API reports it as one (Phase 14
+/// Slice 3a, D113).</b> An incomplete identity throws <see cref="DocumentConfigurationException"/>,
+/// and anything thrown while composing or rendering is wrapped in
+/// <see cref="DocumentRenderingException"/>. Neither derives from <see cref="InvalidOperationException"/>
+/// or <see cref="ArgumentException"/>, so neither can reach the 409/400 arms D59 reserves for Domain
+/// guards: both are unmapped 500s with no detail. Missing <em>business</em> data — a customer address,
+/// an invoice description — is refused before this class is called, by <c>InvoiceDocumentFactory</c>,
+/// as the 409 an Admin can act on.
+/// </para>
 /// </remarks>
 public sealed class MigraDocPdfGenerator(CompanyLegalIdentityOptions companyIdentity) : IPdfGenerator
 {
@@ -35,20 +45,52 @@ public sealed class MigraDocPdfGenerator(CompanyLegalIdentityOptions companyIden
     {
         ArgumentNullException.ThrowIfNull(document);
 
-        EmbeddedFontResolver.EnsureInstalled();
-
-        var pdf = BuildAngebot(document);
-        return Render(pdf);
+        EnsureCompanyIdentityIsComplete();
+        return RenderWrapped(() => BuildAngebot(document));
     }
 
     public byte[] RenderInvoice(InvoiceDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
 
-        EmbeddedFontResolver.EnsureInstalled();
+        EnsureCompanyIdentityIsComplete();
+        return RenderWrapped(() => BuildInvoice(document));
+    }
 
-        var pdf = BuildInvoice(document);
-        return Render(pdf);
+    /// <summary>
+    /// Refuses before anything is composed when the issuer's identity is incomplete. Names every
+    /// missing key and never a value (D110, D113).
+    /// </summary>
+    private void EnsureCompanyIdentityIsComplete()
+    {
+        if (!companyIdentity.IsComplete)
+        {
+            throw new DocumentConfigurationException(
+                "A document cannot be generated without the company's own legal identity. Missing configuration: "
+                + string.Join("', '", companyIdentity.MissingKeys().Select(key => $"'{key}'"))
+                + ". These are the issuing company's own facts and are never invented; supply them per deployment "
+                + "(see DEPLOYMENT_CONFIGURATION.md).");
+        }
+    }
+
+    /// <summary>
+    /// Composes and renders, converting any fault into <see cref="DocumentRenderingException"/> so a
+    /// BCL exception type thrown deep inside the library can never be mistaken for a Domain refusal
+    /// (D113). Font installation is inside the boundary too: an unresolvable font is a rendering
+    /// fault like any other.
+    /// </summary>
+    private static byte[] RenderWrapped(Func<Document> compose)
+    {
+        try
+        {
+            EmbeddedFontResolver.EnsureInstalled();
+
+            return Render(compose());
+        }
+        catch (Exception exception)
+        {
+            throw new DocumentRenderingException(exception);
+        }
     }
 
     private Document BuildAngebot(AngebotDocument document)
@@ -145,20 +187,11 @@ public sealed class MigraDocPdfGenerator(CompanyLegalIdentityOptions companyIden
     private static string FormatDate(DateOnly date) => date.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// The company block every document carries. Refuses rather than printing a document missing
-    /// what identifies its issuer.
+    /// The company block every document carries. Only reached once
+    /// <see cref="EnsureCompanyIdentityIsComplete"/> has passed, so every required value is present.
     /// </summary>
     private void AddCompanyHeader(Section section)
     {
-        if (!companyIdentity.IsComplete)
-        {
-            throw new InvalidOperationException(
-                "A document cannot be generated without the company's own legal identity. Missing configuration: "
-                + string.Join("', '", companyIdentity.MissingKeys().Select(key => $"'{key}'"))
-                + ". These are the issuing company's own facts and are never invented; supply them per deployment "
-                + "(see DEPLOYMENT_CONFIGURATION.md).");
-        }
-
         var name = section.AddParagraph(companyIdentity.LegalName!);
         name.Format.Font.Bold = true;
 

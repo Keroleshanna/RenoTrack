@@ -18,12 +18,13 @@ import { RenoTrackApi } from '../../core/api/renotrack-api';
 import { Auth } from '../../core/auth/auth';
 import { I18n } from '../../core/i18n/i18n';
 import { Dialog } from '../../shared/ui/dialog';
+import { DocumentDownload, fileNameFromContentDisposition } from '../../shared/ui/document-download';
 import { Notifier } from '../../shared/ui/notifier';
 import { ErrorState, Skeleton } from '../../shared/ui/state-panels';
 import { StatusChip } from '../../shared/ui/status-chip';
 import { customerAddressValidator, toCorrectCustomerAddressRequest } from './customer-address-form';
 import { customerCapabilitiesFor } from './customer-capabilities';
-import { invoiceCapabilitiesFor } from './invoice-capabilities';
+import { canDownloadInvoiceDocument, invoiceCapabilitiesFor } from './invoice-capabilities';
 import {
   invoiceDescriptionValidator,
   servicePeriodValidator,
@@ -56,6 +57,14 @@ import {
  * behalf (D72). No warning pre-empts the invoice document's own refusal (CLAUDE.md §23): the panel
  * shows what is on file, and says so when nothing is.
  *
+ * ## The issued invoice is a file, and only Verwaltung fetches it (Phase 14 Slice 3a, D113)
+ *
+ * Sending an invoice archives its PDF; that archive is what the row's "PDF" button downloads, for any
+ * status that has one — Paid and Void included, since the document is still what was issued. Admin
+ * only, because it prints the customer's address. A refused send (a missing billing address, an
+ * invoice already sent) closes its confirmation and says what to check; the screen never pre-checks
+ * the address itself (CLAUDE.md §23).
+ *
  * ## BR-3 warns; it does not block
  *
  * A negative `remaining` is over-invoicing, and it is shown as a warning rather than prevented: the
@@ -81,6 +90,7 @@ import {
 export class ProjectDetailPage {
   private readonly api = inject(RenoTrackApi);
   private readonly auth = inject(Auth);
+  private readonly documentDownload = inject(DocumentDownload);
   private readonly i18n = inject(I18n);
   private readonly notifier = inject(Notifier);
   private readonly route = inject(ActivatedRoute);
@@ -139,6 +149,9 @@ export class ProjectDetailPage {
   protected readonly holdDialogOpen = signal(false);
   protected readonly resumeDialogOpen = signal(false);
   protected readonly addressDialogOpen = signal(false);
+
+  /** The invoice whose PDF is being fetched, so only that row's button shows it is busy. */
+  protected readonly downloadingInvoiceId = signal<number | null>(null);
 
   // One free-text value, required and never cleared (D112); its own line breaks are printed as written.
   protected readonly addressForm = new FormGroup({
@@ -287,6 +300,10 @@ export class ProjectDetailPage {
     return invoiceCapabilitiesFor(this.auth.role(), invoice.status).canVoid;
   }
 
+  protected canDownloadDocument(invoice: ProjectInvoiceDto): boolean {
+    return canDownloadInvoiceDocument(this.auth.role(), invoice.hasDocument);
+  }
+
   // ---- Invoice workflow --------------------------------------------------------------------------
 
   protected openInvoiceDialog(): void {
@@ -327,9 +344,65 @@ export class ProjectDetailPage {
       return;
     }
 
-    this.perform(this.api.sendInvoice(invoice.id), this.t().projectDetail.invoiceSent, () =>
-      this.sendingInvoice.set(null),
-    );
+    this.busy.set(true);
+
+    this.api.sendInvoice(invoice.id).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.sendingInvoice.set(null);
+        this.notifier.success(this.t().projectDetail.invoiceSent);
+        this.reload();
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        // A refusal is terminal for this click: the confirmation closes rather than sitting over the
+        // message that explains it (CLAUDE.md §23). A 409 here is most often a missing billing
+        // address, which the server refuses before anything is issued (D113).
+        this.sendingInvoice.set(null);
+        this.notifier.error(
+          error instanceof ApiError && error.kind === 'conflict'
+            ? this.t().projectDetail.sendRefused
+            : this.messageFor(error),
+        );
+        this.reload();
+      },
+    });
+  }
+
+  /**
+   * Downloads the archived PDF (D113). The file name is the server's, from `Content-Disposition`;
+   * the fallback only covers a header the browser could not read.
+   */
+  protected downloadDocument(invoice: ProjectInvoiceDto): void {
+    this.downloadingInvoiceId.set(invoice.id);
+
+    this.api.invoiceDocument(invoice.id).subscribe({
+      next: (response) => {
+        this.downloadingInvoiceId.set(null);
+
+        if (!response.body) {
+          this.notifier.error(this.t().projectDetail.documentDownloadFailed);
+          return;
+        }
+
+        this.documentDownload.save(
+          response.body,
+          fileNameFromContentDisposition(
+            response.headers.get('Content-Disposition'),
+            `Rechnung-${invoice.invoiceNumber}.pdf`,
+          ),
+        );
+      },
+      error: (error: unknown) => {
+        this.downloadingInvoiceId.set(null);
+        const kind = error instanceof ApiError ? error.kind : 'server';
+        this.notifier.error(
+          kind === 'server' || kind === 'conflict' || kind === 'notFound'
+            ? this.t().projectDetail.documentDownloadFailed
+            : this.messageFor(error),
+        );
+      },
+    });
   }
 
   protected openPayment(invoice: ProjectInvoiceDto): void {

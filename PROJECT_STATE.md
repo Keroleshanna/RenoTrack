@@ -1,5 +1,41 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-04 — Phase 14 Slice 3a (the archived invoice PDF, D113, BR-15): implemented, tested, QA'd and reviewed on `feature/phase-14-slice-3a-invoice-archive`, branched from `main` at `fd9e52b` (PR #35).** Whether it has since been merged, and at which commit, is not recorded here — **verify the actual `origin/main` and the Slice 3a PR before relying on this entry.** Slice 3 was split by decision: 3a here; **3b — the customer's `/invoice/{token}` page and token-based PDF download — is the next slice, in its own chat.**
+>
+> **What it does (approved before implementation, with one correction):**
+> - **Sending an invoice issues it as a PDF, once.** The send handler computes a storage key (`invoices/{id}/{guid}.pdf`), `Invoice.Send(key)` guards and records it, the document is assembled and rendered, the file is written **before** one `SaveChangesAsync` for the Invoice and its token link, and the customer's email carries **the same bytes** as an attachment. The commit is not cancellable by the request, and **only a lost concurrency race (a provable rollback) removes the written file** — any other commit failure keeps it, because the row may have committed (found and fixed in the pre-commit code review, D113).
+> - **The archive is the issued invoice and is never regenerated (BR-15)** — not after Paid or Void, not after an address correction, not to repair a missing file. Invoices sent before 3a have none and get none.
+> - **Admin-only download** `GET /api/v1/invoices/{id}/document` (Inspector: empty-body 403, because the document prints the customer's address); `hasDocument` on `InvoiceDto`/`ProjectInvoiceDto`, never the key.
+> - **Email retry reads the archive**, never renders; a missing file is a recorded failure, never a silent link-only email.
+> - **`Invoices.Status` is a concurrency token**: a losing concurrent send is a 409 and its PDF is removed; Send/Paid/Void races are 409 too (accepted).
+> - **Errors separated by cause:** missing address/description/VAT lines ⇒ 409; missing `CompanyLegalIdentity` ⇒ `DocumentConfigurationException` ⇒ **500**; any rendering fault ⇒ `DocumentRenderingException` ⇒ **500** — no detail in the body.
+> - **Migration #15** `AddInvoiceDocumentFileUrl`: one nullable column; the token is snapshot-only.
+> - **Dashboard:** an Admin "PDF" button per archived invoice, the send dialog saying the PDF is archived and attached, and a refused send that closes its dialog and names the likely cause.
+> - **Transitional, by decision:** the emailed `/invoice/{token}` link still points at a Website page that does not exist until 3b; the attachment carries the document meanwhile.
+>
+> **Tests, measured locally from clean builds** (baselines are the PR #34 CI figures): Domain 442 → **455** (+13), Application 552 → **588** (+36), Infrastructure 424 → **453** (+29, LocalDB), Api 517 → **535** (+18, LocalDB), Documents 23 → **27** (+4 — **ran locally this time**; the Application Control block is intermittent, and the documented `--no-incremental` rebuild cleared it), Website **1,136** and MediaPrep **20** unchanged — **3,214, all passing** (+100). 0 warnings, 0 errors. Migrations: **15**, no pending model changes. Dashboard: 108 → **124** specs (+16), lint clean, build 393.60 kB. Local runs hit the Application Control block several times (0x800711C7); each was cleared by the documented rebuild and rerun, and no blocked run was counted.
+>
+> **Concurrency:** a staged race through the real handler, LocalDB, disk and renderer — both sends held after their write until both had written — passed in five consecutive runs of 15 races each: one winner, one 409, one archived file, one token link every time.
+>
+> **Adversarial verification — 17 mutations, each caught and restored byte-identical (SHA-256 checked):** writing after the commit; no cleanup after a lost race (caught by the Application tests and, separately, by the real race on LocalDB and disk); cleanup after *any* commit failure; the commit taking the request's cancellation token; a fresh render as the attachment; no Status token; an anonymous download; `hasDocument` always true; the file name taken from the key; the configuration error as an `InvalidOperationException`; no rendering wrap; `Send` dropping the key; a missing-file error leaking its path; a link-only retry fallback; no partial-write cleanup; a Draft download not refused; and the Dashboard capability ignoring the role. One first attempt (the Draft-download mutation) did not compile and was rewritten before it counted.
+>
+> **Browser QA** against a separate, freshly migrated database (**`RenoTrack_Slice3aQA`**), seeded through the real API (a phone Lead with no address, a 7 % + 19 % Angebot through review, customer approval by token, conversion, invoices):
+> - **Refused send:** with no billing address, both sends answered 409; the dialog closed with the new message; the invoices stayed Draft with no key, no token link and no file.
+> - **Send and archive:** after adding a two-line address, the send succeeded and one PDF was archived. It printed the fictional company identity, the address as entered and the per-rate split. The no-op sender logged `AttachmentBytes` equal to the file's size.
+> - **Download:** the PDF button appeared with an accessible label naming the invoice and saved `Rechnung-RE-2026-00001.pdf`. The API served `application/pdf`, `attachment`, `no-store` and `nosniff`, byte-identical to the file on disk. An Inspector got an empty 403, a Draft 409, anonymous 401.
+> - **After void and correction:** voiding the invoice and correcting the address left it downloadable and byte-identical, still one file. A Draft sent afterwards printed the corrected address.
+> - **Language and layout:** the English strings and the send dialog read correctly. At 375 px the page does not overflow and the table scrolls inside its wrapper.
+> - **Inspector view:** every invoice row, with no PDF button, no actions and no billing panel. Their only request was `GET /projects/1`: no customer read and no document fetch.
+> - **Logs:** the storage key appeared in no API log line.
+>
+> No defect was found in QA.
+>
+> **Environment:** the LocalDB databases **`RenoTrack_Slice3aQA`** (this slice) and **`RenoTrack_Slice2bQA`** (2b) both hold QA data only; ask before dropping either. The worktree's gitignored `appsettings.Development.json` points at the 3a QA database.
+>
+> **Next:** publishing 3a (commit, push, PR, merge) needs the Product Owner's permission for each step, and the merge waits for every CI check to pass, including the Documents job. Once it is merged, start **Slice 3b** in a new chat, from a freshly fetched `origin/main`.
+
+> *History — the entry below is the state before Slice 3a.*
+
 > **2026-10-04 — Phase 14 Slice 2b (customer address correction, D112) is MERGED and VERIFIED. `origin/main` is authoritative at `a87d7a57864dc805808df1a0f4339c9737b90b2c` (PR #34, a true merge commit); the slice's head commit is `62c749aabd743a4f838dcdb00d328c23cdb47096`. No later slice has started.**
 >
 > **Tests, measured in CI on PR #34 — 3,114 passing, 0 failing:** Domain **442**, Application **552**, Infrastructure **424** (LocalDB), Api **517** (LocalDB), Website **1,136**, MediaPrep **20**, **Documents 23/23** — the PDF tests that cannot run on the development machine ran and passed in CI's Linux job, which closes 2b's last open verification. Build 0 warnings, 0 errors. Migrations: **14**, no pending model changes (2b added none). **Dashboard: 108 specs, lint clean and build succeeding — measured locally**, since CI does not build or test the Dashboard.
