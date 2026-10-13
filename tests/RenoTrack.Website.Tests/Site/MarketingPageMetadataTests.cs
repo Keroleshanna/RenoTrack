@@ -55,6 +55,8 @@ public sealed class MarketingPageMetadataTests(MarketingSiteFixture site) : ICla
         // "" is the homepage at "/" (Slice 3, D104); the services overview and service page follow (Slice 4, D105).
         Assert.Equal(new[] { "", "datenschutz", "impressum", "leistungen", "leistungen/{slug}", "nicht-gefunden" }, marked);
         Assert.Equal(0, MarkersOn(Route(endpoints, "/angebot/{token}")));
+        Assert.Equal(0, MarkersOn(Route(endpoints, "/invoice/{token}")));
+        Assert.Equal(0, MarkersOn(Route(endpoints, "/invoice/{token}/pdf")));
         Assert.All(
             endpoints.Where(endpoint => endpoint.RoutePattern.Parameters.Any(parameter => parameter.Name == "token")),
             endpoint => Assert.Equal(0, MarkersOn(endpoint)));
@@ -125,6 +127,28 @@ public sealed class MarketingPageMetadataTests(MarketingSiteFixture site) : ICla
         Assert.Contains("customer-header", html, StringComparison.Ordinal);
         Assert.DoesNotContain("site-skip-link", html, StringComparison.Ordinal);
         Assert.DoesNotContain("/css/marketing.", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The invoice token routes (Phase 14 Slice 3b, D114) are untouched by an enabled marketing site,
+    /// exactly as the Angebot page is: no marketing CSP or layout, and the token-route headers, on the
+    /// page and on the PDF alike.
+    /// </summary>
+    [Theory]
+    [InlineData("/invoice/" + Token)]
+    [InlineData("/invoice/" + Token + "/pdf")]
+    public async Task The_invoice_token_routes_keep_their_own_headers_with_the_site_enabled(string url)
+    {
+        using var client = site.Client();
+
+        using var response = await client.GetAsync(url);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(response.Headers.Contains("Content-Security-Policy"));
+        Assert.False(response.Headers.Contains("Permissions-Policy"));
+        Assert.Equal("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
+        Assert.Contains("noindex", response.Headers.GetValues("X-Robots-Tag").Single(), StringComparison.Ordinal);
+        Assert.Contains("no-store", string.Join(",", response.Headers.GetValues("Cache-Control")), StringComparison.Ordinal);
     }
 
     [Fact]

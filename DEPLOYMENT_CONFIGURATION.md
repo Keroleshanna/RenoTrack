@@ -120,7 +120,7 @@ The company's content is a **content pack**: a directory outside the application
 | `Jwt:*` | `Issuer`, `Audience`, `SigningKey` (minimum length enforced); `AccessTokenMinutes`/`RefreshTokenDays` have defaults | Fails startup naming the key at fault. **`SigningKey` is never committed.** |
 | `Database:Mode` | `Verify` (default) or `Migrate` | `Migrate` is **hard-refused in Production**. Migrations are applied by an explicit deployment step. |
 | `TokenLink:PublicBaseUrl` | The **Website's** origin, not the API's — this is what the customer's emailed link points at | Fails startup **when `Email:Enabled` is true**; absolute HTTPS. With email disabled it is not required, because nothing composes a link. |
-| `TokenLink:LifetimeDays` | SRS FR-6.4 | Has a default |
+| `TokenLink:LifetimeDays` | SRS FR-6.4. Applies to Angebot **and invoice** links alike | Committed as 30 in the API's `appsettings.json`; there is no compiled-in fallback, so an absent or zero value fails startup naming the key. **An invoice link cannot be re-issued** (D99 covers Angebote only), so after this many days the customer's `/invoice/{token}` page and its PDF answer 410, and the page directs the customer to the company. Phase 14 Slice 3b (D114) left this lifetime unchanged; whether invoice links need longer, or a re-issue, is recorded in `NEXT_STEPS.md` §8g |
 | `Email:Enabled` | Stated explicitly, so deployed behaviour is visible in a tracked file | `false` ⇒ `LoggingNoOpEmailSender`, and no email configuration is required |
 | `Email:*` when enabled | `Host`, `Port`, `SecurityMode`, `FromAddress`, `FromDisplayName`, `AdminRecipients` (≥1). Optional: `ReplyToAddress`; `Username`+`Password` together or not at all | Fails startup |
 | *(no key)* — **time-zone data for `Europe/Berlin`** | Not configuration: the operating system's time-zone database. Invoice dates and invoice-number years are read in that zone, fixed by decision (D111 Part 6) | **Fails startup**, naming the zone. Windows has it; on Linux install `tzdata` — some minimal container images ship without it |
@@ -134,7 +134,7 @@ The company's content is a **content pack**: a directory outside the application
 
 ## 4. Two settings that are safe by default and wrong by omission
 
-**`TrustedForwarders` is empty in every committed configuration**, so both applications partition rate limits and log addresses by the immediate peer. That is the safe default and never *wrong* — only less precise. But a real deployment behind a reverse proxy **must** name it, or every customer shares one rate-limit bucket.
+**`TrustedForwarders` is empty in every committed configuration**, so both applications partition rate limits and log addresses by the immediate peer. Since Phase 14 Slice 3b the customer's invoice page and its PDF download (two API calls) share the public bucket with the Angebot pages (D114). That is the safe default and never *wrong* — only less precise. But a real deployment behind a reverse proxy **must** name it, or every customer shares one rate-limit bucket.
 
 - `KnownNetworks` entries must be the **canonical** network address for their prefix: `10.0.0.1/8` is refused at startup rather than silently widened to `10.0.0.0/8`. To trust a single host use `KnownProxies`.
 - `0.0.0.0/0` **would be accepted** — it is canonical — and would trust every address on the internet. Nothing rejects it; an operator must not write it.
@@ -143,14 +143,14 @@ The company's content is a **content pack**: a directory outside the application
 
 ## 4a. Logging — what configuration may and may not change (D101)
 
-Both applications serve URLs whose path **is** a customer credential (`/angebot/{token}`, `/api/v1/public/angebote/{token}`). Logging configuration is therefore part of the security boundary, and only some of it is enforced in code.
+Both applications serve URLs whose path **is** a customer credential (`/angebot/{token}`, `/api/v1/public/angebote/{token}`, and since Phase 14 Slice 3b `/invoice/{token}`, `/invoice/{token}/pdf`, `/api/v1/public/invoices/{token}` and `.../document`, D114). Logging configuration is therefore part of the security boundary, and only some of it is enforced in code.
 
 | Concern | Enforced by | What an operator may change |
 |---|---|---|
 | ASP.NET's per-request `RequestPath` scope | **Code.** `HostingRequestScopeSuppression` turns `Microsoft.AspNetCore.Hosting.Diagnostics` off for every provider, after configuration is read | Nothing. No configuration value re-enables it, and none should be attempted: it is the scope that wrote tokens into the Windows Application event log |
 | Request trace ids (`TraceId`/`SpanId`) | **Code.** `RequestActivityTracing` | Nothing needed. Scope-writing sinks (EventLog, JSON console with scopes, OpenTelemetry) are safe for this scope now and carry ids, not paths |
 | Everything else under `Microsoft.AspNetCore` | **Configuration only** | Keep at **`Warning` or quieter**. At `Information`, MVC logs `redirecting to /angebot/<token>` after every customer decision |
-| Website → API HTTP client | **Code.** `RemoveAllLoggers()` on the typed client, and `System.Net.Http.HttpClient: Warning` as defence in depth | Nothing |
+| Website → API HTTP clients | **Code.** `RemoveAllLoggers()`, applied to **both** typed clients (Angebot and, since Phase 14 Slice 3b, invoice) by the one registration helper `PublicApiClientRegistration`, and `System.Net.Http.HttpClient: Warning` as defence in depth | Nothing |
 
 - **`RequestId` does not appear in logs.** It lived only in the suppressed scope. Correlate on **`TraceId`**. For API errors, the ProblemDetails `traceId` is `00-<TraceId>-<SpanId>-00`.
 - **Trace ids are caller-controlled.** An inbound `traceparent` header is honoured, so a client can choose the `TraceId` its requests are logged under. Treat trace ids as untrusted correlation metadata: never as an identity, never in an authorization, rate-limit, audit or deduplication decision.

@@ -102,6 +102,28 @@ public sealed class PublicRateLimitEndpointTests(RenoTrackApiFactory factory)
     }
 
     /// <summary>
+    /// Phase 14 Slice 3b (D114): the invoice document download is in the same policy and the same
+    /// bucket as the invoice read. A caller cannot spend the read allowance and then keep
+    /// downloading, and the document cannot be fetched from a route outside the limiter.
+    /// </summary>
+    [Fact]
+    public async Task The_invoice_read_and_its_document_download_consume_the_same_allowance()
+    {
+        using var throttled = ThrottledFactory();
+        using var client = throttled.Value.CreateClient();
+        for (var i = 0; i < TestPermitLimit; i++)
+        {
+            Assert.Equal(
+                HttpStatusCode.NotFound,
+                (await client.GetAsync($"/api/v1/public/invoices/unknown-token-{i}")).StatusCode);
+        }
+
+        var download = await client.GetAsync("/api/v1/public/invoices/some-token/document");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, download.StatusCode);
+    }
+
+    /// <summary>
     /// CLAUDE.md §22: every error leaves this API as RFC 7807, and a 429 is no exception — it is
     /// written through IProblemDetailsService rather than hand-rolled, which is also what puts
     /// traceId on it.

@@ -30,11 +30,29 @@ namespace RenoTrack.Website.Tests;
 /// </remarks>
 internal static partial class TokenExposure
 {
+    /// <summary>The Angebot flow's own routes (Phase 11).</summary>
+    internal const string AngebotRoutes = "/angebot/";
+
+    /// <summary>The invoice flow's own routes: the page and its PDF (Phase 14 Slice 3b, D114).</summary>
+    internal const string InvoiceRoutes = "/invoice/";
+
     /// <summary>
     /// Asserts <paramref name="token"/> appears nowhere in <paramref name="html"/> except inside the
     /// <c>href</c> of a same-origin link under <c>/angebot/</c>.
     /// </summary>
-    internal static void AssertOnlyInSameOriginLinks(string html, string token)
+    internal static void AssertOnlyInSameOriginLinks(string html, string token) =>
+        AssertOnlyInSameOriginLinks(html, token, AngebotRoutes);
+
+    /// <summary>
+    /// Asserts <paramref name="token"/> appears nowhere in <paramref name="html"/> except inside the
+    /// <c>href</c> of a same-origin link under <paramref name="allowedRoutePrefix"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>One prefix per flow, never both</b> (D114). An invoice page may link only within the invoice
+    /// flow, and an Angebot page only within the Angebot flow. A token in a link to the other flow
+    /// would be a link no design calls for.
+    /// </remarks>
+    internal static void AssertOnlyInSameOriginLinks(string html, string token, string allowedRoutePrefix)
     {
         // Visible text: everything outside a tag. The customer must never be able to read, select
         // or copy the credential out of the page body.
@@ -61,7 +79,7 @@ internal static partial class TokenExposure
             }
 
             Assert.Equal("href", occurrence.Groups[1].Value.ToLowerInvariant());
-            Assert.StartsWith("/angebot/", occurrence.Groups[2].Value, StringComparison.Ordinal);
+            Assert.StartsWith(allowedRoutePrefix, occurrence.Groups[2].Value, StringComparison.Ordinal);
         }
     }
 

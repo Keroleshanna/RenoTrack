@@ -37,6 +37,7 @@ using RenoTrack.Application.Invoices.Queries.GetInvoiceDocument;
 using RenoTrack.Application.Invoices.Queries.GetInvoices;
 using RenoTrack.Application.Invoices.Queries.GetReceivables;
 using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
+using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceDocumentByToken;
 using RenoTrack.Application.Invoices.Dtos;
 using RenoTrack.Application.Projects.Commands.CompleteProject;
 using RenoTrack.Application.Projects.Commands.ConvertAngebotToProject;
@@ -194,6 +195,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<VoidInvoiceCommand>, VoidInvoiceCommandValidator>();
         services.AddScoped<IValidator<GetPublicInvoiceByTokenQuery>, GetPublicInvoiceByTokenQueryValidator>();
         services.AddScoped<IValidator<GetInvoiceDocumentQuery>, GetInvoiceDocumentQueryValidator>();
+        services.AddScoped<IValidator<GetPublicInvoiceDocumentByTokenQuery>, GetPublicInvoiceDocumentByTokenQueryValidator>();
     }
 
     /// <summary>
@@ -289,6 +291,9 @@ public static class DependencyInjection
         // The Admin's download of an issued invoice's archived PDF (Phase 14 Slice 3a, D113).
         services.AddScoped<IQueryHandler<GetInvoiceDocumentQuery, InvoiceDocumentFile>, GetInvoiceDocumentQueryHandler>();
         services.AddScoped<IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto>, GetPublicInvoiceByTokenQueryHandler>();
+
+        // The customer's download of the same archive through their token link (Phase 14 Slice 3b, D114).
+        services.AddScoped<IQueryHandler<GetPublicInvoiceDocumentByTokenQuery, InvoiceDocumentFile>, GetPublicInvoiceDocumentByTokenQueryHandler>();
     }
 
     /// <summary>

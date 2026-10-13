@@ -43,6 +43,17 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
     /// </summary>
     public List<(string Token, CustomerDecisionChoice Choice, string? Reason)> RecordedDecisions { get; } = [];
 
+    /// <summary>What the stubbed invoice read returns (Phase 14 Slice 3b). Set per test.</summary>
+    public CustomerInvoiceResult InvoiceResult { get; set; } =
+        CustomerInvoiceResult.Available(CustomerInvoiceBuilder.Open());
+
+    /// <summary>What the stubbed invoice document download returns. Set per test.</summary>
+    public CustomerInvoiceDocumentResult InvoiceDocumentResult { get; set; } =
+        CustomerInvoiceDocumentResult.Available(CustomerInvoiceBuilder.Document());
+
+    /// <summary>Every token the Website asked the API about on the invoice surface, read or download.</summary>
+    public List<string> RequestedInvoiceTokens { get; } = [];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Never Development: the customer surface must be tested as it will actually be served, and
@@ -61,7 +72,27 @@ public sealed class CustomerWebsiteFactory : WebApplicationFactory<Program>
             // so no test can accidentally reach a real socket.
             services.RemoveAll<IPublicAngebotClient>();
             services.AddSingleton<IPublicAngebotClient>(new StubPublicAngebotClient(this));
+
+            // The invoice surface's client likewise (Phase 14 Slice 3b). Its HTTP mapping is covered
+            // against a stub transport by PublicInvoiceClientTests.
+            services.RemoveAll<IPublicInvoiceClient>();
+            services.AddSingleton<IPublicInvoiceClient>(new StubPublicInvoiceClient(this));
         });
+    }
+
+    private sealed class StubPublicInvoiceClient(CustomerWebsiteFactory owner) : IPublicInvoiceClient
+    {
+        public Task<CustomerInvoiceResult> GetInvoiceAsync(string token, CancellationToken cancellationToken)
+        {
+            owner.RequestedInvoiceTokens.Add(token);
+            return Task.FromResult(owner.InvoiceResult);
+        }
+
+        public Task<CustomerInvoiceDocumentResult> GetInvoiceDocumentAsync(string token, CancellationToken cancellationToken)
+        {
+            owner.RequestedInvoiceTokens.Add(token);
+            return Task.FromResult(owner.InvoiceDocumentResult);
+        }
     }
 
     private sealed class StubPublicAngebotClient(CustomerWebsiteFactory owner) : IPublicAngebotClient

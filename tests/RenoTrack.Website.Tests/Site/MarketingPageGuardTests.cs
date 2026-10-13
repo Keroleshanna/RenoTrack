@@ -21,6 +21,8 @@ public sealed class MarketingPageGuardTests
     [Theory]
     [InlineData("/angebot/{token}")]
     [InlineData("/angebot/{token}/entscheidung/{choice}")]
+    [InlineData("/invoice/{token}")]
+    [InlineData("/invoice/{token}/pdf")]
     [InlineData("/rechnung/{Token}")]
     [InlineData("/x/{TOKEN:minlength(10)}")]
     public void Marketing_metadata_on_a_route_with_a_token_parameter_fails_startup_naming_the_route(string pattern)
@@ -48,6 +50,9 @@ public sealed class MarketingPageGuardTests
     [InlineData("/Angebot")]
     [InlineData("/AngebotDecision")]
     [InlineData("/angebot")]
+    [InlineData("/Invoice")]
+    [InlineData("/InvoicePdf")]
+    [InlineData("/invoice")]
     public void The_convention_refuses_a_customer_token_page(string pagePath)
     {
         var error = Assert.Throws<InvalidOperationException>(() =>
@@ -60,6 +65,7 @@ public sealed class MarketingPageGuardTests
     public void The_marketing_page_list_contains_no_token_page()
     {
         Assert.DoesNotContain(MarketingPageConvention.PagePaths, path => path.StartsWith("/Angebot", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(MarketingPageConvention.PagePaths, path => path.StartsWith("/Invoice", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(
             new[] { "/Impressum", "/Datenschutz", "/NichtGefunden", "/Startseite", "/Leistungen", "/Leistung" },
             MarketingPageConvention.PagePaths);

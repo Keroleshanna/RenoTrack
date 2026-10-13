@@ -54,6 +54,8 @@ public sealed partial class TokenLoggingTests
     private const string DocumentUrl = $"/angebot/{Token}";
     private const string ApproveUrl = $"/angebot/{Token}/entscheidung/annehmen";
     private const string RejectUrl = $"/angebot/{Token}/entscheidung/ablehnen";
+    private const string InvoiceUrl = $"/invoice/{Token}";
+    private const string InvoicePdfUrl = $"/invoice/{Token}/pdf";
 
     /// <summary>
     /// A provider-specific rule for the capturing provider, written against the category that decides
@@ -89,6 +91,19 @@ public sealed partial class TokenLoggingTests
         "decision: already decided (409)",
         "decision: unavailable (500)",
         "decision: transport failure",
+        "invoice view: available",
+        "invoice view: not found (404)",
+        "invoice view: expired (410)",
+        "invoice view: unavailable (503)",
+        "invoice view: unreadable 200",
+        "invoice view: transport failure",
+        "invoice pdf: available",
+        "invoice pdf: not found (404)",
+        "invoice pdf: expired (410)",
+        "invoice pdf: no document (409)",
+        "invoice pdf: unavailable (500)",
+        "invoice pdf: not a pdf",
+        "invoice pdf: transport failure",
     ];
 
     [Theory]
@@ -131,6 +146,35 @@ public sealed partial class TokenLoggingTests
         Assert.Contains(
             logs,
             entry => entry.Level >= LogLevel.Warning && entry.Category == typeof(PublicAngebotClient).FullName);
+    }
+
+    /// <summary>
+    /// The invoice surface's failure paths log inside the request too (Phase 14 Slice 3b), with trace
+    /// correlation and no token or request path. Without this the invoice scenarios above could pass
+    /// because nothing was written.
+    /// </summary>
+    [Theory]
+    [InlineData("invoice view: unavailable (503)")]
+    [InlineData("invoice view: transport failure")]
+    [InlineData("invoice pdf: unavailable (500)")]
+    [InlineData("invoice pdf: not a pdf")]
+    [InlineData("invoice pdf: transport failure")]
+    public async Task The_invoice_failure_paths_log_inside_the_request_without_the_token(string scenario)
+    {
+        var observed = await DriveAsync(scenario, Verbose);
+
+        var inRequest = observed.Logs
+            .Where(entry => entry.Level >= LogLevel.Warning && entry.Category == typeof(PublicInvoiceClient).FullName)
+            .ToList();
+        Assert.NotEmpty(inRequest);
+
+        foreach (var entry in inRequest)
+        {
+            Assert.Matches(TraceIdPattern(), entry.ScopeValue("TraceId") ?? string.Empty);
+        }
+
+        Assert.DoesNotContain(observed.Logs, entry => entry.HasScopeKey("RequestPath"));
+        Assert.DoesNotContain(observed.Logs, entry => entry.ScopesContain(Token) || entry.RecordedPartsContain(Token));
     }
 
     /// <summary>
@@ -282,6 +326,14 @@ public sealed partial class TokenLoggingTests
             var reason = scenario.Contains("reason", StringComparison.Ordinal) ? "Zu teuer für uns" : null;
             await PostConfirmationAsync(client, url, reason);
         }
+        else if (scenario.StartsWith("invoice view:", StringComparison.Ordinal))
+        {
+            using var response = await client.GetAsync(InvoiceUrl);
+        }
+        else if (scenario.StartsWith("invoice pdf:", StringComparison.Ordinal))
+        {
+            using var response = await client.GetAsync(InvoicePdfUrl);
+        }
         else
         {
             using var response = await client.GetAsync(DocumentUrl);
@@ -318,6 +370,17 @@ public sealed partial class TokenLoggingTests
                 request => request.Method == HttpMethod.Post
                     ? throw new HttpRequestException("Connection refused.")
                     : Document(),
+            "invoice view: available" => _ => Json(HttpStatusCode.OK, CustomerInvoiceBuilder.Json()),
+            "invoice view: not found (404)" or "invoice pdf: not found (404)" => _ => Json(HttpStatusCode.NotFound, "{}"),
+            "invoice view: expired (410)" or "invoice pdf: expired (410)" => _ => Json(HttpStatusCode.Gone, "{}"),
+            "invoice view: unavailable (503)" => _ => Json(HttpStatusCode.ServiceUnavailable, "{}"),
+            "invoice view: unreadable 200" => _ => Json(HttpStatusCode.OK, "{}"),
+            "invoice view: transport failure" or "invoice pdf: transport failure" =>
+                _ => throw new HttpRequestException("Connection refused."),
+            "invoice pdf: available" => _ => Pdf(),
+            "invoice pdf: no document (409)" => _ => Json(HttpStatusCode.Conflict, "{}"),
+            "invoice pdf: unavailable (500)" => _ => Json(HttpStatusCode.InternalServerError, "{}"),
+            "invoice pdf: not a pdf" => _ => Json(HttpStatusCode.OK, "{}"),
             _ => throw new ArgumentOutOfRangeException(nameof(scenario), scenario, "Unknown scenario."),
         };
     }
@@ -336,6 +399,17 @@ public sealed partial class TokenLoggingTests
 
     private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    private static HttpResponseMessage Pdf()
+    {
+        var content = new ByteArrayContent(CustomerInvoiceBuilder.PdfBytes);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+        content.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("attachment")
+        {
+            FileName = $"Rechnung-{CustomerInvoiceBuilder.Number}.pdf",
+        };
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+    }
 
     /// <summary>GET the confirmation, take its antiforgery token, POST it back — as a browser does.</summary>
     private static async Task PostConfirmationAsync(HttpClient client, string url, string? reason)

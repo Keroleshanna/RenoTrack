@@ -84,4 +84,16 @@ public static class CustomerFormatting
     /// <summary>The section heading's number, e.g. <c>Pos. 2</c>.</summary>
     public static string SectionNumber(int sectionIndex) =>
         FormattableString.Invariant($"{sectionIndex + 1}");
+
+    /// <summary>
+    /// A calendar date in German form: <c>15.09.2026</c>. Added for the invoice's due date (Phase 14
+    /// Slice 3b).
+    /// </summary>
+    /// <remarks>
+    /// <b>For calendar dates only, never instants.</b> An Invoice's due date is a day the Admin chose,
+    /// and its date part is the value, so writing it needs no time zone. An instant such as
+    /// <c>decisionAt</c> would need the time-zone policy that is still undecided
+    /// (<c>NEXT_STEPS.md</c> §8e), and must not be passed here to dodge that question.
+    /// </remarks>
+    public static string Date(DateTime calendarDate) => calendarDate.ToString("dd.MM.yyyy", German);
 }

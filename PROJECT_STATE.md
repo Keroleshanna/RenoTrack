@@ -1,5 +1,55 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-12 — Phase 14 Slice 3b (the customer's invoice page and token-based PDF download, D114): implemented, tested, mutation-checked and QA'd on `feature/phase-14-slice-3b-customer-invoice`, branched from `main` at `01bd289` (PR #36, Slice 3a's merge).** Whether it has since been merged, and at which commit, is not recorded here. **Verify the actual `origin/main` and the Slice 3b PR before relying on this entry.**
+>
+> **What it does (approved before implementation; D114 is the full record):**
+> - **The emailed `/invoice/{token}` link now resolves** to a server-rendered, read-only German page:
+>   - **Open:** the amounts and the due date.
+>   - **Paid:** a "bezahlt" banner and no due date.
+>   - **Void:** a cancelled banner, no due date, and a note that the PDF shows the invoice as issued.
+>   - **No archive:** the page says no PDF is available here.
+>   - **Failures:** 404, 410 and 503 pages, with the expired page promising no new link.
+> - **`/invoice/{token}/pdf`** passes through the new **`GET /api/v1/public/invoices/{token}/document`**. It serves **the PDF archived at send, byte for byte, for any status including Void**, never renders, and never consumes the link.
+>   - The API's handler holds no PDF generator and no unit of work, which a reflection test pins.
+>   - The Website buffers the response and checks `application/pdf`, the `%PDF-` signature and a 10 MiB bound before serving it. It re-derives the file name through the API's allowlist. Every failure becomes its own German page.
+> - **The public read gained `documentAvailable` (boolean) only.** The storage key, the path and the internal id never leave the server.
+> - **The read's 404s no longer name an internal id.** The Invoice lookup was approved. The Project and Customer lookups in the same handler are a small security-hardening addition, approved after it was found, and extend to no other endpoint.
+> - **Both Website typed clients are registered through one helper** that always applies `RemoveAllLoggers()`, and `TokenExposure` and the marketing guards now cover `/invoice/`.
+> - **Unchanged:** Slice 3a's send, archive, Admin download, email and retry; the Domain; the Dashboard; the token lifetime and re-issue; migrations.
+> - **Accepted and documented:** whoever holds a valid link can download the PDF, including the customer's address it prints. `no-store` does **not** remove the token URL from browser history or a download list.
+>
+> **Verification blocker, then resolved:** Windows Application Control (`0x800711C7`) blocked every .NET assembly on this machine, including previously runnable ones, for part of the slice. Nothing was executed or counted while it held. After it cleared it recurred intermittently; each blocked run was discarded and rerun after the documented non-deterministic rebuild.
+>
+> **Tests, measured locally** (baselines are the Slice 3a figures):
+> - Domain 455 (unchanged)
+> - Application 588 → **611** (+23)
+> - Infrastructure 453 (unchanged, LocalDB)
+> - Api 535 → **562** (+27, LocalDB)
+> - Website 1,136 → **1,321** (+185)
+> - MediaPrep 20 and Documents 27 (unchanged)
+>
+> That is **3,449, all passing** (+235), run twice with identical counts: before the mutations, and after a clean rebuild of the restored tree. Build: 0 warnings, 0 errors. **Migrations: 15**; `has-pending-model-changes` reports none. Dashboard: 124 specs, lint clean, build 393.60 kB (unchanged). **CI has not run yet**; it is the authority, including for the Documents job.
+>
+> **Mutations: 19, each caught and restored byte-identical** (SHA-256 checked); D114 lists them. The first forms of four mutations did not compile, and an `[Authorize]` on the anonymous action cannot be built under the ASP0026 analyzer. None of these was counted.
+>
+> **Browser and HTTP QA** used a separate, freshly migrated database, **`RenoTrack_Slice3bQA`** (storage root `storage-slice3bqa`). It was seeded through the real API with five sent invoices, of which one was paid, one voided, one had its key cleared to stand for an invoice sent before archiving, and one had an expired link. The Website ran from its publish directory in Production. The results:
+> - **States:** every state renders the approved copy with the right status.
+> - **PDF downloads:** Open, Paid and Void PDF downloads are byte-identical to the archived files.
+> - **Headers:** the token-route headers are present on every page and PDF response.
+> - **Links:** none was consumed.
+> - **Token exposure:** the token appears only in the same-origin `href`. No storage key or API origin appears in any page or header.
+> - **Outage:** stopping the API gives 503 on both routes.
+> - **Logs:** a search of both application logs for 19 needles (tokens, keys, file names, the storage root) found 0 hits.
+> - **Layout and keyboard:** 375 px has no overflow, and keyboard focus is visible on the PDF link.
+>
+> **QA found two defects, both pre-existing (Phase 11 `customer.css`) and shared with the Angebot page, recorded rather than fixed by Product Owner decision (`NEXT_STEPS.md` §8h):** at 200 % text on 375 px the summary total row cannot wrap and the page scrolls sideways; in dark mode the primary button is 2.29:1 (WCAG AA fails).
+>
+> **Environment:** the LocalDB databases **`RenoTrack_Slice3bQA`** (this slice), **`RenoTrack_Slice3aQA`** and **`RenoTrack_Slice2bQA`** hold QA data only; ask before dropping any of them. The worktree's gitignored `appsettings.Development.json` points at the 3b QA database.
+>
+> **Next:** the Product Owner's diff and code review. Then commit, push, PR and merge, each only with permission, and the merge only after every CI check passes. **No later slice has started**; the candidates are in `NEXT_STEPS.md` §8.
+
+> *History — the entry below is the state before Slice 3b.*
+
 > **2026-10-04 — Phase 14 Slice 3a (the archived invoice PDF, D113, BR-15): implemented, tested, QA'd and reviewed on `feature/phase-14-slice-3a-invoice-archive`, branched from `main` at `fd9e52b` (PR #35).** Whether it has since been merged, and at which commit, is not recorded here — **verify the actual `origin/main` and the Slice 3a PR before relying on this entry.** Slice 3 was split by decision: 3a here; **3b — the customer's `/invoice/{token}` page and token-based PDF download — is the next slice, in its own chat.**
 >
 > **What it does (approved before implementation, with one correction):**

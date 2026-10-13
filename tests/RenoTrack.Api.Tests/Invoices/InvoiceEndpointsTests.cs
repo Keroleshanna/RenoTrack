@@ -556,8 +556,9 @@ public sealed partial class InvoiceEndpointsTests(RenoTrackApiFactory factory)
     /// <summary>
     /// The public payload is a separate hierarchy from InvoiceDto, and what it withholds is the
     /// point — no internal ids, no issue date, no void reason, no payments. `status` is the one
-    /// field beyond Wireframe A4, added by explicit decision in Slice 5. Asserted against raw JSON
-    /// so a typed read cannot ignore an added field.
+    /// field beyond Wireframe A4, added by explicit decision in Slice 5. `documentAvailable` is A4's
+    /// own "[ Download PDF ]", added in Phase 14 Slice 3b as a flag only (D114). Asserted against
+    /// raw JSON so a typed read cannot ignore an added field.
     /// </summary>
     [Fact]
     public async Task The_public_payload_exposes_only_the_customer_facing_fields()
@@ -568,7 +569,7 @@ public sealed partial class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         var body = await anonymous.GetFromJsonAsync<JsonElement>($"/api/v1/public/invoices/{token}");
 
         Assert.Equal(
-            ["customerName", "dueDate", "grossAmount", "invoiceNumber", "netAmount", "status", "vatAmount"],
+            ["customerName", "documentAvailable", "dueDate", "grossAmount", "invoiceNumber", "netAmount", "status", "vatAmount"],
             body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
         // Serialized by name, and as the public vocabulary — never the internal InvoiceStatus.
