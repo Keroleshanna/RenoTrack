@@ -1,5 +1,24 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-13 — Phase 14 Slice 3b (the customer's invoice page and token-based PDF download, D114) is MERGED and VERIFIED.** `origin/main` is at `d9cd6495934746d6a93b9a75c163c87b50605cfa` (PR #37, a true merge commit on top of `01bd289`). The slice's head commit is `912f5233c4d080794a922c4c1355a9af500d1d81`. The merge added no content beyond that head. **This completes the invoice side of Phase 14. No later slice has started.**
+>
+> **Tests, measured in CI — 3,449 passing, 0 failing,** both on PR #37 and on the push run for the merge commit on `main`. Both jobs passed (`build-and-test`, `database-backed-tests`):
+> - Domain **455**
+> - Application **611**
+> - Infrastructure **453** (LocalDB)
+> - Api **562** (LocalDB)
+> - Website **1,321**
+> - MediaPrep **20**
+> - Documents **27**
+>
+> These match the local figures in the entry below. Build: 0 warnings, 0 errors. Migrations: **15** (3b added none). **Dashboard: 124 specs, lint clean, build succeeding — measured locally**, since CI does not build or test the Dashboard.
+>
+> **What 3b settled** is in the entry below and in D114, and was approved before implementation. **Recorded, not fixed:** the two pre-existing `customer.css` accessibility defects, and the unchanged invoice-link lifetime and re-issue gap (`NEXT_STEPS.md` §8g, §8h).
+>
+> **Next: chosen fresh from this `main` by the Product Owner, design review first.** No work on A, B, the time-policy slice, invoice link re-issue, the `customer.css` defects or Phase 15 has started. The candidates and their open decisions are in `NEXT_STEPS.md` §8, and their order is not decided. `HANDOFF_PROMPT.md` is current as of this entry and is what a fresh session should be given.
+
+> *History — the entry below describes Slice 3b before it was merged and before CI ran. Superseded by the entry above.*
+
 > **2026-10-12 — Phase 14 Slice 3b (the customer's invoice page and token-based PDF download, D114): implemented, tested, mutation-checked and QA'd on `feature/phase-14-slice-3b-customer-invoice`, branched from `main` at `01bd289` (PR #36, Slice 3a's merge).** Whether it has since been merged, and at which commit, is not recorded here. **Verify the actual `origin/main` and the Slice 3b PR before relying on this entry.**
 >
 > **What it does (approved before implementation; D114 is the full record):**
@@ -247,6 +266,8 @@
 
 ## 1. Current Phase
 
+*Historical — this section describes the state at Phase 10 and is no longer current. The newest dated entry at the top of this file is the current state.*
+
 **Phase 10 — Dashboard (Angular) — ✅ complete on `feature/phase-10-dashboard` (four commits, off `main` at `6cd8856`), accepted by the Product Owner after a manual end-to-end pass, and being published now.** See `PHASE10_PROGRESS.md`. It delivers the roadmap's Phase 10 **and** Phases 11–12 (Angebot builder, Catalog picker, Angebot review) **and** the Project/Invoice screens, because a Dashboard that stopped at the Lead pipeline could not reach the commercial workflow the system exists for. Every commercial workflow is real and integrated: Lead → Inspection → Angebot (build, submit, review, approve, send) → customer decision → Project → Invoice (create, send, mark paid, void) → Project completion with FR-8.6's override.
 
 **The operational-completion session closed the last gaps between the documented permissions and the running product.** Every endpoint a Dashboard role is permitted to call now has a real workflow behind it — there are no API-client methods without callers. Two workspaces were added (**Katalog**, Wireframe F1; **Benachrichtigungen**, the §9 operational view), and Lead creation, Lead contact correction, Lead and Inspection reassignment, Project hold/resume and Angebot duplication all became usable.
@@ -285,6 +306,8 @@
 
 ## 2. Current Branch State
 
+*Historical — this section describes branches up to Phase 13 Slice 0 and is no longer current. The newest dated entry at the top of this file is the current state.*
+
 - **2026-09-16 — `feature/phase-13-public-website` is the current branch.** It is off `main` at `2c39aee`, has no upstream set and has not been pushed. It carries Slice 0's documentation only, pending Tech Lead review. `claude/phase-11-checkpoint-4-review-cc99b9` is merged (PR #27), and Phase 11 Slice 8 is parked. The entries below are kept for history.
 - **`feature/phase-10-dashboard` is the current branch** (Phase 10, above), off `main` at `6cd8856`, carrying **four commits** (`1eed2e2` the Dashboard, then `ce91314`/`5dea592`/`090aef0`, the three QA rounds) plus this documentation reconciliation. Working tree clean; **being pushed and opened as a PR now, with the Product Owner's explicit permission.**
 - **`feature/phase-9-email-integration` — merged** via **PR #16** (`6cd8856`). The branch has deliberately not been deleted.
@@ -302,6 +325,8 @@
 - **Standing environment caveat:** Slice 1's local `dotnet test` and `dotnet ef` runs were blocked by Windows Code Integrity refusing to load `RenoTrack.Application.dll` (`0x800711C7`), accepted by explicit decision. The `has-pending-model-changes` check on migration #11 is therefore still outstanding. Per `CLAUDE.md` §19, no direct commits to `main`, no force-push ever, and no push or PR without explicit permission.
 
 ## 3. Build & Test Status (verify this yourself before trusting it — it may be stale)
+
+*Historical — the figures below are from Phase 10 and Phase 11 Checkpoint 4. The current figures are in the newest dated entry at the top of this file.*
 
 **Re-verified on 2026-09-14 in Phase 11 Checkpoint 4**, on `claude/phase-11-checkpoint-4-review-cc99b9`: `main` at `d6cc324` plus the uncommitted Checkpoint 4 changes, from a clean `--no-incremental` Release rebuild.
 - `dotnet build RenoTrack.slnx -c Release` → **0 Warnings, 0 Errors.**

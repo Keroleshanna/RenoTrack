@@ -2,9 +2,9 @@
 
 Copy everything in the code block below into the first message of a brand-new conversation.
 
-**Last updated: 2026-10-12, on the Phase 14 Slice 3b branch (`feature/phase-14-slice-3b-customer-invoice`,
-off `01bd289`), written to describe `main` once that branch's PR is merged.** The merge SHA and PR number
-are not known when this is written — verify them. Keep this file current whenever a phase or slice is
+**Last updated: 2026-10-13, after Phase 14 Slice 3b's merge (PR #37, `d9cd649`).** It describes
+`main` after that merge. A later documentation-only merge may sit on top of the verified
+origin/main state. Keep this file current whenever a phase or slice is
 merged — it is the one file a fresh session is pointed at first.
 
 ---
@@ -30,19 +30,19 @@ READ FIRST, IN THIS ORDER, AND READ THEM IN FULL:
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: the merge commit of the Phase 14 Slice 3b PR (branch
-  feature/phase-14-slice-3b-customer-invoice), on top of 01bd2893f258c0d5ed275f69dcb2046fe21e72fd
-  (PR #36, Slice 3a's merge). VERIFY the SHA and PR number yourself — they did not exist when this
-  was written.
+- origin/main: d9cd6495934746d6a93b9a75c163c87b50605cfa — PR #37, Slice 3b's merge, a true merge
+  commit on top of 01bd2893f258c0d5ed275f69dcb2046fe21e72fd (PR #36, Slice 3a's merge). Slice 3b's
+  head commit is 912f5233c4d080794a922c4c1355a9af500d1d81. A later documentation-only merge may sit
+  on top of the verified origin/main state. VERIFY origin/main yourself.
 - PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31, #33 and #35 (handoffs),
-  #32 (Phase 14 Slice 2), #34 (Phase 14 Slice 2b), #36 (Phase 14 Slice 3a) and the Slice 3b PR are
-  MERGED.
+  #32 (Phase 14 Slice 2), #34 (Phase 14 Slice 2b), #36 (Phase 14 Slice 3a) and #37 (Phase 14
+  Slice 3b) are MERGED.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests, measured LOCALLY on the Slice 3b branch from clean builds — 3,449 passing, 0 failing:
+- Tests, verified in CI on PR #37 and on the main push run for d9cd649 — 3,449 passing, 0 failing:
   Domain 455 · Application 611 · Infrastructure 453 (LocalDB) · Api 562 (LocalDB) ·
-  Website 1,321 · MediaPrep 20 · Documents 27. Confirm against the PR's CI run, which is the
-  authority. CI does not build or test the Dashboard: locally it has 124 specs passing, lint clean,
-  build succeeding. Re-run everything yourself before relying on it.
+  Website 1,321 · MediaPrep 20 · Documents 27. CI does not build or test the Dashboard: locally it
+  has 124 specs passing, lint clean, build succeeding. Re-run everything yourself before relying
+  on it.
 - Migrations: 15 (#15 AddInvoiceDocumentFileUrl, Slice 3a). Slice 3b added none.
 
 PHASES: 0–12 complete and merged. Phase 13 (public website) is PARKED BY DECISION after Slices
@@ -158,8 +158,8 @@ WHAT EARLIER SESSIONS DID, AND WHY
    - For the legal reviewer (Q20), unchanged: the printed date is the CREATION date, while the
      document is issued at SEND.
 
-7. Phase 14 Slice 3b — THE CUSTOMER'S INVOICE PAGE AND PDF (D114) — merged. Approved before
-   implementation; do not reopen silently:
+7. Phase 14 Slice 3b — THE CUSTOMER'S INVOICE PAGE AND PDF (D114) — merged (PR #37) and verified
+   in CI. Approved before implementation; do not reopen silently:
    - The emailed /invoice/{token} link resolves to a server-rendered, read-only German page:
      - Open shows the amounts and the due date.
      - Paid shows a banner and no due date.

@@ -307,6 +307,8 @@ flowchart TD
 
 Business rules are maintained as a **standalone document — see `BusinessRules.md`** — so new rules can be added over time without reissuing this SRS. Current rule IDs referenced elsewhere in this SRS: BR-1 (Angebot must be approved before sending), BR-2 (only an approved Angebot becomes a Project), BR-3 (invoices should sum to the agreed total), BR-4 (token links are single-use for decisions), BR-5 (mandatory German invoice fields, §14 UStG), BR-6 (VAT rate is per line item), BR-7 (Lead status only moves via explicit actions), BR-8 (Catalog edits don't retroactively change past Angebote), BR-9 (invoice numbers are never reused).
 
+Rules added to `BusinessRules.md` since this list was written: BR-10 (a completed Inspection is immutable), BR-11 (monetary rounding strategy), BR-12 (Catalog items are retired, never deleted), BR-13 (scheduling an Inspection assigns its Inspector to the Lead), BR-14 (a retired CatalogItem remains a valid direct reference; retirement only affects discovery) and BR-15 (an issued invoice's document is archived once at send and never regenerated). `BusinessRules.md` holds their text and is the complete, authoritative list.
+
 ---
 
 ## 7. Non-Functional Requirements
