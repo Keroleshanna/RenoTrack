@@ -161,8 +161,111 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
         SeedSentInvoice();
         var token = await SeedTokenAsync(entityId: 999_999);
 
-        await Assert.ThrowsAsync<NotFoundException>(
+        var ex = await Assert.ThrowsAsync<NotFoundException>(
             () => _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None));
+
+        // Phase 14 Slice 3b (D114): the message became the fixed link text. It used to name the
+        // internal Invoice id, which reached an anonymous caller as the ProblemDetails detail.
+        Assert.Equal(GetPublicInvoiceByTokenQueryHandler.NotValidMessage, ex.Message);
+        Assert.DoesNotContain("999999", ex.Message);
+        Assert.DoesNotContain(nameof(Invoice), ex.Message);
+    }
+
+    /// <summary>
+    /// The Project and Customer lookups are guarded by real foreign keys, but this surface is
+    /// anonymous, so their messages name no id either (D114).
+    /// </summary>
+    [Fact]
+    public async Task AnInvoiceWhoseProjectCannotBeLoadedIsNotFoundWithoutAnId()
+    {
+        _invoiceRepository.Seed(
+            TestInvoices.AtStandardRate(
+                projectId: 424_242, "RE-2026-00018", new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), 100m),
+            InvoiceId).Send("invoices/55/archived.pdf");
+        var token = await SeedTokenAsync();
+
+        var ex = await Assert.ThrowsAsync<NotFoundException>(
+            () => _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None));
+
+        Assert.Equal(GetPublicInvoiceByTokenQueryHandler.NotValidMessage, ex.Message);
+        Assert.DoesNotContain("424242", ex.Message);
+    }
+
+    [Fact]
+    public async Task AnInvoiceWhoseCustomerCannotBeLoadedIsNotFoundWithoutAnId()
+    {
+        _projectRepository.Seed(
+            Project.Create(customerId: 515_151, angebotId: 3, Money.FromExact(1_000m)), ProjectId);
+        _invoiceRepository.Seed(
+            TestInvoices.AtStandardRate(
+                ProjectId, "RE-2026-00019", new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), 100m),
+            InvoiceId).Send("invoices/55/archived.pdf");
+        var token = await SeedTokenAsync();
+
+        var ex = await Assert.ThrowsAsync<NotFoundException>(
+            () => _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None));
+
+        Assert.Equal(GetPublicInvoiceByTokenQueryHandler.NotValidMessage, ex.Message);
+        Assert.DoesNotContain("515151", ex.Message);
+    }
+
+    // ---- documentAvailable (Phase 14 Slice 3b, D114) -------------------------
+
+    [Fact]
+    public async Task AnArchivedInvoiceReportsItsDocumentAsAvailable()
+    {
+        SeedSentInvoice();
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.True(result.DocumentAvailable);
+    }
+
+    /// <summary>
+    /// An Invoice with no archive reports none. In production that is an Invoice sent before Slice
+    /// 3a. Here it is a Draft carrying a token, which is the honest way to get a null key without
+    /// reflecting past the aggregate. The flag reads the key, not the status.
+    /// </summary>
+    [Fact]
+    public async Task AnInvoiceWithoutAnArchiveReportsNoDocument()
+    {
+        var customer = _customerRepository.Seed(
+            Customer.Create(leadId: 1, "M. Klein", "m.klein@example.com", "0176 1234567"));
+        _projectRepository.Seed(
+            Project.Create(customer.Id, angebotId: 3, Money.FromExact(25_673.36m)), ProjectId);
+        _invoiceRepository.Seed(
+            TestInvoices.AtStandardRate(
+                ProjectId, "RE-2026-00017", new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), 8_000.00m),
+            InvoiceId);
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.False(result.DocumentAvailable);
+    }
+
+    /// <summary>
+    /// The flag is a boolean and nothing else: no string on the public DTO can carry a storage key.
+    /// </summary>
+    [Fact]
+    public void DocumentAvailableIsABooleanAndNoMemberCarriesTheKey()
+    {
+        Assert.Equal(
+            typeof(bool),
+            typeof(PublicInvoiceDto).GetProperty(nameof(PublicInvoiceDto.DocumentAvailable))!.PropertyType);
+        Assert.Null(typeof(PublicInvoiceDto).GetProperty(nameof(Invoice.DocumentFileUrl)));
+    }
+
+    [Fact]
+    public async Task TheSerializedPayloadNeverCarriesTheStorageKey()
+    {
+        SeedSentInvoice();
+        var token = await SeedTokenAsync();
+
+        var result = await _handler.HandleAsync(new GetPublicInvoiceByTokenQuery(token), CancellationToken.None);
+
+        Assert.DoesNotContain("invoices/", System.Text.Json.JsonSerializer.Serialize(result), StringComparison.Ordinal);
     }
 
     // ---- The public contract --------------------------------------------
@@ -170,9 +273,10 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
     /// <summary>
     /// The public DTO is a separate hierarchy, and what it withholds is the point: no internal ids,
     /// no issue date, no void reason, no payments. <c>Status</c> is the one field added beyond
-    /// Wireframe A4, by explicit decision in Slice 5 — pinned here so it is deliberate, and so a
-    /// field added for the Dashboard cannot appear on the one endpoint any holder of a forwarded
-    /// email can reach.
+    /// Wireframe A4, by explicit decision in Slice 5. <c>DocumentAvailable</c> is A4's own
+    /// "[ Download PDF ]", added in Phase 14 Slice 3b (D114). Both are pinned here so they are
+    /// deliberate, and so a field added for the Dashboard cannot appear on the one endpoint any holder
+    /// of a forwarded email can reach.
     /// </summary>
     [Fact]
     public void ThePublicDtoExposesOnlyTheAgreedCustomerFacingFields()
@@ -186,6 +290,7 @@ public class GetPublicInvoiceByTokenQueryHandlerTests
         Assert.Equal(
             [
                 nameof(PublicInvoiceDto.CustomerName),
+                nameof(PublicInvoiceDto.DocumentAvailable),
                 nameof(PublicInvoiceDto.DueDate),
                 nameof(PublicInvoiceDto.GrossAmount),
                 nameof(PublicInvoiceDto.InvoiceNumber),

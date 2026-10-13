@@ -183,4 +183,21 @@ public sealed class CustomerFormattingTests
             Assert.Equal("5", CustomerFormatting.SectionNumber(4));
         });
     }
+
+    /// <summary>
+    /// A due date is a calendar date in German order, whatever the server's culture, and whatever
+    /// <see cref="DateTimeKind"/> the JSON produced (Phase 14 Slice 3b).
+    /// </summary>
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    [InlineData("tr-TR")]
+    public void Dates_are_written_day_month_year_under_any_ambient_culture(string culture)
+    {
+        UnderAmbientCulture(culture, () =>
+        {
+            Assert.Equal("15.09.2026", CustomerFormatting.Date(new DateTime(2026, 9, 15)));
+            Assert.Equal("01.01.2027", CustomerFormatting.Date(new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        });
+    }
 }

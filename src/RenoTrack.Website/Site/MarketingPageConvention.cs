@@ -28,8 +28,12 @@ public static class MarketingPageConvention
         "/Leistung",
     ];
 
-    /// <summary>The page folder that holds the customer token pages; nothing under it may be a marketing page.</summary>
-    internal const string TokenPagePrefix = "/Angebot";
+    /// <summary>
+    /// The page names of the customer token pages. Nothing under them may be a marketing page:
+    /// <c>/Angebot</c> and <c>/AngebotDecision</c> (Phase 11), and <c>/Invoice</c> and
+    /// <c>/InvoicePdf</c> (Phase 14 Slice 3b, D114).
+    /// </summary>
+    internal static IReadOnlyList<string> TokenPagePrefixes { get; } = ["/Angebot", "/Invoice"];
 
     /// <exception cref="InvalidOperationException">A listed path names a customer token page.</exception>
     public static void Apply(PageConventionCollection conventions) => Apply(conventions, PagePaths);
@@ -40,11 +44,14 @@ public static class MarketingPageConvention
         {
             // The first of two independent guards: a token page cannot be listed. The second,
             // MarketingPageGuard, inspects the built endpoints by route parameter, so it also catches a
-            // token route that does not live under this prefix.
-            if (pagePath.StartsWith(TokenPagePrefix, StringComparison.OrdinalIgnoreCase))
+            // token route that does not live under these prefixes.
+            var tokenPrefix = TokenPagePrefixes.FirstOrDefault(
+                prefix => pagePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+            if (tokenPrefix is not null)
             {
                 throw new InvalidOperationException(
-                    $"Page '{pagePath}' cannot be a marketing page: pages under '{TokenPagePrefix}' are customer " +
+                    $"Page '{pagePath}' cannot be a marketing page: pages under '{tokenPrefix}' are customer " +
                     "token pages, which keep their own security rules (CLAUDE.md §24).");
             }
 

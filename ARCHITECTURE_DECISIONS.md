@@ -3296,3 +3296,149 @@ The printed invoice date is the **creation** instant's Berlin date (D111 Part 6)
 ### Verification
 
 Tests measured locally from clean builds: Domain 442 → 455, Application 552 → 588, Infrastructure 424 → 453 (LocalDB), Api 517 → 535 (LocalDB), Documents 23 → 27, Website 1,136 and MediaPrep 20 unchanged — **3,214**. Dashboard 108 → 124 specs, lint clean, build succeeding. Migration #15 `AddInvoiceDocumentFileUrl` adds exactly the nullable column; no pending model changes. A staged concurrent-send race through the real handler, LocalDB, disk and renderer (both sends held after their write until both have written) passed across five consecutive runs of 15 races each. Seventeen mutations — writing after the commit, no cleanup after a lost race (caught by the Application tests and by the real race), cleanup after *any* commit failure, the commit taking the request's cancellation token, a fresh render as the attachment, no Status token, an anonymous download, `hasDocument` always true, the file name from the key, the configuration error as an `InvalidOperationException`, no rendering wrap, `Send` dropping the key, a path-leaking missing-file error, a link-only retry fallback, no partial-write cleanup, a Draft download not refused, and the Dashboard capability ignoring the role — were each caught and restored byte-identical. Browser QA against a separate database (`RenoTrack_Slice3aQA`) is recorded in `PROJECT_STATE.md`.
+
+---
+
+## D114 — The Customer's Invoice Page and Its PDF: a Read-Only Bearer Link That Serves the Archive and Nothing Else
+
+**Phase 14 Slice 3b.** Approved by the Product Owner before implementation, as eleven numbered decisions plus the wording rules below. 3b is the customer half of Slice 3: the emailed `/invoice/{token}` link resolves to a page, and the PDF archived at send (D113, BR-15) can be downloaded through it. **Slice 3a's behaviour is unchanged**: send, archive, Admin download, email attachment, retry and storage are untouched.
+
+### Decision
+
+1. **A public document endpoint, `GET /api/v1/public/invoices/{token}/document`**, on `PublicController`. It is anonymous, inherits the class-level `public` rate-limit policy, and shares one bucket with the invoice read: 30 requests per 60 seconds per client by default (D65). It answers as follows:
+   - `application/pdf`, `Content-Disposition: attachment` named by `InvoiceDocumentFileName`, `Cache-Control: no-store`, `nosniff`. These are the Admin download's headers.
+   - Status is ignored: Open, Paid and Void all serve the same archived bytes.
+   - **404** for an unknown token and a non-invoice token alike. It uses the read's own text, so the two endpoints answer an invalid link identically.
+   - **410** for expiry.
+   - **409** with fixed text for an invoice that has no archive (sent before 3a). The text names no number, id or key.
+   - **500 with no detail** for a missing file. It is never regenerated.
+2. **`GetPublicInvoiceDocumentByTokenQueryHandler` depends on `ITokenLinkRepository`, `IInvoiceRepository` and `IFileStorage` only.** It has no `IPdfGenerator`, so it cannot render, and no `IUnitOfWork`, so it cannot consume the link. A reflection test pins both absences. It repeats the read's token checks inline, because Sequence Diagram §12 says not to build a shared validator. Expiry uses `DateTime.UtcNow`, as the read does: the page and its download must never disagree about one link, and changing the clock belongs to the time-policy slice. It loads no Project or Customer.
+3. **`PublicInvoiceDto.DocumentAvailable`**, a boolean set to `DocumentFileUrl is not null`. It is the only field added to the public contract. The storage key, the file path and the internal Invoice id never leave the server, and property-set tests on both the Application DTO and the raw JSON pin this.
+4. **The existing public read no longer names an internal id.** Its Invoice lookup's `NotFoundException(entity, id)` became the fixed text `"This link is not valid."` (approved decision). That lookup is reachable, because TokenLinks has no foreign key (CLAUDE.md §21), and it put the Invoice id into an anonymous ProblemDetails `detail`.
+
+   **Security-hardening addition, found during implementation and approved afterwards.** The same handler's Project and Customer lookups used the same `(entity, id)` overload, and they were changed to the same fixed text. Both are guarded by real foreign keys, so they are hard to reach, but the surface is anonymous. This is the only change of its kind in 3b. **It does not extend to any other public endpoint**, and no other public-endpoint hardening was made.
+5. **The Website page `/invoice/{token}`** matches `EmailMessageFactory.InvoiceUrl` exactly, so the link emailed since Phase 8 now resolves. It is server-rendered and read-only, with four outcomes like the Angebot page:
+
+   | State | HTTP | Content |
+   |---|---|---|
+   | Open | 200 | Number, "Für {name}", Netto / zzgl. MwSt / Gesamtbetrag, "Fällig am", PDF link |
+   | Paid | 200 | "Diese Rechnung ist bezahlt.", amounts, **no due date**, PDF link |
+   | Void | 200 | "Diese Rechnung wurde storniert und ist nicht mehr zu zahlen.", amounts, **no due date**, PDF link, "Das PDF zeigt die Rechnung so, wie sie ausgestellt wurde." |
+   | No archive (any status) | 200 | No link; "Ein PDF dieser Rechnung ist hier nicht verfügbar." |
+   | Not found | 404 | "Dieser Link ist nicht gültig" |
+   | Expired | 410 | "Dieser Link ist abgelaufen" … "Bitte wenden Sie sich an uns, wenn Sie die Rechnung erneut benötigen." **No promise of a new link**: an invoice link cannot be re-issued (D99 covers Angebote only) |
+   | Unavailable | 503 | "Ihre Rechnung ist gerade nicht abrufbar … Das liegt an uns, nicht an Ihrem Link." |
+
+   The VAT is the total the API sends. The per-rate lines, the description and the service period are printed on the PDF and are **not** added to the page (approved decision 11).
+6. **The Website PDF route `/invoice/{token}/pdf` is a Razor Page.** Its route carries the `token` parameter, and with it every protection keyed on that name. It is a server-side passthrough of the archive:
+   - the response is **buffered first**, then checked: `application/pdf`, the `%PDF-` signature, and at most **10 MiB** (`CustomerInvoiceDocument.MaxBytes`), enforced on the bytes read as well as on a declared length;
+   - only then is it served as an attachment;
+   - the file name is **re-derived** by `CustomerDocumentFileName` through the API's own allowlist (`[A-Za-z0-9-]` plus `.pdf`, fallback `Rechnung.pdf`), so a real invoice keeps the email's name and nothing can break the header;
+   - every failure renders the Website's own German page with its own status: 404 invalid, 410 expired, 404 "Kein PDF verfügbar" for the API's 409, and 503 for an outage, a wrong media type, a missing signature, an oversized body or a dropped connection.
+7. **`IPublicInvoiceClient` / `PublicInvoiceClient` is a second typed client with its own mirrored types** (`CustomerInvoice`, `CustomerInvoiceStatus`, outcome enums). The Website still references no backend project.
+   - A 200 missing any field, or carrying an undefined status (including an integer), is an outage. It is never a zero-euro invoice or an "Open" that was really "Void".
+   - **Both typed clients are registered by `PublicApiClientRegistration.AddPublicApiClient`**, which adds the base address, the timeout, `ClientAddressForwardingHandler` and `RemoveAllLoggers()`. No client can now be registered without the logging removal, which is the line that keeps the token out of `System.Net.Http.HttpClient.*` logs.
+   - The browser never calls the API.
+8. **Token exposure.** The token appears in exactly one place a page renders: the same-origin `href` of the PDF link (and the "Zur Rechnung" link on the PDF route's failure pages).
+   - `TokenExposure` now takes the allowed route prefix, `/invoice/` for invoice pages and `/angebot/` for Angebot pages. Each flow may link only within itself.
+   - It is never in visible text, an input or a query string.
+   - Every invoice route answers with `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer`, `nosniff` and `X-Frame-Options: DENY`, from `CustomerSecurityHeaders`, unchanged.
+9. **Marketing metadata stays off the invoice routes, through both guards.** `MarketingPageConvention` refused page names under `/Angebot`; it now also refuses those under `/Invoice`, so the first guard covers the new pages as it covers the Angebot ones. `MarketingPageGuard` already refused any endpoint with a `token` parameter. Neither guard is weakened because the other exists (CLAUDE.md §25).
+10. **Logs.**
+    - API: `RouteDiagnostics` and the hosting-scope suppression key on the route parameter name, so the new route was covered without edits. `PublicTokenLogScopeTests` now drives the invoice read and the document download as well.
+    - Website: `TokenLoggingTests` drives six page scenarios and seven PDF scenarios through the real typed client with `System.Net.Http.HttpClient` at `Trace`, and asserts message, state, exception and scopes.
+
+### Accepted properties of the bearer-link model, stated rather than implied
+
+- **Whoever holds a valid link can download the archived PDF, including the customer's address printed on it.** The JSON read withholds the address; the document does not, because the document is the issued invoice. The person the email reached already holds the same bytes as its attachment. Someone who was forwarded only the link gains the address. That is the bearer-link model (Architecture.md §7.2), approved for this slice: no customer account or authentication is introduced, and the token lifetime and re-issue policy are unchanged.
+- **The link stays in the browser's history and download list.** `no-store` keeps the page and the file out of shared caches and the back-forward cache. **It does not remove the URL, and with it the token, from browser history, and it does not remove the download list's record of the source URL.** That is an inherent property of a URL that is itself the credential, accepted for this design. The link's expiry limits how long such a record stays usable.
+- **The PDF of a voided invoice looks payable**, because the archive is the issued document and prints no status (D113 decision 2). The page says it is cancelled, beside the link.
+
+### Alternatives considered
+
+- **The Website rendering or regenerating the PDF.** Rejected: it would be the re-derived document BR-15 forbids, and the Website has no PDF library.
+- **Proxying the Admin endpoint.** Rejected: it would need staff credentials in the Website.
+- **Streaming instead of buffering.** Rejected: once bytes flow, a failure can no longer become an honest status page, and the body cannot be checked first.
+- **Growing `IPublicAngebotClient`.** Rejected: its name would be wrong, and renaming it would churn Angebot code.
+- **A public 404 for "no archive".** Rejected: the Website could not then tell "invalid link" from "no PDF", and would tell a valid link holder their link is broken.
+- **`inline` instead of `attachment`.** Rejected, to match the Admin download and the email's attachment name.
+- **Adding VAT lines, description or service period to the public read.** Out of the approved boundary; the PDF carries them.
+
+### What deliberately did not change
+
+- No migration (still 15) and no Domain change.
+- No Dashboard change.
+- No change to Send, the archive, the Admin download, the email, retry or `IFileStorage`.
+- No change to the token lifetime (`TokenLink:LifetimeDays`, 30), to re-issue (still Angebot-only), or to any clock.
+- The remaining 30-day-versus-due-date gap is still recorded in `NEXT_STEPS.md` §8g. The expired page points the customer to the company and promises nothing.
+
+### Verification
+
+**Measured locally on 2026-10-12, after Windows Application Control's machine-wide block (`0x800711C7`) had cleared.** While it held, nothing could execute and nothing was counted. During the runs that followed it recurred intermittently; each blocked run was discarded and rerun after the documented non-deterministic rebuild.
+
+- **Tests: 3,449, all passing.** The baselines are the Slice 3a figures.
+  - Domain 455 (unchanged)
+  - Application 588 → **611** (+23)
+  - Infrastructure 453 (unchanged, LocalDB)
+  - Api 535 → **562** (+27, LocalDB)
+  - Website 1,136 → **1,321** (+185)
+  - MediaPrep 20 (unchanged)
+  - Documents 27 (unchanged)
+
+  The full .NET matrix was run twice, before the mutations and again after a clean rebuild of the restored tree, with identical counts.
+- **Dashboard:** 124 specs passing, lint clean, build succeeding (393.60 kB, unchanged; no Dashboard code changed).
+- **Build:** 0 warnings, 0 errors, from a `--no-incremental` solution build.
+- **Migrations:** still **15**. `dotnet ef migrations has-pending-model-changes` reports no changes since the last migration.
+
+**Mutations: 19, each caught and restored byte-identical** (SHA-256 checked before and after):
+
+1. an `IPdfGenerator` added to the public document handler;
+2. the link marked used on download;
+3. Void refused;
+4. expiry unchecked;
+5. the entity type unchecked;
+6. `documentAvailable` always true;
+7. the read's 404 naming the Invoice id again;
+8. `RemoveAllLoggers()` dropped from the shared registration (59 token-logging failures, across the Angebot and invoice scenarios alike);
+9. the PDF media-type check removed;
+10. the `%PDF-` signature check removed;
+11. the size bound removed;
+12. the file name passed through verbatim;
+13. "no document" answered as 503;
+14. the due date shown for every status;
+15. the token moved into a query string;
+16. `/Invoice` dropped from the marketing convention's refused prefixes;
+17. the Void banner removed;
+18. the token-route headers keyed on another parameter name;
+19. `no-store` removed from the API's public document response.
+
+**Not counted:**
+- Two first forms of mutation 1 and the first forms of 9–11 did not compile: `if (false)` is an unreachable-code error under warnings-as-errors. Each was rewritten with a condition the compiler cannot fold, and only the rewritten forms count.
+- A twentieth mutation, an `[Authorize]` on the public document action, cannot be built at all: the ASP0026 analyzer refuses an `[Authorize]` that the class-level `[AllowAnonymous]` would override. It was dropped.
+
+**Browser and HTTP QA** used a separate, freshly migrated database, `RenoTrack_Slice3bQA`, with its own storage root, `storage-slice3bqa`. The data was seeded through the real API:
+- a phone Lead with an address, an Angebot at 7 % and 19 %, review, the customer's approval by token, and conversion to a Project;
+- five invoices, all sent, so each was archived. One was then marked paid and one voided. One had its key cleared by SQL to stand for an invoice sent before archiving, and one had its link expired by SQL.
+
+The API ran on its https profile. The Website ran from its `dotnet publish` output, started from the publish directory, in Production. The results:
+
+- **Open, Paid and Void:** page 200, with the approved copy. Paid and Void show no due date. Void shows the cancelled banner and the as-issued note.
+- **PDF downloads:** `/invoice/{token}/pdf` returned 200 for all three, `application/pdf`, `attachment; filename=Rechnung-RE-2026-0000n.pdf`, and **byte-identical to the archived file on disk** (`cmp`), Void included.
+- **Headers:** `Cache-Control: no-store, no-cache, must-revalidate`, `X-Robots-Tag: noindex, nofollow, noarchive`, `Referrer-Policy: no-referrer`, `nosniff` and `X-Frame-Options: DENY` on every page and every PDF response.
+- **No document:** the page is 200 with "Ein PDF dieser Rechnung ist hier nicht verfügbar." and no link. Its `/pdf` is the Website's own 404 page, "Kein PDF verfügbar", with a link back to the invoice.
+- **Expired:** 410 on the page and the PDF, with no promise of a new link.
+- **Unknown token:** 404 on both, and the unknown token is not echoed.
+- **API stopped:** 503 on both, with the outage copy.
+- **Links never consumed:** after every download, no invoice link had `UsedAt` set.
+- **Raw HTML of every state (curl):** the token appears exactly once on each document page, in the same-origin PDF `href`. It appears once on the PDF failure pages, in "Zur Rechnung". There is no storage key, no `/api/v1` and no API origin in any page or header.
+- **Logs:** the API log (2,404 lines) and the Website log (53 lines) were searched for 19 needles: every invoice token, the Angebot token, both unknown tokens, every storage key and file name, and the storage root. **0 hits.** The outage was logged at `fail` with no token.
+- **Layout and keyboard:**
+  - At 375 px in the light scheme, no horizontal overflow, with the stylesheet applied.
+  - Keyboard: the first Tab lands on the PDF link with a visible 3 px `:focus-visible` outline.
+  - At 200 % text (root font size raised in the page; the browser's own font setting was not available to the harness) the no-PDF page does not overflow.
+
+**Two defects found by QA, both pre-existing and recorded rather than fixed (Product Owner decision).** Both come from Phase 11 styles in `customer.css` and reproduce identically on the existing Angebot page:
+1. **200 % text on 375 px:** the summary's total row (`.customer-summary-total`) cannot wrap. A one-word label plus a `white-space: nowrap` amount needs 381 px in a 213 px column on the invoice page (392 px on the Angebot page), so the page scrolls sideways.
+2. **Dark mode:** `.customer-button-primary` is white on `#7fb0e0`, which is **2.29:1** and fails WCAG AA. In the light scheme it is 8.95:1.
+
+Both are recorded in `NEXT_STEPS.md` §8h.

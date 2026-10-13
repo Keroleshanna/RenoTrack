@@ -53,6 +53,8 @@ public sealed partial class PublicTokenLogScopeTests(RenoTrackApiFactory factory
     [
         "read: unknown token",
         "decision: unknown token",
+        "invoice read: unknown token",
+        "invoice document: unknown token",
     ];
 
     [Theory]
@@ -203,6 +205,8 @@ public sealed partial class PublicTokenLogScopeTests(RenoTrackApiFactory factory
             "read: unknown token" => await client.GetAsync($"/api/v1/public/angebote/{Token}"),
             "decision: unknown token" => await client.PostAsJsonAsync(
                 $"/api/v1/public/angebote/{Token}/decision", new { decision = "Approve" }),
+            "invoice read: unknown token" => await client.GetAsync($"/api/v1/public/invoices/{Token}"),
+            "invoice document: unknown token" => await client.GetAsync($"/api/v1/public/invoices/{Token}/document"),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request, "Unknown request."),
         };
 

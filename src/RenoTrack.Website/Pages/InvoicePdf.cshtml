@@ -1,0 +1,67 @@
+@page "/invoice/{token}/pdf"
+@model RenoTrack.Website.Pages.InvoicePdfModel
+@using RenoTrack.Website.PublicApi
+@{
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = "Rechnung als PDF";
+}
+@*
+    Rendered only when the PDF cannot be served (Phase 14 Slice 3b, D114). A successful request
+    returns the file itself and never reaches this view. Each state is the Website's own German
+    wording, chosen from the outcome. The API's messages never reach the customer.
+*@
+
+@switch (Model.Outcome)
+{
+    case CustomerInvoiceDocumentOutcome.NotFound:
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Dieser Link ist nicht gültig</h1>
+            <p class="customer-lead">
+                Der Link konnte keiner Rechnung zugeordnet werden. Möglicherweise wurde er beim
+                Kopieren unvollständig übernommen.
+            </p>
+            <p class="customer-hint">
+                Bitte öffnen Sie den Link noch einmal direkt aus unserer E-Mail.
+            </p>
+        </article>
+        break;
+
+    case CustomerInvoiceDocumentOutcome.Expired:
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Dieser Link ist abgelaufen</h1>
+            <p class="customer-lead">
+                Aus Sicherheitsgründen sind unsere Rechnungslinks nur für einen begrenzten Zeitraum
+                gültig. Dieser Zeitraum ist abgelaufen.
+            </p>
+            <p class="customer-hint">
+                Bitte wenden Sie sich an uns, wenn Sie die Rechnung erneut benötigen.
+            </p>
+        </article>
+        break;
+
+    case CustomerInvoiceDocumentOutcome.NoDocument:
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Kein PDF verfügbar</h1>
+            <p class="customer-lead">Ein PDF dieser Rechnung ist hier nicht verfügbar.</p>
+            <div class="customer-actions">
+                <a class="customer-button customer-button-secondary" href="@Model.InvoiceUrl">Zur Rechnung</a>
+            </div>
+        </article>
+        break;
+
+    default:
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Das PDF ist gerade nicht abrufbar</h1>
+            <p class="customer-lead">
+                Wir können das PDF Ihrer Rechnung im Moment nicht laden. Das liegt an uns, nicht an
+                Ihrem Link.
+            </p>
+            <p class="customer-hint">
+                Bitte versuchen Sie es in einigen Minuten noch einmal.
+            </p>
+            <div class="customer-actions">
+                <a class="customer-button customer-button-secondary" href="@Model.InvoiceUrl">Zur Rechnung</a>
+            </div>
+        </article>
+        break;
+}

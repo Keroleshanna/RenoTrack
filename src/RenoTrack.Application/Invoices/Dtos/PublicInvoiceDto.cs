@@ -59,16 +59,22 @@ public enum PublicInvoiceStatus
 /// <b>Two things A4 shows that are not here, both recorded rather than invented:</b>
 /// </para>
 /// <para>
-/// 1. <b>A VAT percentage.</b> A4 labels the line "VAT (19%)", but an Invoice stores only a
-/// <c>VatAmount</c> — there is no rate on the row, because <c>InvoiceLine</c> is deferred out of
-/// Phase 8 and the per-rate split is computed at creation and then discarded. Publishing a rate here
-/// would mean deriving or assuming one, which on a document of this kind is a fabricated legally
-/// relevant figure. The amount is exposed; the label is a Phase 14 / <c>InvoiceLine</c> concern.
+/// 1. <b>A VAT percentage</b> (and, since D111, a description and a service period). The Invoice
+/// has stored its per-rate <c>InvoiceVatLines</c>, a description and an optional service period since
+/// Phase 14 Slice 2, and the archived PDF prints all of them. This read deliberately still carries
+/// the VAT <i>total</i> only: Slice 3b's approved boundary added one flag and nothing else (D114), and
+/// the customer reads the full document in the PDF. Extending this contract is its own decision.
 /// </para>
 /// <para>
 /// 2. <b>Bank details for the transfer.</b> No document defines where the company's IBAN/BIC live —
-/// not ERD.md, not configuration — so none is invented (approved decision G-5). A4's
-/// "[ Download PDF ]" is likewise absent: PDF generation is Phase 14's (G-4).
+/// not ERD.md, not configuration — so none is invented (approved decision G-5).
+/// </para>
+/// <para>
+/// <b><see cref="DocumentAvailable"/> is A4's "[ Download PDF ]" (Phase 14 Slice 3b, D114).</b> It
+/// is true when the Invoice has an archived document (BR-15), so the customer's page knows whether to
+/// offer the download. It is a flag and nothing more: the storage key, the file path and the
+/// internal Invoice id never leave the server. It is false for an Invoice sent before Slice 3a,
+/// which has no archive and is never given one (D113).
 /// </para>
 /// <para>
 /// <b><see cref="CustomerName"/> is included</b> because A4's header line renders it
@@ -83,7 +89,8 @@ public sealed record PublicInvoiceDto(
     decimal NetAmount,
     decimal VatAmount,
     decimal GrossAmount,
-    DateTime DueDate);
+    DateTime DueDate,
+    bool DocumentAvailable);
 
 public static class PublicInvoiceMappingExtensions
 {
@@ -99,7 +106,8 @@ public static class PublicInvoiceMappingExtensions
         invoice.NetAmount.Amount,
         invoice.VatAmount.Amount,
         invoice.GrossAmount.Amount,
-        invoice.DueDate);
+        invoice.DueDate,
+        invoice.DocumentFileUrl is not null);
 
     /// <summary>
     /// <c>Draft</c>, <c>Sent</c> and <c>Overdue</c> all mean "still outstanding" to the customer.

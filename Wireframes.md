@@ -97,6 +97,24 @@ Legend: `[ Button ]` = action button, `( )` = input field, `[v]` = dropdown, `�
 └───────────────────────────────────────────────────────────┘
 ```
 
+> **As built — Phase 14 Slice 3b (`ARCHITECTURE_DECISIONS.md` D114).** Route `/invoice/{token}`, the
+> path the invoice email has carried since Phase 8. German only, server-rendered, no script. It
+> differs from the sketch above as follows.
+> - **Header:** "Ihre Rechnung", the invoice number, then "Für {Customer Name}". There is no project
+>   title, because none is stored.
+> - **Amounts:** Nettobetrag, "zzgl. MwSt" and Gesamtbetrag. The VAT is the server's total and **carries
+>   no percentage**: an invoice may mix rates, and the per-rate lines are printed on the PDF.
+> - **Due date:** "Fällig am" is shown **only while the invoice is open**.
+> - **Status:** a banner for Paid ("Diese Rechnung ist bezahlt.") and for Void ("Diese Rechnung wurde
+>   storniert und ist nicht mehr zu zahlen.").
+> - **Bank details:** none, as no document defines them (G-5).
+> - **[ Download PDF ]:** "Rechnung als PDF herunterladen", linking `/invoice/{token}/pdf`, which
+>   serves the PDF archived at send, for any status. On a voided invoice it is accompanied by "Das PDF
+>   zeigt die Rechnung so, wie sie ausgestellt wurde." An invoice sent before archiving existed shows
+>   "Ein PDF dieser Rechnung ist hier nicht verfügbar." instead of the button.
+> - **Failure states:** an invalid link (404), an expired link (410, with no promise of a new link) and
+>   an outage (503) each have their own page.
+
 ---
 
 ## B. Dashboard — Shared

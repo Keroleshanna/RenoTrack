@@ -7,7 +7,10 @@ using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Dtos;
 using RenoTrack.Application.Angebote.Queries.GetPublicAngebotByToken;
 using RenoTrack.Application.Invoices.Dtos;
+using RenoTrack.Application.Common.Documents;
+using RenoTrack.Application.Invoices.Queries.GetInvoiceDocument;
 using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceByToken;
+using RenoTrack.Application.Invoices.Queries.GetPublicInvoiceDocumentByToken;
 using RenoTrack.Application.Common;
 
 namespace RenoTrack.Api.Controllers;
@@ -37,9 +40,10 @@ namespace RenoTrack.Api.Controllers;
 /// visibly, at the top.
 /// </para>
 /// <para>
-/// <b>Not yet rate-limited.</b> Architecture.md §12 requires abuse protection on
-/// <c>/api/v1/public/*</c>; it arrives in Slice 4 together with the decision endpoint, so that the
-/// limiter is configured once for the whole route group rather than twice.
+/// <b>Rate-limited as one route group</b> (Architecture.md §12, D65). The class-level
+/// <c>[EnableRateLimiting]</c> puts every action here in the one <c>public</c> policy and one
+/// per-client bucket, so an action added later is limited by default. That includes the invoice
+/// document download (Phase 14 Slice 3b, D114), which shares its bucket with the invoice read.
 /// </para>
 /// </remarks>
 [ApiController]
@@ -49,7 +53,8 @@ namespace RenoTrack.Api.Controllers;
 public sealed class PublicController(
     IQueryHandler<GetPublicAngebotByTokenQuery, PublicAngebotDto> getPublicAngebotHandler,
     ICommandHandler<RecordAngebotDecisionCommand, PublicAngebotDto> recordDecisionHandler,
-    IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto> getPublicInvoiceHandler) : ControllerBase
+    IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto> getPublicInvoiceHandler,
+    IQueryHandler<GetPublicInvoiceDocumentByTokenQuery, InvoiceDocumentFile> getPublicInvoiceDocumentHandler) : ControllerBase
 {
     /// <summary>
     /// The read-only Angebot behind a token link (SRS FR-6.2, Wireframe A3).
@@ -140,10 +145,10 @@ public sealed class PublicController(
     /// deliberately indistinguishably. 410 means the link genuinely expired.
     /// </para>
     /// <para>
-    /// <b>Bank details and a PDF download are absent</b>, though Wireframe A4 shows both: no
-    /// document defines where the company's IBAN/BIC live (G-5), and PDF generation is Phase 14's
-    /// (G-4). A4's "VAT (19%)" label likewise cannot carry a percentage — an Invoice stores only a
-    /// VAT *amount*, since `InvoiceLine` is deferred.
+    /// <b>Bank details are absent</b>, though Wireframe A4 shows them: no document defines where the
+    /// company's IBAN/BIC live (G-5). A4's "[ Download PDF ]" is the action below, and
+    /// <c>documentAvailable</c> tells the page whether to offer it (D114). The VAT is still a total:
+    /// the per-rate lines (D111) are printed on the PDF, and this read was deliberately not widened.
     /// </para>
     /// </remarks>
     [HttpGet("invoices/{token}")]
@@ -158,5 +163,49 @@ public sealed class PublicController(
             cancellationToken);
 
         return Ok(invoice);
+    }
+
+    /// <summary>
+    /// The archived PDF of the Invoice behind a token link (Phase 14 Slice 3b, D114, Wireframe A4's
+    /// "[ Download PDF ]").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It serves the archive, byte for byte, and never renders (BR-15).</b> This is the same file
+    /// the Admin downloads and the email carried as its attachment. Status does not matter: a
+    /// <c>Paid</c> or <c>Void</c> invoice's document is still what was issued.
+    /// </para>
+    /// <para>
+    /// <b>Whoever holds the link can download the PDF</b>, including the customer's address
+    /// printed on it. That is the bearer-link model (Architecture.md §7.2), approved for this slice
+    /// and recorded in PermissionMatrix.md §7.
+    /// </para>
+    /// <para>
+    /// 404 for an unknown or non-Invoice token, indistinguishably and with the read's own text; 410
+    /// for expiry; 409 when the Invoice has no archived document (sent before Slice 3a). A missing
+    /// file is a 500 with no detail. The link is never consumed.
+    /// </para>
+    /// <para>
+    /// The response headers are the Admin download's: an attachment named by
+    /// <c>InvoiceDocumentFileName</c>, <c>Cache-Control: no-store</c> so no shared cache keeps a
+    /// legal document with personal data, and <c>nosniff</c>.
+    /// </para>
+    /// </remarks>
+    [HttpGet("invoices/{token}/document")]
+    [ProducesResponseType<FileStreamResult>(StatusCodes.Status200OK, InvoiceDocumentFileName.PdfContentType)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status410Gone)]
+    public async Task<IActionResult> GetInvoiceDocument(string token, CancellationToken cancellationToken)
+    {
+        var document = await getPublicInvoiceDocumentHandler.HandleAsync(
+            new GetPublicInvoiceDocumentByTokenQuery(token),
+            cancellationToken);
+
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+
+        return File(document.Content, InvoiceDocumentFileName.PdfContentType, document.FileName);
     }
 }

@@ -1,0 +1,148 @@
+@page "/invoice/{token}"
+@model RenoTrack.Website.Pages.InvoiceModel
+@using RenoTrack.Website.PublicApi
+@using RenoTrack.Website.Rendering
+@{
+    Layout = "_CustomerLayout";
+    ViewData["Title"] = Model.Outcome == CustomerInvoiceOutcome.Available
+        ? $"Rechnung {Model.Invoice!.InvoiceNumber}"
+        : "Rechnung";
+}
+@*
+    Wireframe A4 (Phase 14 Slice 3b, D114). The path matches EmailMessageFactory.InvoiceUrl exactly
+    ({base}/invoice/{token}, D4.1). The email has carried this link since Phase 8, and this page is
+    what makes it resolve.
+
+    Every figure is the server's figure: nothing is summed or derived here (D78). The VAT is the total
+    the API sends. The per-rate lines, the description and the service period are printed on the PDF,
+    and this page deliberately does not repeat them (D114).
+
+    The token appears exactly once, in the same-origin href of the PDF link. It is never in visible
+    text, a form field or a query string (TokenExposure).
+*@
+
+@switch (Model.Outcome)
+{
+    case CustomerInvoiceOutcome.Available:
+        var invoice = Model.Invoice!;
+
+        @*
+            Paid and Void are told plainly. A settled or cancelled invoice must not read like a bill
+            still to be paid. Neither shows a due date: there is nothing left to pay by it. Open
+            shows the due date and no banner.
+        *@
+        if (invoice.Status == CustomerInvoiceStatus.Paid)
+        {
+            <aside class="customer-status customer-status-paid" role="status">
+                <p class="customer-status-headline">Diese Rechnung ist bezahlt.</p>
+            </aside>
+        }
+        else if (invoice.Status == CustomerInvoiceStatus.Void)
+        {
+            <aside class="customer-status customer-status-void" role="status">
+                <p class="customer-status-headline">Diese Rechnung wurde storniert und ist nicht mehr zu zahlen.</p>
+            </aside>
+        }
+
+        <article class="customer-card customer-document">
+            <p class="customer-eyebrow">Ihre Rechnung</p>
+            <h1 class="customer-title">@invoice.InvoiceNumber</h1>
+            <p class="customer-hint">Für @invoice.CustomerName</p>
+
+            <section class="customer-summary" aria-labelledby="invoice-amounts">
+                <h2 class="customer-summary-title" id="invoice-amounts">Rechnungsbetrag</h2>
+                <dl class="customer-summary-list">
+                    <div class="customer-summary-row">
+                        <dt>Nettobetrag</dt>
+                        <dd>@CustomerFormatting.Money(invoice.NetAmount)</dd>
+                    </div>
+                    <div class="customer-summary-row">
+                        <dt>zzgl. MwSt</dt>
+                        <dd>@CustomerFormatting.Money(invoice.VatAmount)</dd>
+                    </div>
+                    <div class="customer-summary-row customer-summary-total">
+                        <dt>Gesamtbetrag</dt>
+                        <dd>@CustomerFormatting.Money(invoice.GrossAmount)</dd>
+                    </div>
+                    @if (invoice.Status == CustomerInvoiceStatus.Open)
+                    {
+                        <div class="customer-summary-row">
+                            <dt>Fällig am</dt>
+                            <dd>@CustomerFormatting.Date(invoice.DueDate)</dd>
+                        </div>
+                    }
+                </dl>
+            </section>
+
+            @if (invoice.DocumentAvailable)
+            {
+                <div class="customer-actions">
+                    <a class="customer-button customer-button-primary"
+                       href="@Model.PdfUrl"
+                       type="application/pdf">Rechnung als PDF herunterladen</a>
+                </div>
+
+                @*
+                    A cancelled invoice's PDF is still the document as issued (BR-15), so it shows
+                    no cancellation and reads like a payable bill. The page says so beside the link.
+                *@
+                if (invoice.Status == CustomerInvoiceStatus.Void)
+                {
+                    <p class="customer-hint">Das PDF zeigt die Rechnung so, wie sie ausgestellt wurde.</p>
+                }
+            }
+            else
+            {
+                @* An invoice sent before invoice documents were archived has none, and none is made (D113). *@
+                <p class="customer-hint">Ein PDF dieser Rechnung ist hier nicht verfügbar.</p>
+            }
+        </article>
+        break;
+
+    case CustomerInvoiceOutcome.NotFound:
+        @*
+            One message for an unknown token and for a token belonging to something else: the API
+            conflates them deliberately, and so does this page.
+        *@
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Dieser Link ist nicht gültig</h1>
+            <p class="customer-lead">
+                Der Link konnte keiner Rechnung zugeordnet werden. Möglicherweise wurde er beim
+                Kopieren unvollständig übernommen.
+            </p>
+            <p class="customer-hint">
+                Bitte öffnen Sie den Link noch einmal direkt aus unserer E-Mail.
+            </p>
+        </article>
+        break;
+
+    case CustomerInvoiceOutcome.Expired:
+        @*
+            No promise of a new link: an invoice link cannot be re-issued (D99 covers Angebote only),
+            and the 30-day lifetime is unchanged by this slice. The footer carries the company's
+            contact details when they are configured.
+        *@
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Dieser Link ist abgelaufen</h1>
+            <p class="customer-lead">
+                Aus Sicherheitsgründen sind unsere Rechnungslinks nur für einen begrenzten Zeitraum
+                gültig. Dieser Zeitraum ist abgelaufen.
+            </p>
+            <p class="customer-hint">
+                Bitte wenden Sie sich an uns, wenn Sie die Rechnung erneut benötigen.
+            </p>
+        </article>
+        break;
+
+    default:
+        <article class="customer-card customer-card-notice">
+            <h1 class="customer-title">Ihre Rechnung ist gerade nicht abrufbar</h1>
+            <p class="customer-lead">
+                Wir können Ihre Rechnung im Moment nicht laden. Das liegt an uns, nicht an Ihrem Link.
+            </p>
+            <p class="customer-hint">
+                Bitte versuchen Sie es in einigen Minuten noch einmal.
+            </p>
+        </article>
+        break;
+}

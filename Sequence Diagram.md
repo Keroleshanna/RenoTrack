@@ -458,9 +458,17 @@ sequenceDiagram
 > the row may have committed) → audit → email with **the same bytes** attached. The diagram's order (PDF before
 > the status change) is superseded by that one. A missing customer address is a 409 before anything
 > is written; a missing company identity is a 500. The Admin's download, `GET
-> /api/v1/invoices/{id}/document`, serves the archive. **The customer's page and its PDF download
-> (the `WS` lane below) remain unbuilt until Slice 3b**; the attachment is how the customer holds
-> the document meanwhile. The note below is kept as written in Phase 8.
+> /api/v1/invoices/{id}/document`, serves the archive. The note below is kept as written in Phase 8.
+>
+> **Phase 14 Slice 3b (D114): the `WS` lane is built.** The customer's link opens
+> `/invoice/{token}`, which reads `GET /api/v1/public/invoices/{token}` server-side and shows the
+> amounts and the status: Open with its due date, Paid, or Void as cancelled. It carries **no bank
+> details** (G-5 is unchanged), so the diagram's "Shows amount, due date, bank details" is two-thirds
+> true. When `documentAvailable` is true, the page links `/invoice/{token}/pdf`. That route asks
+> `GET /api/v1/public/invoices/{token}/document`, which reads the archive with
+> `IFileStorage.OpenReadAsync` and never renders. The Website buffers the response, checks its type,
+> signature and size, and passes the bytes on as an attachment. Neither request consumes the link.
+> The extra lane is drawn at the end of the diagram.
 >
 > **Reconciliation note, added in the Phase 8 completion sweep.** The `IPdfGenerator` participant
 > and its `GenerateAsync` step below are **deferred design intent, not implemented behaviour**.
@@ -507,6 +515,12 @@ sequenceDiagram
     WS->>API: GET /api/v1/public/invoices/{token}
     API-->>WS: Read-only invoice view
     WS-->>C: Shows amount, due date, bank details
+
+    Note over C,WS: Phase 14 Slice 3b (D114) — the archived PDF, never re-rendered, link never consumed
+    C->>WS: (Optional) Clicks "Rechnung als PDF herunterladen" → /invoice/{token}/pdf
+    WS->>API: GET /api/v1/public/invoices/{token}/document
+    API-->>WS: The archived bytes (application/pdf) — or 404 / 410 / 409 (no archive)
+    WS-->>C: The PDF as an attachment, after type, signature and size checks — or a German status page
 
     Note over AD,DASH: Once payment is confirmed manually (bank statement, etc.)
     AD->>DASH: Open Invoice, click "Mark as Paid"

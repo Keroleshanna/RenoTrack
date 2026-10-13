@@ -47,6 +47,12 @@ public sealed class GetPublicInvoiceByTokenQueryHandler(
     IProjectRepository projectRepository,
     ICustomerRepository customerRepository) : IQueryHandler<GetPublicInvoiceByTokenQuery, PublicInvoiceDto>
 {
+    /// <summary>
+    /// The one 404 text this surface uses. It names no token, no id and no entity, because a mapped
+    /// exception's message becomes the ProblemDetails <c>detail</c> an anonymous caller reads.
+    /// </summary>
+    internal const string NotValidMessage = "This link is not valid.";
+
     public async Task<PublicInvoiceDto> HandleAsync(
         GetPublicInvoiceByTokenQuery query,
         CancellationToken cancellationToken)
@@ -60,7 +66,7 @@ public sealed class GetPublicInvoiceByTokenQueryHandler(
             // Message-only overload: the "id" here would be the token itself, and a mapped
             // exception's message becomes both the ProblemDetails detail and a Warning log entry
             // (D59) — neither of which may ever contain a live credential.
-            throw new NotFoundException("This link is not valid.");
+            throw new NotFoundException(NotValidMessage);
         }
 
         if (tokenLink.IsExpired(DateTime.UtcNow))
@@ -68,16 +74,20 @@ public sealed class GetPublicInvoiceByTokenQueryHandler(
             throw new GoneException("This link has expired and can no longer be used.");
         }
 
+        // Fixed, id-free messages from here on too (Phase 14 Slice 3b, D114). The (entity, id)
+        // overload would put an internal id into an anonymous caller's ProblemDetails detail. The
+        // first is reachable because TokenLinks has no foreign key (CLAUDE.md §21); the other two
+        // are guarded by real foreign keys, and share the rule because this surface is anonymous.
         var invoice = await invoiceRepository.GetByIdAsync(tokenLink.EntityId, cancellationToken)
-            ?? throw new NotFoundException(nameof(Invoice), tokenLink.EntityId);
+            ?? throw new NotFoundException(NotValidMessage);
 
         // Wireframe A4 renders the customer's name in its header, and an Invoice cannot see a
         // Customer (CLAUDE.md §2) — so the name is resolved here and passed to the mapper.
         var project = await projectRepository.GetByIdAsync(invoice.ProjectId, cancellationToken)
-            ?? throw new NotFoundException(nameof(Project), invoice.ProjectId);
+            ?? throw new NotFoundException(NotValidMessage);
 
         var customer = await customerRepository.GetByIdAsync(project.CustomerId, cancellationToken)
-            ?? throw new NotFoundException(nameof(Customer), project.CustomerId);
+            ?? throw new NotFoundException(NotValidMessage);
 
         return invoice.ToPublicDto(customer.Name);
     }

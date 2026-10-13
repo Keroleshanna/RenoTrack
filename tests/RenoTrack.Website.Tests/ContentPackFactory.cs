@@ -120,6 +120,11 @@ public sealed class ContentPackFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IPublicAngebotClient>();
             services.AddSingleton<IPublicAngebotClient>(new StubPublicAngebotClient(this));
+
+            // The invoice surface (Phase 14 Slice 3b): a fixed open invoice with its PDF, so the token
+            // routes can be checked with the marketing site enabled. No socket is ever opened.
+            services.RemoveAll<IPublicInvoiceClient>();
+            services.AddSingleton<IPublicInvoiceClient>(new StubPublicInvoiceClient());
         });
     }
 
@@ -134,5 +139,14 @@ public sealed class ContentPackFactory : WebApplicationFactory<Program>
             string? reason,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("The content-pack tests do not record decisions.");
+    }
+
+    private sealed class StubPublicInvoiceClient : IPublicInvoiceClient
+    {
+        public Task<CustomerInvoiceResult> GetInvoiceAsync(string token, CancellationToken cancellationToken) =>
+            Task.FromResult(CustomerInvoiceResult.Available(CustomerInvoiceBuilder.Open()));
+
+        public Task<CustomerInvoiceDocumentResult> GetInvoiceDocumentAsync(string token, CancellationToken cancellationToken) =>
+            Task.FromResult(CustomerInvoiceDocumentResult.Available(CustomerInvoiceBuilder.Document()));
     }
 }

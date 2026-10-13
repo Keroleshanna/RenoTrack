@@ -123,24 +123,13 @@ var forwardedHeadersOptions = trustedForwarders.Build();
 
 builder.Services.AddTransient<ClientAddressForwardingHandler>();
 
-// The one way this Website talks to the API. A typed client, so the boundary is a named interface
-// a page can be tested against rather than an HttpClient call inside a page model.
-builder.Services.AddHttpClient<IPublicAngebotClient, PublicAngebotClient>(client =>
-    {
-        client.BaseAddress = new Uri($"{publicApiOptions.NormalizedBaseUrl}/");
-        client.Timeout = publicApiOptions.Timeout;
-    })
-    .AddHttpMessageHandler<ClientAddressForwardingHandler>()
-
-    // Load-bearing, not tidiness. IHttpClientFactory attaches its own logging handlers, which write
-    // "Sending HTTP request GET {uri}" at Information — and this client's every URI contains the
-    // customer's token. Those handlers log under "System.Net.Http.HttpClient.*", not
-    // "Microsoft.AspNetCore", so the Warning level appsettings.json sets for the latter does not
-    // cover them: at the Default level of Information a live credential would be written to every
-    // log sink on every page view. Removed structurally here rather than left to a log-level
-    // setting, so no configuration change can reintroduce it (D97). appsettings.json pins the
-    // category to Warning as well, as defence in depth.
-    .RemoveAllLoggers();
+// The only ways this Website talks to the API: one typed client per public surface, so each
+// boundary is a named interface a page can be tested against rather than an HttpClient call inside a
+// page model. Both go through one registration, which adds the forwarding handler and the timeout,
+// and removes IHttpClientFactory's request logging. That last step is load-bearing: every URI these
+// clients send carries the customer's token (D97, D114). See PublicApiClientRegistration.
+builder.Services.AddPublicApiClient<IPublicAngebotClient, PublicAngebotClient>(publicApiOptions);
+builder.Services.AddPublicApiClient<IPublicInvoiceClient, PublicInvoiceClient>(publicApiOptions);
 
 var app = builder.Build();
 
