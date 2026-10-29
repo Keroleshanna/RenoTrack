@@ -44,8 +44,8 @@ public class GetLeadAngeboteQueryHandlerTests
     {
         _angebotQueries.Result =
         [
-            new AngebotDto(1, 7, null, "ANG-2026-00002", AngebotStatus.Draft, 5, null, null, null, DateTime.UtcNow, 10m, 11.90m),
-            new AngebotDto(2, 7, null, "ANG-2026-00001", AngebotStatus.CustomerRejected, 5, 3, null, null, DateTime.UtcNow, 20m, 23.80m),
+            new AngebotDto(1, 7, null, "ANG-2026-00002", AngebotStatus.Draft, 5, null, null, null, DateTime.UtcNow, 10m, 11.90m, Version: 3),
+            new AngebotDto(2, 7, null, "ANG-2026-00001", AngebotStatus.CustomerRejected, 5, 3, null, null, DateTime.UtcNow, 20m, 23.80m, Version: 9),
         ];
 
         var result = await _handler.HandleAsync(

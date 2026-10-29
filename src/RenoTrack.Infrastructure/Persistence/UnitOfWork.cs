@@ -68,10 +68,7 @@ public sealed class UnitOfWork(RenoTrackDbContext dbContext) : IUnitOfWork
         }
         catch (DbUpdateConcurrencyException exception)
         {
-            throw new ConflictException(
-                "This request could not be completed because the same record was changed at the same " +
-                "time by someone else. Nothing was saved. Please reload and try again.",
-                exception);
+            throw new ConflictException(ConflictException.ConcurrentChangeMessage, exception);
         }
     }
 

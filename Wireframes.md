@@ -250,19 +250,21 @@ Legend: `[ Button ]` = action button, `( )` = input field, `[v]` = dropdown, `�
 ```
 
 ### D3 — Angebot Review (Admin)
-**Roles:** Admin · **Covers:** FR-5.1–FR-5.4
+**Roles:** Admin · **Covers:** FR-5.1–FR-5.5
 
 ```
 ┌───────────────────────────────────────────────────────────┐
 │  Angebot ANG-2026-00042 — In Review     Lead: M. Klein        │
 ├───────────────────────────────────────────────────────────┤
-│  (Same read view as D1, but read-only for Admin)              │
+│  (Same read view as D1 — read-only while In Review)          │
 │  Previous review comments (if any), threaded                  │
 ├───────────────────────────────────────────────────────────┤
 │  Comment: ( ________________________ )                        │
-│           [ Request Changes ]     [ ✅ Approve & Send ]        │
+│  [ Zur Korrektur zurückholen ]  [ Request Changes ]  [ ✅ Approve ] │
 └───────────────────────────────────────────────────────────┘
 ```
+
+> **Corrected by `ARCHITECTURE_DECISIONS.md` D115.** This wireframe said the Admin's view was "read-only for Admin". Since D115 the Admin edits an Angebot exactly as the Inspector does while it is `Draft` or `ChangesRequested` (D1's builder controls), and while it is `In Review` the document is read-only for **everyone**. "Zur Korrektur zurückholen" returns it to `Draft` so the Admin can correct it, after which it is submitted and approved again. As built, D1 and D3 are one screen (D80), and the buttons shown depend on role and status.
 
 ---
 

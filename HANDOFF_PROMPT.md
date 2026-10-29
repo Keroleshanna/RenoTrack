@@ -2,10 +2,12 @@
 
 Copy everything in the code block below into the first message of a brand-new conversation.
 
-**Last updated: 2026-10-13, after Phase 14 Slice 3b's merge (PR #37, `d9cd649`).** It describes
-`main` after that merge. A later documentation-only merge may sit on top of the verified
-origin/main state. Keep this file current whenever a phase or slice is
-merged — it is the one file a fresh session is pointed at first.
+**Last updated: 2026-10-23, in the finding-A branch (`feature/admin-angebot-editing`, D115).** It
+describes `main` once that branch is merged. Until then, origin/main is PR #38 (`97cff8d`): verify
+which is true before relying on anything below. When this was written, finding A was implemented
+and tested but NOT committed, and its Browser QA had NOT run (blocked by Windows Smart App
+Control). Keep this file current whenever a phase or slice is merged — it is the one file a
+fresh session is pointed at first.
 
 ---
 
@@ -25,31 +27,37 @@ READ FIRST, IN THIS ORDER, AND READ THEM IN FULL:
 2. PROJECT_STATE.md — where the project actually stands, newest entry first.
 3. NEXT_STEPS.md — known gaps and requirements that exist in the documents but are not built.
    §8 is the current list of candidate slices and recorded findings.
-4. ARCHITECTURE_DECISIONS.md — D1–D114. Read at least D100–D114 (the recent phases).
+4. ARCHITECTURE_DECISIONS.md — D1–D115. Read at least D100–D115 (the recent phases).
 5. PROJECT_ROADMAP.md — the phase map and what remains.
 
 CURRENT STATE AT A GLANCE — verify every line yourself; the repository is authoritative.
 
-- origin/main: d9cd6495934746d6a93b9a75c163c87b50605cfa — PR #37, Slice 3b's merge, a true merge
-  commit on top of 01bd2893f258c0d5ed275f69dcb2046fe21e72fd (PR #36, Slice 3a's merge). Slice 3b's
-  head commit is 912f5233c4d080794a922c4c1355a9af500d1d81. A later documentation-only merge may sit
-  on top of the verified origin/main state. VERIFY origin/main yourself.
+- origin/main before finding A: 97cff8d659835c80f5dd6f5ca3c3f179d1e62e76 — PR #38 (documentation
+  reconciliation), on top of d9cd649 (PR #37, Slice 3b's merge). Finding A (D115) was built on
+  feature/admin-angebot-editing from that commit; its PR number and merge commit are not recorded
+  here because they did not exist when this was written. VERIFY origin/main yourself.
 - PRs #28 (Phase 13 parked), #29 (Slice 7), #30 (Phase 14 Slice 1), #31, #33 and #35 (handoffs),
   #32 (Phase 14 Slice 2), #34 (Phase 14 Slice 2b), #36 (Phase 14 Slice 3a) and #37 (Phase 14
   Slice 3b) are MERGED.
 - Build: 0 Warnings, 0 Errors (TreatWarningsAsErrors solution-wide).
-- Tests, verified in CI on PR #37 and on the main push run for d9cd649 — 3,449 passing, 0 failing:
-  Domain 455 · Application 611 · Infrastructure 453 (LocalDB) · Api 562 (LocalDB) ·
-  Website 1,321 · MediaPrep 20 · Documents 27. CI does not build or test the Dashboard: locally it
-  has 124 specs passing, lint clean, build succeeding. Re-run everything yourself before relying
-  on it.
-- Migrations: 15 (#15 AddInvoiceDocumentFileUrl, Slice 3a). Slice 3b added none.
+- Tests on the finding-A branch, measured LOCALLY and never by CI, recorded run by run:
+  - full suite, 2026-10-13, BEFORE the 409 sanitisation: 3,568 passing, 0 failing — Domain 488 ·
+    Application 659 · Infrastructure 467 (LocalDB) · Api 586 (LocalDB) · Website 1,321 ·
+    MediaPrep 20 · Documents 27;
+  - AFTER the 409 sanitisation, the Api suite only: 591 passing (the sanitisation touched only the
+    Api project and its tests).
+  The suite has NEVER run as a whole with the sanitisation in place, so no combined figure exists
+  yet. The last CI-verified figure is 3,449 (PR #37). CI does not build or test the Dashboard:
+  locally it has 134 specs passing, lint clean, build succeeding. Re-run everything yourself before
+  relying on it.
+- Migrations: 16 (#16 AddAngebotVersion, finding A / D115).
 
 PHASES: 0–12 complete and merged. Phase 13 (public website) is PARKED BY DECISION after Slices
 5a/5v/5h — see below. Phase 14 (PDF): Slices 1, 2, 2b, 3a and 3b are COMPLETE and MERGED, which
 completes the INVOICE side of the phase. Angebot archiving is NOT part of it: it belongs to finding
-B's design. NO LATER SLICE HAS STARTED — not A, not B, not the time-policy slice, not anything else
-in NEXT_STEPS.md §8.
+B's design. FINDING A (ADMIN EDITING, D115) IS IMPLEMENTED AND TESTED BUT UNCOMMITTED, ITS
+BROWSER QA BLOCKED — see 8. NOTHING ELSE HAS STARTED — not B, not the time-policy slice, not
+anything else in NEXT_STEPS.md §8.
 
 PHASE 14 SLICES 3a AND 3b ARE CLOSED. Do not re-review them: their designs, implementations, tests,
 QA, mutations and documents were all reviewed and approved before merge (D113 and D114 are the
@@ -189,15 +197,49 @@ WHAT EARLIER SESSIONS DID, AND WHY
      shared with the Angebot page. At 200% text on 375 px the summary total row overflows, and the
      dark-mode primary button is 2.29:1.
 
+8. Finding A — ADMIN EDITING OF AN INSPECTOR-OWNED ANGEBOT (D115) — implemented and tested on
+   feature/admin-angebot-editing, NOT committed, NOT fully verified and NOT ready to merge.
+   Approved before implementation; do not reopen silently:
+   - An Admin edits like the Inspector (sections, lines, Catalog picker) ONLY in Draft /
+     ChangesRequested, under the unchanged edit lock. Nobody edits InReview or later;
+     CustomerApproved stays immutable.
+   - "Zur Korrektur zurückholen": Admin-only InReview → Draft, no comment, no email
+     (POST /api/v1/angebote/{id}/return-for-correction, SRS FR-5.5). The Angebot must then be
+     submitted and approved again; self-approval is allowed (no four-eyes rule).
+   - An Admin may submit any Draft/ChangesRequested Angebot; no review email is sent for it (FR-9.2).
+     Create, duplicate and save-as-Catalog stay Inspector-only. CreatedByInspectorId never changes.
+   - Every Admin builder mutation is audited (AngebotEditedByAdmin), and so is A3
+     (AngebotReturnedForCorrection). Inspector builder edits stay unaudited.
+   - Angebot.Version (explicit counter, every public mutator increments it, EF concurrency token,
+     migration #16) plus a REQUIRED expectedVersion on every content or review write: body for
+     POST/PUT, query for DELETE, never If-Match. A stale one is a generic 409 naming nothing; the
+     Dashboard re-reads after any 409. The handler-level freshness check is a recorded, narrow
+     exception to CLAUDE.md §6.
+   - The two hazards were REPRODUCED on main's model before the fix (stored totals drifting from the
+     lines; an edit landing after approval) by AngebotConcurrencyTests on LocalDB.
+   - ONE SANITISED 409: the nine versioned writes carry [GenericConflictResponse]. A stale version,
+     an Angebot no longer editable and a lost race publish one fixed detail and the route template
+     as instance — no id, no state. The Domain's own message is still logged. Sanitised at the API
+     boundary, never by rewrapping in Application (CLAUDE.md §17).
+   - BROWSER QA HAS NOT BEEN EXECUTED. It is BLOCKED by Windows Smart App Control, policy
+     VerifiedAndReputableDesktop: Code Integrity events 3077/3033, 0x800711C7 / 0xc0e90002, on the
+     newly built unsigned RenoTrack.Domain/Application assemblies. Persistent across a full
+     restart. This is an environment blocker, NOT a test pass and NOT a RenoTrack defect. No
+     Windows security setting was changed and no main or shared database was touched. NEVER
+     disable or bypass Smart App Control, sign or copy binaries, or use the main checkout or
+     another environment to get round it.
+   - QA database RenoTrack_AdminEditQA (LocalDB) exists with migration #16 applied, two seeded
+     Draft Angebote and an active development Admin. A browser sign-in there was once refused for a
+     typed password that did not match the configured one; the account itself is fine. Never
+     reset it without the user's approval.
+   - Remaining before commit: Browser QA (once the build can load); a final full test run with the
+     sanitisation in place; the Product Owner's diff review; then commit, push and PR, each only
+     with permission.
+
 THE NEXT TASK: CHOSEN BY THE PRODUCT OWNER, DESIGN REVIEW FIRST, IN A NEW CHAT, FRESH FROM THIS MAIN
 
 No slice is approved as the next point. The candidates have NOT started and THEIR ORDER IS NOT
 DECIDED. NEXT_STEPS.md §8 is the full record:
-- A (design first): ADMIN EDITING OF AN INSPECTOR'S ANGEBOT. Today forbidden by documented decision
-  (PermissionMatrix.md §3, Admin R). The Product Owner wants the Admin to have the Inspector's full
-  operational capability on Angebote. Editable states, re-approval and concurrency (D96's revisit
-  trigger) are undecided. Change NO permission, authorization or concurrency until its design is
-  approved.
 - B (design first): REVISING AN ANGEBOT AFTER IT IS SENT (SRS OQ-4). Today a sent Angebot is
   immutable, there is no revision concept and no snapshot, and a customer asking for a lower price
   is a dead end. Required: revisions, each sent revision retrievable as sent. The model, states,
@@ -208,10 +250,11 @@ DECIDED. NEXT_STEPS.md §8 is the full record:
   only Angebot links can be re-issued (D99). Undecided whether anything is needed — design first.
 - The two customer.css accessibility defects (NEXT_STEPS.md §8h), shared by the Angebot and invoice
   pages. A fix touches both pages; re-run the Website suite and browser QA on both.
-- KEEP THREE WORKFLOWS SEPARATE: editing an Angebot before sending (A), revising one after sending
-  (B), and correcting an issued Invoice (void and reissue — settled, unchanged by A or B).
-- An Angebot that reached CustomerApproved must stay immutable under any design for A or B:
-  invoice creation reads its rate mix live. Issued invoices are already safe — their lines are stored.
+- KEEP THREE WORKFLOWS SEPARATE: editing an Angebot before sending (A — built, D115), revising one
+  after sending (B), and correcting an issued Invoice (void and reissue — settled, unchanged by A or
+  B). B must build on D115's Version token and expectedVersion contract, not around them.
+- An Angebot that reached CustomerApproved must stay immutable under any design for B: invoice
+  creation reads its rate mix live. Issued invoices are already safe — their lines are stored.
 
 LEGAL BOUNDARY, NOT NEGOTIABLE: whether a rendered document satisfies §14 UStG is a legal
 reviewer's judgement, never this project's. Build the fields BR-5 enumerates; sign-off belongs to
@@ -266,9 +309,9 @@ ENVIRONMENT CONDITIONS YOU WILL HIT, ALL DOCUMENTED AND NONE A CODE DEFECT:
   `https` profile for Dashboard QA (NEXT_STEPS.md §8e). And do QA on a SEPARATE database — copy the
   gitignored appsettings.Development.json into the worktree with another database name and
   Database:Mode=Migrate — so an unmerged migration never reaches the shared development database.
-  The QA databases RenoTrack_Slice2bQA (Slice 2b), RenoTrack_Slice3aQA (Slice 3a) and
-  RenoTrack_Slice3bQA (Slice 3b) still exist in LocalDB and hold QA data only; ask the user before
-  dropping any of them. Invoice sends need a
+  The QA databases RenoTrack_Slice2bQA (Slice 2b), RenoTrack_Slice3aQA (Slice 3a),
+  RenoTrack_Slice3bQA (Slice 3b) and RenoTrack_AdminEditQA (finding A) still exist in LocalDB and
+  hold QA data only; ask the user before dropping any of them. Invoice sends need a
   (fictional, .test) CompanyLegalIdentity in that QA configuration, or every send is a 500 by design.
 - A fresh worktree has no Dashboard node_modules. `npm ci` fails on a pre-existing Angular peer
   conflict; `npm ci --legacy-peer-deps` installs the unchanged lockfile (Slice 2b).

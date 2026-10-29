@@ -8,6 +8,8 @@ public sealed class AddAngebotSectionCommandValidator : AbstractValidator<AddAng
     {
         RuleFor(c => c.AngebotId).GreaterThan(0);
         RuleFor(c => c.Title).NotEmpty();
-        RuleFor(c => c.InspectorId).GreaterThan(0);
+        RuleFor(c => c.ExpectedVersion).GreaterThanOrEqualTo(0);
+        RuleFor(c => c.RequestingInspectorId).GreaterThan(0).When(c => c.RequestingInspectorId is not null);
+        RuleFor(c => c.PerformedByUserId).GreaterThan(0);
     }
 }

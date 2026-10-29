@@ -9,6 +9,7 @@ using RenoTrack.Application.Angebote.Commands.DuplicateAngebot;
 using RenoTrack.Application.Angebote.Commands.RecordAngebotDecision;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
 using RenoTrack.Application.Angebote.Commands.ResendAngebot;
+using RenoTrack.Application.Angebote.Commands.ReturnAngebotForCorrection;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotItem;
 using RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
@@ -166,6 +167,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<SubmitAngebotForReviewCommand>, SubmitAngebotForReviewCommandValidator>();
         services.AddScoped<IValidator<ApproveAngebotCommand>, ApproveAngebotCommandValidator>();
         services.AddScoped<IValidator<RequestAngebotChangesCommand>, RequestAngebotChangesCommandValidator>();
+        services.AddScoped<IValidator<ReturnAngebotForCorrectionCommand>, ReturnAngebotForCorrectionCommandValidator>();
         services.AddScoped<IValidator<RemoveAngebotSectionCommand>, RemoveAngebotSectionCommandValidator>();
         services.AddScoped<IValidator<RemoveAngebotItemCommand>, RemoveAngebotItemCommandValidator>();
         services.AddScoped<IValidator<UpdateAngebotItemCommand>, UpdateAngebotItemCommandValidator>();
@@ -222,6 +224,7 @@ public static class DependencyInjection
         services.AddScoped<ICommandHandler<SubmitAngebotForReviewCommand, AngebotDto>, SubmitAngebotForReviewCommandHandler>();
         services.AddScoped<ICommandHandler<ApproveAngebotCommand, AngebotDto>, ApproveAngebotCommandHandler>();
         services.AddScoped<ICommandHandler<RequestAngebotChangesCommand, AngebotDto>, RequestAngebotChangesCommandHandler>();
+        services.AddScoped<ICommandHandler<ReturnAngebotForCorrectionCommand, AngebotDto>, ReturnAngebotForCorrectionCommandHandler>();
         services.AddScoped<ICommandHandler<RemoveAngebotSectionCommand, AngebotSummaryDto>, RemoveAngebotSectionCommandHandler>();
         services.AddScoped<ICommandHandler<RemoveAngebotItemCommand, AngebotSummaryDto>, RemoveAngebotItemCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateAngebotItemCommand, AngebotSummaryDto>, UpdateAngebotItemCommandHandler>();

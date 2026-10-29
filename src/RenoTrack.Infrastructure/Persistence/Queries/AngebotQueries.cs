@@ -39,7 +39,8 @@ public sealed class AngebotQueries(RenoTrackDbContext dbContext) : IAngebotQueri
                 // The stored columns, not a re-derivation: NetTotal/GrossTotal are the two fields
                 // ERD.md caches precisely so a list page need not walk the item tree (D15).
                 a.NetTotal.Amount,
-                a.GrossTotal.Amount))
+                a.GrossTotal.Amount,
+                a.Version))
             .ToListAsync(cancellationToken);
 
     /// <summary>

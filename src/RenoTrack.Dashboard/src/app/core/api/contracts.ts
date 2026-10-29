@@ -125,6 +125,8 @@ export interface AngebotHeaderDto {
   readonly createdAt: string;
   readonly netTotal: number;
   readonly grossTotal: number;
+  /** D115 — see {@link AngebotDetailDto.version}. */
+  readonly version: number;
 }
 
 /**
@@ -220,6 +222,15 @@ export interface AngebotDetailDto {
   readonly grossTotal: number;
   readonly vatBreakdown: readonly VatBreakdownLineDto[];
   readonly sections: readonly SectionDetailDto[];
+
+  /**
+   * The Angebot's concurrency version (**D115**) — opaque, compared for equality only.
+   *
+   * Every versioned write sends back the value from the latest read as `expectedVersion`; a stale
+   * one is refused with 409, so a screen loaded before someone else's change can never silently
+   * overwrite it. Always taken from this read, never from a command response (D81).
+   */
+  readonly version: number;
 }
 
 /** What a section/item removal returns — the refreshed header totals, not the tree. */
@@ -229,6 +240,8 @@ export interface AngebotSummaryDto {
   readonly status: AngebotStatusDto;
   readonly netTotal: number;
   readonly grossTotal: number;
+  /** D115 — the version after this write. The screen still re-reads (D81). */
+  readonly version: number;
 }
 
 export interface SectionDto {

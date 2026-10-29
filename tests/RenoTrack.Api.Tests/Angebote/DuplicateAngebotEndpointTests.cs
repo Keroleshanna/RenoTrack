@@ -217,11 +217,10 @@ public sealed class DuplicateAngebotEndpointTests(RenoTrackApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var angebotId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var section = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1 Abbruch", sortOrder = 1 });
+        var section = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1 Abbruch", sortOrder = 1 });
         var sectionId = (await section.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var item = await client.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        var item = await client.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId,

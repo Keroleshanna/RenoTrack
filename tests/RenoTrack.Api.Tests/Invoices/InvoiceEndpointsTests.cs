@@ -1,3 +1,4 @@
+using RenoTrack.Api.Tests.Angebote;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -1015,11 +1016,10 @@ public sealed partial class InvoiceEndpointsTests(RenoTrackApiFactory factory)
         var created = await inspector.PostAsJsonAsync($"/api/v1/leads/{leadId}/angebote", new { inspectionId = (int?)null });
         var angebotId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var section = await inspector.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1", sortOrder = 1 });
+        var section = await inspector.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1", sortOrder = 1 });
         var sectionId = (await section.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        await inspector.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        await inspector.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,
@@ -1031,10 +1031,10 @@ public sealed partial class InvoiceEndpointsTests(RenoTrackApiFactory factory)
             vatRate = "Standard",
         });
 
-        await inspector.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        await inspector.PostVersionedAsync(angebotId, "submit-for-review");
 
         using var admin = await AdminClientAsync();
-        await admin.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        await admin.PostVersionedAsync(angebotId, "approve");
         await admin.PostAsync($"/api/v1/angebote/{angebotId}/send", content: null);
 
         string token;

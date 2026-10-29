@@ -1,5 +1,72 @@
 # PROJECT_STATE.md — Where RenoTrack Actually Stands
 
+> **2026-10-23 — Finding A, Admin editing of an Inspector-owned Angebot (D115): IMPLEMENTED AND TESTED, NOT FULLY VERIFIED, NOT READY TO MERGE.** It lives as uncommitted changes on `feature/admin-angebot-editing`, branched from `main` at `97cff8d` (PR #38). Nothing has been committed, pushed or opened as a PR. **Browser QA has NOT been executed**, and it remains an explicit outstanding gate (below). **Verify the actual `origin/main` and the branch before relying on this entry.**
+>
+> **What it does (approved before implementation; D115 is the full record):**
+> - **Admin editing.** An Admin edits an Inspector's Angebot like its Inspector: sections, lines, the Catalog picker. This applies only while the Angebot is `Draft`/`ChangesRequested`, under the unchanged Domain edit lock. `ApprovedInternally` and every later state stay immutable.
+> - **Return for correction.** New Admin-only "Zur Korrektur zurückholen" (`InReview → Draft`, SRS FR-5.5, `POST …/return-for-correction`). It records no comment and sends no email. The Angebot must then be submitted and approved again, and the correcting Admin may approve it.
+> - **Admin submit.** An Admin may submit any editable Angebot; the confirmation names the author. No review email is sent for it (FR-9.2).
+> - **Unchanged authorship.** `CreatedByInspectorId` never changes. Every Admin builder mutation is audited (`AngebotEditedByAdmin`), and so is every return for correction (`AngebotReturnedForCorrection`). Inspector edits stay unaudited.
+> - **Admin non-goals:** create, duplicate and save-as-Catalog stay Inspector-only.
+> - **Concurrency.** `Angebot.Version` is an explicit counter that each of the twelve public mutators increments, and it is the EF concurrency token. **Migration #16 `AddAngebotVersion`.** Every content or review write carries a required `expectedVersion`: in the body, or as a query parameter on a DELETE. On a 409 the Dashboard closes the dialog, shows one message and re-reads.
+> - **One sanitised 409.** The nine versioned writes carry `[GenericConflictResponse]`. A stale version, an Angebot no longer editable and a lost race all publish one fixed detail, with the route template as `instance`, so no id or internal state reaches the response. The Domain's own message, which names the Angebot id and its status, is still logged with the exception. Sanitised at the API boundary: CLAUDE.md §17 forbids rewrapping a Domain exception in Application.
+> - **Documents.** SRS §3.4 stands and PermissionMatrix §3/§4 were corrected to match. Also updated: StateMachine §2, Architecture §5.2/§5.3/§6.2, ERD, CLAUDE.md (§2, §6, §10, §16, §17, §21, §22, §23), D115, Sequence Diagram §4/§5, Wireframes D3 and NEXT_STEPS §8. BusinessRules is unchanged (BR-1 holds).
+>
+> **Baseline reproduced first.** The new LocalDB race suite (`AngebotConcurrencyTests`, 14 cases) was written and run against `main`'s model before any production change, and all 14 failed there. With lines adding up to €440.00, two concurrent line edits left a stored `NetTotal` of €370.00 or €190.00, and edits staged on a Draft committed after submission or approval. After the fix all 14 pass, on 3 runs, then the full suite, then 5 more runs.
+>
+> **Tests, measured locally and never by CI** (baselines are the PR #37 CI figures). These are the last runs that actually completed, recorded run by run rather than combined:
+> - **Full suite on a clean build, 2026-10-13, before the 409 sanitisation was added:**
+>   - Domain 455 → **488** (+33)
+>   - Application 611 → **659** (+48)
+>   - Infrastructure 453 → **467** (+14, LocalDB)
+>   - Api 562 → **586** (+24, LocalDB)
+>   - Website **1,321**, MediaPrep **20** and Documents **27** (unchanged)
+>
+>   That run totalled **3,568, all passing** (+119). Build: 0 warnings, 0 errors.
+> - **After the 409 sanitisation, the Api suite only: 591, all passing** (+5 over 586: the new `AngebotConflictResponseTests`). The sanitisation touched only the Api project and the Api tests, so the other suites were not re-run.
+> - **The suite has never been run as a whole with the 409 sanitisation in place.** A combined figure is therefore not recorded here; the final full re-run is an outstanding action, and it may meet the same Smart App Control block as the API (below).
+> - **Migrations: 16**; `has-pending-model-changes` reports none. The generated migration has exactly one `AddColumn` and the matching `DropColumn`.
+> - **Dashboard: 124 → 134 specs**, lint clean, build 395.21 kB. The sanitisation changed no Dashboard code.
+> - **CI has not run.**
+>
+> **Mutations: 14, each caught and restored byte-identical (SHA-256 checked):**
+> - removing the token;
+> - one mutator skipping its increment, caught by both the Domain and race suites;
+> - dropping the ownership guard;
+> - inverting the Admin-audit condition;
+> - dropping the approval's freshness check;
+> - sending the review email on an Admin submit;
+> - opening A3 to an Inspector;
+> - making the scope helper fail open;
+> - narrowing a builder role gate back to Inspector;
+> - on the Dashboard: A3 offered to an Inspector, approve sending a fixed version, and removing the 409 handling;
+> - removing the boundary's 409 rewrite (13 Api tests failed), and removing the marker from the line-correction endpoint (3 failed).
+>
+> Two first forms did not compile and were not counted: an `if (false)` audit mutation (unreachable code is an error under `TreatWarningsAsErrors`), and a marker mutation whose anchor missed the file's line endings.
+>
+> **HTTP QA** ran against a separate, freshly migrated database, **`RenoTrack_AdminEditQA`** (storage root `storage-admineditqa`), seeded through the real API: two Leads taken to Inspector-owned Angebote. As Admin:
+> - a stale `expectedVersion` gave 409, with the generic detail and no id;
+> - a missing one gave 400 on both a PUT and a DELETE;
+> - a current one gave 200, with the version moving by one and the stored net total correct;
+> - an Inspector's return-for-correction gave 403;
+> - Admin create and duplicate gave 403.
+>
+> That HTTP pass ran **before** the 409 sanitisation was added; the sanitisation is covered by the Api suite and its two mutations, not by HTTP QA.
+>
+> **BROWSER QA: NOT EXECUTED — BLOCKED BY AN ENVIRONMENT CONDITION. This is not a test pass.**
+> - **Blocker:** Windows **Smart App Control**, policy **`VerifiedAndReputableDesktop`** (GUID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`), enforcing.
+> - **Evidence:** Code Integrity **event 3077** with status **`0xc0e90002`**, each paired with **event 3033** ("did not meet the Enterprise signing level requirements"). The API fails with **`0x800711C7`** ("An Application Control policy has blocked this file") when loading the newly built, unsigned `RenoTrack.Domain.dll` / `RenoTrack.Application.dll`, whose hashes have no reputation.
+> - **Persistence:** it is not path-based. The same worktree path, and the main checkout's unsigned copies, loaded on 2026-10-13/14, and Microsoft-signed dependencies are never blocked. Every controlled attempt on 2026-10-23 was blocked, including one after a full Windows restart; each was a single documented non-deterministic rebuild plus a single start.
+> - **Not a RenoTrack defect.** No Windows security setting was changed, Smart App Control was not disabled or bypassed, no binary was signed or copied elsewhere, and no other environment was used.
+> - **No main or shared database was touched.** The main checkout was not used for QA.
+> - **Earlier, separately:** before the block appeared, a browser sign-in on the QA database was refused because the typed password did not match the configured development password. The account and the configured password were verified (a programmatic login returned 200), and no password was reset.
+>
+> **QA environment as left:** `RenoTrack_AdminEditQA` exists on `(localdb)\MSSQLLocalDB` with migration #16 applied, two seeded Draft Angebote and an active, unlocked development Admin. The worktree's gitignored `appsettings.Development.json` points at it. The temporary `api-https` launch entry used for QA has been reverted; `.claude/launch.json` is identical to `main`.
+>
+> **Remaining before commit:** browser QA once Smart App Control allows the build to load; a final full test run with the 409 sanitisation in place; then the Product Owner's review of the diff, and commit, push, PR and merge, each only with permission, the merge only after every CI check passes. **No other slice has started.**
+
+> *History — the entry below is the state before finding A.*
+
 > **2026-10-13 — Phase 14 Slice 3b (the customer's invoice page and token-based PDF download, D114) is MERGED and VERIFIED.** `origin/main` is at `d9cd6495934746d6a93b9a75c163c87b50605cfa` (PR #37, a true merge commit on top of `01bd289`). The slice's head commit is `912f5233c4d080794a922c4c1355a9af500d1d81`. The merge added no content beyond that head. **This completes the invoice side of Phase 14. No later slice has started.**
 >
 > **Tests, measured in CI — 3,449 passing, 0 failing,** both on PR #37 and on the push run for the merge commit on `main`. Both jobs passed (`build-and-test`, `database-backed-tests`):

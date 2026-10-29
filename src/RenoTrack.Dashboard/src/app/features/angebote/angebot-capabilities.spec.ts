@@ -52,6 +52,7 @@ describe('Angebot capabilities', () => {
         const capabilities = capabilitiesFor('inspector', status);
 
         expect(capabilities.canReview).toBeFalse();
+        expect(capabilities.canReturnForCorrection).toBeFalse();
         expect(capabilities.canSend).toBeFalse();
         expect(capabilities.canResend).toBeFalse();
         expect(capabilities.canConvertToProject).toBeFalse();
@@ -75,9 +76,37 @@ describe('Angebot capabilities', () => {
   });
 
   describe('Verwaltung (Admin)', () => {
-    it('never edits a draft — §3 marks that "R", so a change goes through Request Changes', () => {
+    /**
+     * Inverted by D115. This test asserted "never edits — §3 marks that R". The Product Owner gave
+     * the Admin the Inspector's full operational capability on an editable Angebot, so the same rule
+     * is now pinned the other way — and still exhaustively, because what matters is that `InReview`
+     * and every later state stay closed to the Admin as well.
+     */
+    it('may edit exactly the two editable states, like the Inspector (D115)', () => {
+      const editable = OTHER.filter((status) => capabilitiesFor('admin', status).canEdit);
+
+      expect(editable).toEqual([...EDITABLE_STATUSES]);
+    });
+
+    it('may submit from either editable state (D115)', () => {
+      const submittable = OTHER.filter(
+        (status) => capabilitiesFor('admin', status).canSubmitForReview,
+      );
+
+      expect(submittable).toEqual([...EDITABLE_STATUSES]);
+    });
+
+    it('may take a quote back for correction only while it is in review (FR-5.5, D115)', () => {
+      const returnable = OTHER.filter(
+        (status) => capabilitiesFor('admin', status).canReturnForCorrection,
+      );
+
+      expect(returnable).toEqual(['InReview']);
+    });
+
+    it('is never shown the author-addressed rework explanation', () => {
       for (const status of OTHER) {
-        expect(capabilitiesFor('admin', status).canEdit).toBeFalse();
+        expect(capabilitiesFor('admin', status).awaitingRework).toBeFalse();
       }
     });
 
@@ -107,14 +136,14 @@ describe('Angebot capabilities', () => {
       expect(convertible).toEqual(['CustomerApproved']);
     });
 
-    it('never submits for review and never saves a Catalog item — neither is an Admin action', () => {
+    it('never saves a Catalog item from a line and never duplicates — both stay Inspector-only', () => {
       for (const status of OTHER) {
         const capabilities = capabilitiesFor('admin', status);
 
-        expect(capabilities.canSubmitForReview).toBeFalse();
+        // §6: the Admin curates the Catalog directly instead.
         expect(capabilities.canSaveCustomItemToCatalog).toBeFalse();
 
-        // §3 marks duplication Inspector S / Admin — : an Admin authors nothing.
+        // §3 marks duplication Inspector S / Admin — ; D115 kept creating and duplicating as non-goals.
         expect(capabilities.canDuplicate).toBeFalse();
       }
     });
@@ -134,6 +163,7 @@ describe('Angebot capabilities', () => {
       expect(capabilities.canEdit).toBeFalse();
       expect(capabilities.canSubmitForReview).toBeFalse();
       expect(capabilities.canReview).toBeFalse();
+      expect(capabilities.canReturnForCorrection).toBeFalse();
       expect(capabilities.canSend).toBeFalse();
       expect(capabilities.canResend).toBeFalse();
       expect(capabilities.canConvertToProject).toBeFalse();

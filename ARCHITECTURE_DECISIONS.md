@@ -1632,7 +1632,7 @@ Two components would mean two renderings of the same commercial document, each f
 
 ### Consequences
 
-- `canEdit` is true only for Inspector in `Draft`/`ChangesRequested`; Admin is `R` on a draft and never edits one, so a change goes through Request Changes.
+- `canEdit` is true only for Inspector in `Draft`/`ChangesRequested`; Admin is `R` on a draft and never edits one, so a change goes through Request Changes. **Superseded by D115:** `canEdit` and `canSubmitForReview` are now true for Inspector *and* Admin in the two editable states, and an Admin in `InReview` gets `canReturnForCorrection`. The one-route, derived-capability design of this decision is unchanged.
 - `canSubmitForReview` is true only in `Draft`, because a `ChangesRequested` quote returns to `Draft` **by being edited** (`Angebot.EnsureEditable()`), and no reopen endpoint exists. The screen therefore *explains* that state rather than offering a disabled button (`awaitingRework`).
 - This is presentation only. Deleting the file would make the screen ruder, not less secure.
 
@@ -3442,3 +3442,88 @@ The API ran on its https profile. The Website ran from its `dotnet publish` outp
 2. **Dark mode:** `.customer-button-primary` is white on `#7fb0e0`, which is **2.29:1** and fails WCAG AA. In the light scheme it is 8.95:1.
 
 Both are recorded in `NEXT_STEPS.md` §8h.
+
+---
+
+## D115 — Admin Editing of an Inspector-Owned Angebot: Same Edit Lock, One Named Way Out of Review, and a Version on Every Write
+
+**Approved by the Product Owner before implementation** (finding A, `NEXT_STEPS.md` §8b), as fourteen numbered decisions and six follow-up answers. It resolves the contradiction between SRS §3.4 ("Admin (reviews/edits)") and `PermissionMatrix.md` §3 (Admin `R`) **in favour of SRS §3.4**.
+
+### Context
+
+The Product Owner required an Admin to have the Inspector's full operational capability on an Angebot, so that a small fix does not need a round trip through Request Changes. Until now the Admin was `R` on a draft, "to keep authorship and accountability clean", enforced in three places: the `Inspector` role gate on every builder endpoint, `EnsureAngebotOwnership` in every builder handler, and `canEdit: isInspector && …` in the Dashboard.
+
+A second human editor met D96's revisit trigger: *a second, independent path that can transition an Angebot … concurrently*. **Reading the code found two existing hazards, and real SQL Server then reproduced both against `main`'s model before anything was changed** (`AngebotConcurrencyTests`, 14 cases, every one failing there):
+
+1. **Stored totals drifting from the lines.** Two editors changing two different lines both committed. Each stored the totals computed from its own view, so with lines adding up to €440.00 net the stored `NetTotal` ended at €370.00 or €190.00.
+2. **The edit lock bypassed by a stale editor.** An edit staged while the Angebot was a Draft committed after it had been submitted or approved. The stale writer never writes `Status`, and an edit that moves no money writes no total either (`Money` is a record, so an unchanged total is not marked modified). Such an edit wrote nothing to the `Angebote` row, so no predicate could refuse it.
+
+### Decision
+
+1. **States.** An Admin edits only in `Draft` and `ChangesRequested`, under the same Domain edit lock as the Inspector. `EnsureEditable()` is unchanged. `ApprovedInternally` and every later state stay immutable, so `CustomerApproved` stays immutable and invoice creation's live read of the rate mix stays safe.
+2. **No editing while `InReview`. Instead, one explicit Admin-only transition: `InReview → Draft`, "Zur Korrektur zurückholen"** (`Angebot.ReturnForCorrection()`, `POST /api/v1/angebote/{id}/return-for-correction`, SRS FR-5.5). It records no comment, sends no email and sets no `ReviewedByAdminId`. Considered and rejected:
+   - **A1, Request Changes first.** It is exactly the round trip the requirement removes: a required comment and an email to the Inspector.
+   - **A2, direct editing in `InReview`.** It makes the lock role-dependent, because an Inspector is `R` in review (§4). That rule has no home: a role parameter on Domain methods breaks CLAUDE.md §2 ("never 'who is calling'"), and a handler status check breaks §6.
+3. **Re-approval is structural.** A corrected Angebot is a Draft again, so it must be submitted and approved again. The review gate (BR-1) still stands between the correction and the customer. **Self-approval is allowed**: the Admin who corrected may approve. There is no four-eyes rule.
+4. **Authorship never moves.** No Admin action changes `CreatedByInspectorId`. **The audit trail replaces the old accountability reason:**
+   - `AngebotEditedByAdmin` for every Admin builder mutation;
+   - `AngebotReturnedForCorrection` for A3;
+   - both logged against the Angebot, after the save.
+
+   The details name the operation and the section/item association only (`operation=ItemUpdated; sectionId=12; itemId=40`): no amounts, no text, no customer data. **Inspector builder mutations stay unaudited.** This refines CLAUDE.md §10 rather than reversing it: the accountability question only arises when the editor is not the author. Audit remains best-effort (D50).
+5. **Which actions.** An Admin may:
+   - add and remove sections and items, and edit an item;
+   - use the Catalog picker while editing;
+   - submit **any** `Draft`/`ChangesRequested` Angebot. No "corrected draft" state or flag was invented, because the Domain cannot tell one draft from another;
+   - return an Angebot for correction.
+
+   **Non-goals:** Admin create, duplicate and save-as-Catalog; authorship on someone else's behalf.
+6. **Concurrency, Level 1: `Angebot.Version`.**
+   - An `int` with a private setter, configured with `.IsConcurrencyToken()`.
+   - Every public state-changing method increments it exactly once, after its guards pass. There are twelve such methods, pinned by a reflection inventory.
+   - Every Angebot write, a description-only edit included, therefore becomes `UPDATE Angebote … WHERE Version = @original`.
+   - A stale writer matches no row. EF rolls its whole batch back, child rows included, and D96's `UnitOfWork` translation answers 409.
+
+   **Why an explicit Domain counter and not a hidden `rowversion`:** a `rowversion` changes only when its own row is updated, and a child-only edit does not update the root. Making a `rowversion` work would need a `DbContext` hook that marks the root modified, which nobody can see by reading a handler. The counter carries no business meaning: it is opaque, and a duplicated Angebot starts above zero because `CopyTree` uses the ordinary mutators.
+7. **Concurrency, Level 2: `expectedVersion`.**
+   - **Which writes carry it:** every write that can change content or move the Angebot through review. That is the five builder writes, submit, return for correction, **approve** and request changes. Approve is included so that an Admin cannot approve a document someone else corrected and resubmitted in the meantime.
+   - **How it travels:** in the body for `POST`/`PUT` (`[JsonRequired]`, so a missing value is a 400 and never a default of 0), and as a required query parameter on a `DELETE`.
+   - **Not `If-Match`:** that convention answers 412, and the approved contract is 409.
+   - **Send, resend and convert carry none:** the content is frozen by then.
+8. **Handler order:** validate → load (404) → ownership, Inspector only (403) → `AngebotFreshness.EnsureExpectedVersion` (409) → Domain → save → audit → notification. Ownership comes before the version check, so a non-owner learns nothing about the version.
+
+   **The freshness check is a recorded, narrow exception to CLAUDE.md §6**, on D99 Part 2's footing. It asks whether the *request* is fresh, which is not a business rule, and there is no Domain guard to defer to: the aggregate has no notion of what a caller last read. Business invariants stay in the Domain.
+9. **One generic 409, sanitised at the API boundary.** A stale version and a lost race share `ConflictException.ConcurrentChangeMessage`, one constant used by both `UnitOfWork` and the freshness check. It names no id, table or version. **The third cause, "no longer editable", is the Domain's own `InvalidOperationException`, whose message names the Angebot id and its status** — and D59 publishes a mapped exception's message as `detail`. Found in the final design pass and closed before commit:
+   - The nine versioned writes carry `[GenericConflictResponse]` (`RenoTrack.Api.ErrorHandling`).
+   - The capture middleware that already records route facts before ASP.NET clears the endpoint (`RouteDiagnostics`) records the marker too.
+   - `ProblemDetailsExceptionHandler` then publishes **one fixed detail** for every 409 on a marked endpoint, whatever caused it, and sets `instance` to the route template, so the body carries no id at all.
+
+   **Why at the boundary:** the Domain keeps its precise message and the full exception is still logged at Warning, so no diagnostic value is lost. Rewrapping it in the Application layer would break CLAUDE.md §17. Unmarked endpoints (create, duplicate, send, resend, convert) keep their specific, caller-authored 409s.
+
+   The Dashboard shows one message for every 409 on the Angebot screen, closes the dialog and re-reads (D81).
+10. **Scope and identity follow D88.** Builder and submit commands carry `RequestingInspectorId` (`null` = Admin, unrestricted) and `PerformedByUserId` (the actor). Both come from the token, through the controller's existing fail-secure helper. The handler calls `EnsureAngebotOwnership` only when `RequestingInspectorId` is set.
+11. **No review email when an Admin submits.** SRS FR-9.2 names "an Inspector submits" as the trigger, and an Admin is one of the people that email informs. The `if` only chooses whether a side effect fires, which §6 allows.
+12. **Migration #16 `AddAngebotVersion`:** `Version int NOT NULL DEFAULT 0`, with non-empty `Up`/`Down`, reviewed by hand. No other schema change.
+
+### Consequences
+
+- **The two baseline hazards are closed.** The same 14 LocalDB cases now pass, on repeated runs:
+  - concurrent edits of different lines leave exactly one winner and totals that match the lines;
+  - an edit staged on a Draft cannot land after submission or approval;
+  - description-only edits participate in the token;
+  - a stale `PUT` cannot overwrite newer content (Application and API tests).
+- **Every Angebot write now contends**, including `Send` and the customer's decision. That is correct: two writers on one Angebot never both commit. D96's and D99's race suites still pass.
+- **The Angebot write contract changed for every client.** The Dashboard is the only client. API tests reach the endpoints through one helper that reads the version first. The tests that pinned the old "Admin is refused" rule were inverted, not deleted.
+- **Mutation-tested.** Each of these was caught and restored byte-identical:
+  - removing the token;
+  - skipping one increment;
+  - dropping the ownership guard;
+  - inverting the audit condition;
+  - dropping the approval's freshness check;
+  - sending the review email on an Admin submit;
+  - opening A3 to an Inspector;
+  - making the scope helper fail open;
+  - narrowing a builder role gate back to Inspector;
+  - on the Dashboard: offering A3 to an Inspector, sending a fixed version on approve, and removing the 409 handling;
+  - removing the boundary's 409 rewrite, and removing the marker from the line-correction endpoint.
+- **Not changed:** Lead (no token, no transition), the public token pages and DTOs, invoices, revisions (finding B / OQ-4), the audit UI (Phase 15), and BusinessRules.md (BR-1 still holds).

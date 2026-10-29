@@ -47,7 +47,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_TransitionsAngebotToChangesRequested()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -58,7 +58,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_RecordsReviewedByAdminIdOnAngebot()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -69,7 +69,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_CreatesAnAngebotReviewCommentWithMatchingFields()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -83,7 +83,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_SavesChangesExactlyOnce()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -94,7 +94,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_LogsAuditAgainstTheAngebot()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -109,7 +109,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_SendsAngebotChangesRequestedNotificationToTheOwningInspector()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -130,7 +130,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_ComposesTheTwoAggregatesIndependently()
     {
         var angebot = SeedAngebotInReview();
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Please fix the VAT rate.", angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -144,7 +144,7 @@ public class RequestAngebotChangesCommandHandlerTests
     [Fact]
     public async Task HandleAsync_AngebotDoesNotExist_ThrowsNotFoundException()
     {
-        var command = new RequestAngebotChangesCommand(AngebotId: 999, "Comment", AdminId);
+        var command = new RequestAngebotChangesCommand(AngebotId: 999, "Comment", 0, AdminId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -153,7 +153,7 @@ public class RequestAngebotChangesCommandHandlerTests
     public async Task HandleAsync_AngebotStillDraft_PropagatesDomainGuardFailure_AndCreatesNoComment()
     {
         var angebot = _angebotRepository.Seed(Angebot.Create(1, null, "ANG-2026-00001", OwningInspectorId));
-        var command = new RequestAngebotChangesCommand(angebot.Id, "Comment", AdminId);
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Comment", angebot.Version, AdminId);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
 
@@ -171,11 +171,36 @@ public class RequestAngebotChangesCommandHandlerTests
     [InlineData(1, "Comment", 0)]
     public async Task HandleAsync_InvalidCommand_ThrowsAndPerformsNoSideEffects(int angebotId, string comment, int reviewedByAdminId)
     {
-        var command = new RequestAngebotChangesCommand(angebotId, comment, reviewedByAdminId);
+        var command = new RequestAngebotChangesCommand(angebotId, comment, 0, reviewedByAdminId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
 
         Assert.Empty(_reviewCommentRepository.AddedComments);
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+    }
+
+    // ---- Freshness (D115) ------------------------------------------------
+
+    [Fact]
+    public async Task HandleAsync_StaleExpectedVersion_ThrowsConflict_AndSendsNothing()
+    {
+        var angebot = SeedAngebotInReview();
+        var command = new RequestAngebotChangesCommand(angebot.Id, "Comment", angebot.Version + 1, AdminId);
+
+        await Assert.ThrowsAsync<ConflictException>(() => _handler.HandleAsync(command, CancellationToken.None));
+
+        Assert.Equal(AngebotStatus.InReview, angebot.Status);
+        Assert.Empty(_reviewCommentRepository.AddedComments);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
+        Assert.Empty(_emailSender.AngebotChangesRequestedNotifications);
+    }
+
+    [Fact]
+    public async Task HandleAsync_NegativeExpectedVersion_ThrowsValidationException()
+    {
+        var command = new RequestAngebotChangesCommand(1, "Comment", -1, AdminId);
+
+        await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
 }
