@@ -9,11 +9,12 @@ using RenoTrack.Domain.ValueObjects;
 namespace RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 
 /// <summary>
-/// Sequence Diagram §4 "Add a Line Item" (both the custom and Catalog-sourced paths). No
-/// AuditLog entry: adding an item is operational draft-construction activity, not a business
-/// milestone — same reasoning as AddAngebotSectionCommandHandler. No notification: SRS FR-9.2
-/// names no trigger for this. BR-14: a retired CatalogItem is still a valid CatalogItemId
-/// target — GetByIdAsync is deliberately not filtered by IsRetired here, unlike
+/// Sequence Diagram §4 "Add a Line Item" (both the custom and Catalog-sourced paths). Owning
+/// Inspector or any Admin (D115) — the Admin uses the Catalog picker while editing
+/// (<c>PermissionMatrix.md</c> §3). Audited only when an Admin edits, exactly as
+/// AddAngebotSectionCommandHandler; an Inspector's own line is in-progress work. No notification:
+/// SRS FR-9.2 names no trigger for this. BR-14: a retired CatalogItem is still a valid
+/// CatalogItemId target — GetByIdAsync is deliberately not filtered by IsRetired here, unlike
 /// ICatalogItemQueries.SearchAsync.
 /// </summary>
 public sealed class AddAngebotItemCommandHandler(
@@ -21,7 +22,8 @@ public sealed class AddAngebotItemCommandHandler(
     IAngebotRepository angebotRepository,
     ICatalogItemRepository catalogItemRepository,
     IOwnershipValidator ownershipValidator,
-    IUnitOfWork unitOfWork) : ICommandHandler<AddAngebotItemCommand, AddAngebotItemResult>
+    IUnitOfWork unitOfWork,
+    IAuditService auditService) : ICommandHandler<AddAngebotItemCommand, AddAngebotItemResult>
 {
     public async Task<AddAngebotItemResult> HandleAsync(AddAngebotItemCommand command, CancellationToken cancellationToken)
     {
@@ -30,7 +32,12 @@ public sealed class AddAngebotItemCommandHandler(
         var angebot = await angebotRepository.GetByIdAsync(command.AngebotId, cancellationToken)
             ?? throw new NotFoundException(nameof(Angebot), command.AngebotId);
 
-        ownershipValidator.EnsureAngebotOwnership(angebot, command.InspectorId);
+        if (command.RequestingInspectorId is { } inspectorId)
+        {
+            ownershipValidator.EnsureAngebotOwnership(angebot, inspectorId);
+        }
+
+        AngebotFreshness.EnsureExpectedVersion(angebot, command.ExpectedVersion);
 
         // Pre-EF (Phase 3), freshly-created sections all share Id == 0 — see CLAUDE.md §2. This
         // resolution becomes unambiguous once real ids exist; test fixtures assign distinguishing
@@ -69,6 +76,17 @@ public sealed class AddAngebotItemCommandHandler(
             command.CatalogItemId);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        if (command.RequestingInspectorId is null)
+        {
+            await auditService.LogAsync(
+                entityType: nameof(Angebot),
+                entityId: angebot.Id,
+                action: AuditAction.AngebotEditedByAdmin,
+                performedByUserId: command.PerformedByUserId,
+                details: AngebotAdminEditAudit.Details(AngebotEditOperation.ItemAdded, section.Id, item.Id),
+                cancellationToken);
+        }
 
         return new AddAngebotItemResult(item.ToDto(), angebot.ToSummaryDto());
     }

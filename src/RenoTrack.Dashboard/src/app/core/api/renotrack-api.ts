@@ -152,10 +152,24 @@ export class RenoTrackApi {
     return this.http.post<AngebotHeaderDto>(`/api/v1/leads/${leadId}/angebote`, { inspectionId });
   }
 
-  addSection(angebotId: number, title: string, sortOrder: number): Observable<SectionDto> {
+  // ---- Versioned Angebot writes (D115) ----------------------------------------------------------
+  //
+  // Every write below that can change an Angebot's content or move it through review carries the
+  // `version` from the screen's latest read as `expectedVersion` — in the body, or as a query
+  // parameter on a DELETE. The server refuses a stale one with 409, which is how a screen loaded
+  // before someone else's change is prevented from silently overwriting it. Owning Inspector or any
+  // Admin may call the builder writes; which of the two is decided server-side from the token.
+
+  addSection(
+    angebotId: number,
+    expectedVersion: number,
+    title: string,
+    sortOrder: number,
+  ): Observable<SectionDto> {
     return this.http.post<SectionDto>(`/api/v1/angebote/${angebotId}/sections`, {
       title,
       sortOrder,
+      expectedVersion,
     });
   }
 
@@ -168,6 +182,7 @@ export class RenoTrackApi {
    */
   addItem(
     angebotId: number,
+    expectedVersion: number,
     item: {
       sectionId: number;
       catalogItemId: number | null;
@@ -179,17 +194,27 @@ export class RenoTrackApi {
       vatRate: VatRateDto;
     },
   ): Observable<AddAngebotItemResult> {
-    return this.http.post<AddAngebotItemResult>(`/api/v1/angebote/${angebotId}/items`, item);
+    return this.http.post<AddAngebotItemResult>(`/api/v1/angebote/${angebotId}/items`, {
+      ...item,
+      expectedVersion,
+    });
   }
 
-  removeSection(angebotId: number, sectionId: number): Observable<AngebotSummaryDto> {
+  removeSection(
+    angebotId: number,
+    expectedVersion: number,
+    sectionId: number,
+  ): Observable<AngebotSummaryDto> {
     return this.http.delete<AngebotSummaryDto>(
       `/api/v1/angebote/${angebotId}/sections/${sectionId}`,
+      { params: { expectedVersion } },
     );
   }
 
-  removeItem(angebotId: number, itemId: number): Observable<AngebotSummaryDto> {
-    return this.http.delete<AngebotSummaryDto>(`/api/v1/angebote/${angebotId}/items/${itemId}`);
+  removeItem(angebotId: number, expectedVersion: number, itemId: number): Observable<AngebotSummaryDto> {
+    return this.http.delete<AngebotSummaryDto>(`/api/v1/angebote/${angebotId}/items/${itemId}`, {
+      params: { expectedVersion },
+    });
   }
 
   /**
@@ -204,6 +229,7 @@ export class RenoTrackApi {
    */
   updateItem(
     angebotId: number,
+    expectedVersion: number,
     itemId: number,
     item: {
       description: string;
@@ -214,10 +240,10 @@ export class RenoTrackApi {
       vatRate: VatRateDto;
     },
   ): Observable<AngebotSummaryDto> {
-    return this.http.put<AngebotSummaryDto>(
-      `/api/v1/angebote/${angebotId}/items/${itemId}`,
-      item,
-    );
+    return this.http.put<AngebotSummaryDto>(`/api/v1/angebote/${angebotId}/items/${itemId}`, {
+      ...item,
+      expectedVersion,
+    });
   }
 
   /**
@@ -232,16 +258,37 @@ export class RenoTrackApi {
     return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/duplicate`, { targetLeadId });
   }
 
-  submitAngebotForReview(id: number): Observable<AngebotHeaderDto> {
-    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/submit-for-review`, {});
+  /** Owning Inspector or any Admin. The review email goes out only when an Inspector submits. */
+  submitAngebotForReview(id: number, expectedVersion: number): Observable<AngebotHeaderDto> {
+    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/submit-for-review`, {
+      expectedVersion,
+    });
   }
 
-  approveAngebot(id: number): Observable<AngebotHeaderDto> {
-    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/approve`, {});
+  /**
+   * "Zur Korrektur zurückholen" — `InReview → Draft`, Admin only (SRS FR-5.5, **D115**). No comment
+   * and no email; the corrected quote must be submitted and approved again.
+   */
+  returnAngebotForCorrection(id: number, expectedVersion: number): Observable<AngebotHeaderDto> {
+    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/return-for-correction`, {
+      expectedVersion,
+    });
   }
 
-  requestAngebotChanges(id: number, comment: string): Observable<AngebotHeaderDto> {
-    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/request-changes`, { comment });
+  /** Carries `expectedVersion` so an Admin can only approve the version they actually looked at. */
+  approveAngebot(id: number, expectedVersion: number): Observable<AngebotHeaderDto> {
+    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/approve`, { expectedVersion });
+  }
+
+  requestAngebotChanges(
+    id: number,
+    expectedVersion: number,
+    comment: string,
+  ): Observable<AngebotHeaderDto> {
+    return this.http.post<AngebotHeaderDto>(`/api/v1/angebote/${id}/request-changes`, {
+      comment,
+      expectedVersion,
+    });
   }
 
   /** Issues the customer's token link and emails it. No value is returned that reveals the token. */

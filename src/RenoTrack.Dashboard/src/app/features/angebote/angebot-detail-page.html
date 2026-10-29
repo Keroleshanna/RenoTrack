@@ -302,6 +302,7 @@
       @if (
         capabilities().canSubmitForReview ||
         capabilities().canReview ||
+        capabilities().canReturnForCorrection ||
         capabilities().canSend ||
         capabilities().canResend ||
         capabilities().canConvertToProject ||
@@ -325,6 +326,20 @@
               (click)="confirm('submit')"
             >
               {{ t().angebotDetail.submitForReview }}
+            </button>
+          }
+          <!--
+            "Zur Korrektur zurückholen" (D115): the reviewer's third option, for a small fix they
+            would rather make themselves than send back to the author with a comment and an email.
+          -->
+          @if (capabilities().canReturnForCorrection) {
+            <button
+              type="button"
+              class="rt-button"
+              [disabled]="busy()"
+              (click)="confirm('returnForCorrection')"
+            >
+              {{ t().angebotDetail.returnForCorrection }}
             </button>
           }
           @if (capabilities().canReview) {

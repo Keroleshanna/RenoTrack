@@ -13,7 +13,10 @@ public sealed record AngebotSummaryDto(
     string AngebotNumber,
     AngebotStatus Status,
     decimal NetTotal,
-    decimal GrossTotal);
+    decimal GrossTotal,
+
+    // D115: the Angebot's version after this write — opaque, compared for equality only.
+    int Version);
 
 public static class AngebotSummaryMappingExtensions
 {
@@ -22,5 +25,6 @@ public static class AngebotSummaryMappingExtensions
         angebot.AngebotNumber,
         angebot.Status,
         angebot.NetTotal.Amount,
-        angebot.GrossTotal.Amount);
+        angebot.GrossTotal.Amount,
+        angebot.Version);
 }

@@ -61,7 +61,7 @@ stateDiagram-v2
 
 | State | Meaning |
 |---|---|
-| `Draft` | Inspector is actively building the Angebot |
+| `Draft` | Being built — by its Inspector, or corrected by an Admin (D115) |
 | `InReview` | Submitted to Admin, awaiting internal decision |
 | `ChangesRequested` | Admin sent it back with comments |
 | `ApprovedInternally` | Admin approved; about to be / already being sent |
@@ -74,10 +74,11 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Draft
-    Draft --> InReview : SubmitForReview (Inspector)
+    Draft --> InReview : SubmitForReview (Inspector or Admin)
     InReview --> ChangesRequested : RequestChanges (Admin)
     InReview --> ApprovedInternally : Approve (Admin)
-    ChangesRequested --> Draft : Inspector resumes editing
+    InReview --> Draft : ReturnForCorrection (Admin)
+    ChangesRequested --> Draft : editing resumes (Inspector or Admin)
     ApprovedInternally --> Sent : Send (system, auto or Admin click)
     Sent --> CustomerApproved : Decision = Approve (Lead, via token)
     Sent --> CustomerRejected : Decision = Reject (Lead, via token)
@@ -89,11 +90,12 @@ stateDiagram-v2
 
 | From | Event | Guard | To | Side Effects |
 |---|---|---|---|---|
-| `Draft` | `SubmitForReview` | At least 1 section with at least 1 item | `InReview` | Notify Admin |
+| `Draft` | `SubmitForReview` (Inspector or Admin) | At least 1 section with at least 1 item | `InReview` | Notify Admin — **only when an Inspector submits** (SRS FR-9.2; an Admin's own submission sends nothing, D115) |
 | `InReview` | `RequestChanges` | — | `ChangesRequested` | ReviewComment saved; notify Inspector |
-| `InReview` | `Approve` | — | `ApprovedInternally` | AuditLog entry |
-| `ChangesRequested` | (Inspector edits items — no explicit state event) | — | `Draft` | Angebot moves back to Draft the moment editing resumes, so it must be resubmitted |
-| `ChangesRequested` | `SubmitForReview` | At least 1 section with at least 1 item | `InReview` | Notify Admin. **Row added in Phase 10** (`ARCHITECTURE_DECISIONS.md` **D94**) — see the note below |
+| `InReview` | `Approve` | — | `ApprovedInternally` | AuditLog entry. Any Admin, including one who corrected the Angebot (no four-eyes rule, D115) |
+| `InReview` | `ReturnForCorrection` (Admin) | — | `Draft` | **Row added by D115** ("Zur Korrektur zurückholen", SRS FR-5.5). No comment, no notification, no `ReviewedByAdminId`; AuditLog entry `AngebotReturnedForCorrection`. The corrected Angebot must be submitted and approved again. No Lead-level change |
+| `ChangesRequested` | (Inspector or Admin edits items — no explicit state event) | — | `Draft` | Angebot moves back to Draft the moment editing resumes, so it must be resubmitted |
+| `ChangesRequested` | `SubmitForReview` (Inspector or Admin) | At least 1 section with at least 1 item | `InReview` | Notify Admin, only when an Inspector submits. **Row added in Phase 10** (`ARCHITECTURE_DECISIONS.md` **D94**) — see the note below |
 | `ApprovedInternally` | `Send` | Lead has a valid email address | `Sent` | TokenLink generated; email sent; `SentAt` timestamp set |
 | `Sent` | `ResendAngebot` | Angebot is `Sent`; the existing TokenLink has not carried a decision | **`Sent` (unchanged)** | **No transition.** The previous TokenLink is expired and a new one issued in the same transaction (FR-6.1a, **D99**); `SentAt` is deliberately *not* updated — it records the original send, and each re-issue appears in the audit trail. Listed here because silence would read as an omission rather than as a decision |
 | `Sent` | `RecordDecision(Approve)` | TokenLink valid, unused, not expired | `CustomerApproved` | `DecisionAt`/`DecisionResult` set; Lead → `Won`; notify Admin |
@@ -105,8 +107,11 @@ stateDiagram-v2
 >
 > **Nothing was weakened:** the "at least 1 section with at least 1 item" guard is identical on both rows, and §2.4 already treats `ChangesRequested` as an editable state — so a caller who may edit may equally resubmit.
 
+> **On `ReturnForCorrection` (D115).** It exists so that an Admin who spots a small mistake during review can fix it without the Request Changes round trip (a required comment and an email to the Inspector). It does **not** make `InReview` editable for anyone: the edit lock below is unchanged, and the Angebot becomes editable only because it is a `Draft` again. The Domain method takes no role parameter — that only an Admin may call it is the API's rule (`PermissionMatrix.md` §4).
+
 ### 2.4 Invariants
-- An Angebot's totals (NetTotal, VAT breakdown, GrossTotal) may only be recalculated while `Status == Draft` or `ChangesRequested`. Once `InReview` or later, the Angebot is effectively locked from further line-item edits — the only way back to an editable state is via `RequestChanges`, which explicitly returns it to `Draft`.
+- An Angebot's totals (NetTotal, VAT breakdown, GrossTotal) may only be recalculated while `Status == Draft` or `ChangesRequested` — for the owning Inspector and an Admin alike (D115). Once `InReview` or later, the Angebot is locked from further line-item edits. The only ways back to an editable state are `RequestChanges`, which returns it to the author as `ChangesRequested`, and `ReturnForCorrection`, which returns it to `Draft` for an Admin's own correction. `ApprovedInternally` and every later state have no way back.
+- **Every transition and edit in §2.3 increments `Angebot.Version`, the Angebot's optimistic-concurrency token (D115).** Two writers that read the same version can never both commit, which is what keeps the stored totals equal to the lines and stops an edit staged on a Draft from landing after the Angebot moved on. Writes that change content or move the Angebot through review also carry the caller's `expectedVersion`; a stale one is refused (409). Re-issuing a link changes no Angebot state and does not increment it.
 - Only one Angebot per Lead may be in a non-terminal state (`Draft`/`InReview`/`ChangesRequested`/`ApprovedInternally`/`Sent`) at a time.
 
 ---

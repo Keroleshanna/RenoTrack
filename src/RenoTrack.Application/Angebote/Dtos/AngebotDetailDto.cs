@@ -50,7 +50,10 @@ public sealed record AngebotDetailDto(
     decimal NetTotal,
     decimal GrossTotal,
     IReadOnlyList<VatBreakdownLineDto> VatBreakdown,
-    IReadOnlyList<SectionDetailDto> Sections);
+    IReadOnlyList<SectionDetailDto> Sections,
+
+    // D115: what the builder and review screens send back as `expectedVersion`. Opaque.
+    int Version);
 
 public static class AngebotDetailMappingExtensions
 {
@@ -90,7 +93,8 @@ public static class AngebotDetailMappingExtensions
         [.. angebot.Sections
             .OrderBy(section => section.SortOrder)
             .ThenBy(section => section.Id)
-            .Select(section => section.ToDetailDto(itemIdsSavedToCatalog))]);
+            .Select(section => section.ToDetailDto(itemIdsSavedToCatalog))],
+        angebot.Version);
 
     public static SectionDetailDto ToDetailDto(
         this AngebotSection section,

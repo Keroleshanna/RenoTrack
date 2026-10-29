@@ -1,3 +1,4 @@
+using RenoTrack.Api.Tests.Angebote;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -364,11 +365,10 @@ public sealed class CatalogItemEndpointsTests(RenoTrackApiFactory factory)
         var angebot = await client.PostAsJsonAsync($"/api/v1/leads/{leadId}/angebote", new { inspectionId = (int?)null });
         var angebotId = (await angebot.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var section = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1", sortOrder = 1 });
+        var section = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1", sortOrder = 1 });
         var sectionId = (await section.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var item = await client.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        var item = await client.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,

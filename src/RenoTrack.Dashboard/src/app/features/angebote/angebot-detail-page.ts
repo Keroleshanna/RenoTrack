@@ -30,7 +30,14 @@ import { AngebotCapabilities, capabilitiesFor } from './angebot-capabilities';
 import { CatalogPicker } from './catalog-picker';
 
 /** The confirmations that guard an action with a consequence outside this screen. */
-type Confirmable = 'submit' | 'approve' | 'send' | 'resend' | 'convert' | null;
+type Confirmable =
+  | 'submit'
+  | 'approve'
+  | 'returnForCorrection'
+  | 'send'
+  | 'resend'
+  | 'convert'
+  | null;
 
 /**
  * The Angebot document — Wireframes **D1** (builder) and **D3** (review), as one screen.
@@ -57,6 +64,14 @@ type Confirmable = 'submit' | 'approve' | 'send' | 'resend' | 'convert' | null;
  * `InReview`, approving something already approved — each is refused by the Domain and surfaces as
  * 409. The screen hides what a role cannot reach, and reports what the server refuses; it never
  * re-implements a rule to pre-empt it (CLAUDE.md §6, §23).
+ *
+ * ## Two editors, one document (D115)
+ *
+ * An Admin may now edit an Inspector's draft, so two people can have this screen open on the same
+ * quote. Every versioned write sends the `version` of the document as this screen last read it; if
+ * someone else changed it since, the server answers 409 and nothing is saved. Any 409 here — a stale
+ * version, a quote that is no longer editable, or a lost race — gets one message and a re-read, so
+ * the user is always looking at the current document before they try again.
  */
 @Component({
   selector: 'app-angebot-detail-page',
@@ -92,6 +107,14 @@ export class AngebotDetailPage {
   protected readonly detail = signal<AngebotDetailDto | null>(null);
   protected readonly comments = signal<readonly AngebotReviewCommentDto[]>([]);
   protected readonly leadName = signal<string | null>(null);
+
+  /**
+   * The quote's author, for the Admin's confirmations (D115): submitting or taking back someone
+   * else's quote names whose quote it is. Read from the staff list only an Admin may request; an
+   * author not found there (e.g. a deactivated account) falls back to a generic phrase rather than
+   * an internal id.
+   */
+  protected readonly authorName = signal<string | null>(null);
   protected readonly loadState = signal<'loading' | 'ready' | 'error'>('loading');
   protected readonly loadError = signal('');
 
@@ -202,6 +225,7 @@ export class AngebotDetailPage {
         this.comments.set(comments);
         this.loadState.set('ready');
         this.loadLeadName(angebot.leadId);
+        this.loadAuthorName(angebot.createdByInspectorId);
       },
       error: (error: unknown) => {
         this.loadError.set(this.messageFor(error));
@@ -227,6 +251,30 @@ export class AngebotDetailPage {
       .subscribe((name) => this.leadName.set(name));
   }
 
+  /** Admin only — an Inspector neither needs the staff list nor may request it. */
+  private loadAuthorName(inspectorId: number): void {
+    if (this.auth.role() !== 'admin') {
+      return;
+    }
+
+    this.api
+      .staff('Inspector')
+      .pipe(
+        map((staff) => staff.find((member) => member.id === inspectorId)?.name ?? null),
+        catchError(() => of(null)),
+      )
+      .subscribe((name) => this.authorName.set(name));
+  }
+
+  /** The version the next write must carry — always from the latest read (D81, D115). */
+  private version(): number {
+    return this.detail()?.version ?? 0;
+  }
+
+  private author(): string {
+    return this.authorName() ?? this.t().angebotDetail.authorFallback;
+  }
+
   private reload(): void {
     forkJoin({
       angebot: this.api.angebot(this.id),
@@ -240,7 +288,7 @@ export class AngebotDetailPage {
     });
   }
 
-  // ---- Building (Inspector, Draft/ChangesRequested) ----------------------------------------------
+  // ---- Building (owning Inspector or any Admin, Draft/ChangesRequested — D115) --------------------
 
   protected openSectionDialog(): void {
     this.sectionForm.reset({ title: '' });
@@ -258,7 +306,12 @@ export class AngebotDetailPage {
     const sortOrder = (this.detail()?.sections.length ?? 0) + 1;
 
     this.perform(
-      this.api.addSection(this.id, this.sectionForm.getRawValue().title.trim(), sortOrder),
+      this.api.addSection(
+        this.id,
+        this.version(),
+        this.sectionForm.getRawValue().title.trim(),
+        sortOrder,
+      ),
       this.t().angebotDetail.sectionAdded,
       () => this.sectionDialogOpen.set(false),
     );
@@ -266,7 +319,7 @@ export class AngebotDetailPage {
 
   protected removeSection(section: SectionDetailDto): void {
     this.perform(
-      this.api.removeSection(this.id, section.id),
+      this.api.removeSection(this.id, this.version(), section.id),
       this.t().angebotDetail.sectionRemoved,
     );
   }
@@ -363,7 +416,7 @@ export class AngebotDetailPage {
       this.perform(
         // Every value is sent: the endpoint is a PUT that replaces them all. `catalogItemId` is
         // absent from the request by design — editing has one mode, unlike adding.
-        this.api.updateItem(this.id, editing.id, {
+        this.api.updateItem(this.id, this.version(), editing.id, {
           description: value.description.trim(),
           specification: value.specification.trim() || null,
           unitCode: value.unitCode.trim(),
@@ -379,7 +432,7 @@ export class AngebotDetailPage {
     }
 
     this.perform(
-      this.api.addItem(this.id, {
+      this.api.addItem(this.id, this.version(), {
         sectionId: section.id,
         catalogItemId: value.catalogItemId,
         description: value.description.trim() || null,
@@ -395,7 +448,10 @@ export class AngebotDetailPage {
   }
 
   protected removeItem(item: ItemDto): void {
-    this.perform(this.api.removeItem(this.id, item.id), this.t().angebotDetail.itemRemoved);
+    this.perform(
+      this.api.removeItem(this.id, this.version(), item.id),
+      this.t().angebotDetail.itemRemoved,
+    );
   }
 
   /** FR-4.10 — offered on custom lines only, since a Catalog line is already in the Catalog. */
@@ -419,6 +475,8 @@ export class AngebotDetailPage {
         return t.submitTitle;
       case 'approve':
         return t.approveTitle;
+      case 'returnForCorrection':
+        return t.returnForCorrectionTitle;
       case 'send':
         return t.sendTitle;
       case 'resend':
@@ -434,9 +492,15 @@ export class AngebotDetailPage {
     const t = this.t().angebotDetail.confirm;
     switch (this.confirming()) {
       case 'submit':
-        return t.submitBody;
+        // An Admin submitting someone else's quote is told whose it is, and that no email goes out
+        // (SRS FR-9.2 names only an Inspector's submission as a trigger).
+        return this.auth.role() === 'admin'
+          ? this.i18n.format(t.submitByAdminBody, this.author())
+          : t.submitBody;
       case 'approve':
         return t.approveBody;
+      case 'returnForCorrection':
+        return this.i18n.format(t.returnForCorrectionBody, this.author());
       case 'send':
         return t.sendBody;
       case 'resend':
@@ -454,13 +518,26 @@ export class AngebotDetailPage {
 
     switch (action) {
       case 'submit':
-        this.perform(this.api.submitAngebotForReview(this.id), t.submitted, undefined, () =>
-          this.confirming.set(null),
+        this.perform(
+          this.api.submitAngebotForReview(this.id, this.version()),
+          t.submitted,
+          undefined,
+          () => this.confirming.set(null),
         );
         return;
       case 'approve':
-        this.perform(this.api.approveAngebot(this.id), t.approved, undefined, () =>
+        // The version this Admin looked at: a quote corrected and resubmitted by someone else in the
+        // meantime is refused rather than approved unseen (D115).
+        this.perform(this.api.approveAngebot(this.id, this.version()), t.approved, undefined, () =>
           this.confirming.set(null),
+        );
+        return;
+      case 'returnForCorrection':
+        this.perform(
+          this.api.returnAngebotForCorrection(this.id, this.version()),
+          t.returnedForCorrection,
+          undefined,
+          () => this.confirming.set(null),
         );
         return;
       case 'send':
@@ -512,7 +589,11 @@ export class AngebotDetailPage {
     }
 
     this.perform(
-      this.api.requestAngebotChanges(this.id, this.changesForm.getRawValue().comment.trim()),
+      this.api.requestAngebotChanges(
+        this.id,
+        this.version(),
+        this.changesForm.getRawValue().comment.trim(),
+      ),
       this.t().angebotDetail.changesRequested,
       () => this.changesDialogOpen.set(false),
     );
@@ -601,7 +682,14 @@ export class AngebotDetailPage {
    *   that click (CLAUDE.md §23): the dialog would otherwise sit on top of the message explaining
    *   why, inviting an identical second refusal. There is nothing in it to preserve.
    *
-   * The reload stays success-only either way — a refused write leaves nothing new to read.
+   * **A 409 is the exception (D115).** It means the document is no longer what this screen shows —
+   * someone else changed it, it left the editable states, or another write won the race — so any
+   * open dialog closes, form or confirmation alike, one message explains it, and the document is
+   * re-read. Keeping a form open over a document that has moved on would invite the user to re-send
+   * values written against the old one. The three causes deliberately share one message: the server
+   * does not tell them apart in a way a screen may show (CLAUDE.md §23), and the remedy is the same.
+   *
+   * Otherwise the reload stays success-only — a refused write leaves nothing new to read.
    */
   private perform(
     request: Observable<unknown>,
@@ -621,6 +709,15 @@ export class AngebotDetailPage {
       },
       error: (error: unknown) => {
         this.busy.set(false);
+
+        if (error instanceof ApiError && error.kind === 'conflict') {
+          onSuccess?.();
+          onSettled?.();
+          this.notifier.error(this.t().angebotDetail.conflictReloaded);
+          this.reload();
+          return;
+        }
+
         onSettled?.();
         this.notifier.error(this.messageFor(error));
       },

@@ -12,6 +12,7 @@ namespace RenoTrack.Application.Tests.Angebote.Commands.SubmitAngebotForReview;
 public class SubmitAngebotForReviewCommandHandlerTests
 {
     private const int OwningInspectorId = 5;
+    private const int AdminId = 2;
 
     private readonly FakeAngebotRepository _angebotRepository = new();
     private readonly OwnershipValidator _ownershipValidator = new();
@@ -40,15 +41,20 @@ public class SubmitAngebotForReviewCommandHandlerTests
         return angebot;
     }
 
+    private static SubmitAngebotForReviewCommand AsInspector(Angebot angebot, int inspectorId = OwningInspectorId) =>
+        new(angebot.Id, angebot.Version, inspectorId, inspectorId);
+
+    private static SubmitAngebotForReviewCommand AsAdmin(Angebot angebot) =>
+        new(angebot.Id, angebot.Version, RequestingInspectorId: null, PerformedByUserId: AdminId);
+
     // ---- Happy path -------------------------------------------------------
 
     [Fact]
     public async Task HandleAsync_TransitionsAngebotToInReview()
     {
         var angebot = SeedSubmittableAngebot();
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, OwningInspectorId);
 
-        var result = await _handler.HandleAsync(command, CancellationToken.None);
+        var result = await _handler.HandleAsync(AsInspector(angebot), CancellationToken.None);
 
         Assert.Equal(AngebotStatus.InReview, result.Status);
         Assert.Equal(AngebotStatus.InReview, angebot.Status);
@@ -58,9 +64,8 @@ public class SubmitAngebotForReviewCommandHandlerTests
     public async Task HandleAsync_SavesChangesExactlyOnce()
     {
         var angebot = SeedSubmittableAngebot();
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, OwningInspectorId);
 
-        await _handler.HandleAsync(command, CancellationToken.None);
+        await _handler.HandleAsync(AsInspector(angebot), CancellationToken.None);
 
         Assert.Equal(1, _unitOfWork.SaveChangesCallCount);
     }
@@ -69,9 +74,8 @@ public class SubmitAngebotForReviewCommandHandlerTests
     public async Task HandleAsync_LogsAuditAgainstTheAngebot_NotTheLead()
     {
         var angebot = SeedSubmittableAngebot();
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, OwningInspectorId);
 
-        await _handler.HandleAsync(command, CancellationToken.None);
+        await _handler.HandleAsync(AsInspector(angebot), CancellationToken.None);
 
         var call = Assert.Single(_auditService.Calls);
         Assert.Equal("Angebot", call.EntityType);
@@ -84,9 +88,8 @@ public class SubmitAngebotForReviewCommandHandlerTests
     public async Task HandleAsync_SendsAngebotSubmittedForReviewNotification()
     {
         var angebot = SeedSubmittableAngebot();
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, OwningInspectorId);
 
-        await _handler.HandleAsync(command, CancellationToken.None);
+        await _handler.HandleAsync(AsInspector(angebot), CancellationToken.None);
 
         var notification = Assert.Single(_emailSender.AngebotSubmittedForReviewNotifications);
         Assert.Equal(angebot.Id, notification.AngebotId);
@@ -99,7 +102,7 @@ public class SubmitAngebotForReviewCommandHandlerTests
     [Fact]
     public async Task HandleAsync_AngebotDoesNotExist_ThrowsNotFoundException()
     {
-        var command = new SubmitAngebotForReviewCommand(AngebotId: 999, OwningInspectorId);
+        var command = new SubmitAngebotForReviewCommand(AngebotId: 999, 0, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -108,9 +111,8 @@ public class SubmitAngebotForReviewCommandHandlerTests
     public async Task HandleAsync_InspectorDoesNotOwnAngebot_ThrowsForbiddenException()
     {
         var angebot = SeedSubmittableAngebot();
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, InspectorId: 999);
 
-        await Assert.ThrowsAsync<ForbiddenException>(() => _handler.HandleAsync(command, CancellationToken.None));
+        await Assert.ThrowsAsync<ForbiddenException>(() => _handler.HandleAsync(AsInspector(angebot, 999), CancellationToken.None));
     }
 
     [Fact]
@@ -118,9 +120,8 @@ public class SubmitAngebotForReviewCommandHandlerTests
     {
         var angebot = _angebotRepository.Seed(Angebot.Create(1, null, "ANG-2026-00001", OwningInspectorId));
         angebot.AddSection("Pos. 1", 1); // section exists, but has no items
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, OwningInspectorId);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(AsInspector(angebot), CancellationToken.None));
 
         Assert.Empty(_emailSender.AngebotSubmittedForReviewNotifications);
         Assert.Empty(_auditService.Calls);
@@ -131,19 +132,83 @@ public class SubmitAngebotForReviewCommandHandlerTests
     {
         var angebot = SeedSubmittableAngebot();
         angebot.SubmitForReview();
-        var command = new SubmitAngebotForReviewCommand(angebot.Id, OwningInspectorId);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(AsInspector(angebot), CancellationToken.None));
+    }
+
+    // ---- Admin submit (D115) ----------------------------------------------
+
+    [Fact]
+    public async Task HandleAsync_Admin_SubmitsAnInspectorsDraft_WithoutAnOwnershipCheck()
+    {
+        var angebot = SeedSubmittableAngebot(createdByInspectorId: 77);
+
+        var result = await _handler.HandleAsync(AsAdmin(angebot), CancellationToken.None);
+
+        Assert.Equal(AngebotStatus.InReview, result.Status);
+        Assert.Equal(77, angebot.CreatedByInspectorId);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Admin_IsAuditedWithTheAdminAsActor()
+    {
+        var angebot = SeedSubmittableAngebot();
+
+        await _handler.HandleAsync(AsAdmin(angebot), CancellationToken.None);
+
+        var call = Assert.Single(_auditService.Calls);
+        Assert.Equal(AuditAction.AngebotSubmittedForReview, call.Action);
+        Assert.Equal(AdminId, call.PerformedByUserId);
+    }
+
+    /// <summary>SRS FR-9.2 names "an Inspector submits" as the trigger; an Admin submitting sends nothing.</summary>
+    [Fact]
+    public async Task HandleAsync_Admin_SendsNoReviewEmail()
+    {
+        var angebot = SeedSubmittableAngebot();
+
+        await _handler.HandleAsync(AsAdmin(angebot), CancellationToken.None);
+
+        Assert.Empty(_emailSender.AngebotSubmittedForReviewNotifications);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Admin_FromChangesRequested_Submits()
+    {
+        var angebot = SeedSubmittableAngebot();
+        angebot.SubmitForReview();
+        angebot.RequestChanges(reviewedByAdminId: AdminId);
+
+        var result = await _handler.HandleAsync(AsAdmin(angebot), CancellationToken.None);
+
+        Assert.Equal(AngebotStatus.InReview, result.Status);
+    }
+
+    [Fact]
+    public async Task HandleAsync_StaleExpectedVersion_ThrowsConflict_AndChangesNothing()
+    {
+        var angebot = SeedSubmittableAngebot();
+        var stale = AsAdmin(angebot) with { ExpectedVersion = angebot.Version - 1 };
+
+        await Assert.ThrowsAsync<ConflictException>(() => _handler.HandleAsync(stale, CancellationToken.None));
+
+        Assert.Equal(AngebotStatus.Draft, angebot.Status);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
+        Assert.Empty(_emailSender.AngebotSubmittedForReviewNotifications);
     }
 
     // ---- Validation ----------------------------------------------------
 
     [Theory]
-    [InlineData(0, 5)]
-    [InlineData(1, 0)]
-    public async Task HandleAsync_InvalidCommand_ThrowsAndPerformsNoSideEffects(int angebotId, int inspectorId)
+    [InlineData(0, 0, 5, 5)]
+    [InlineData(1, -1, 5, 5)]
+    [InlineData(1, 0, 0, 5)]
+    [InlineData(1, 0, 5, 0)]
+    public async Task HandleAsync_InvalidCommand_ThrowsAndPerformsNoSideEffects(
+        int angebotId, int expectedVersion, int requestingInspectorId, int performedByUserId)
     {
-        var command = new SubmitAngebotForReviewCommand(angebotId, inspectorId);
+        var command = new SubmitAngebotForReviewCommand(angebotId, expectedVersion, requestingInspectorId, performedByUserId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
 

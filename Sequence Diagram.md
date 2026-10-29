@@ -150,6 +150,8 @@ sequenceDiagram
 ## 4. Building the Angebot (Draft, Sections, Items, Live Totals)
 **Covers:** FR-4.1–FR-4.7
 
+> **Who builds (`ARCHITECTURE_DECISIONS.md` D115).** The diagram's actor is the Inspector, who creates the draft. Since D115 **an Admin may perform every building step shown after creation** — sections, items, the Catalog picker — on any Angebot in `Draft`/`ChangesRequested`; creating and duplicating stay Inspector-only. An Admin's builder writes skip the ownership check and add an `AngebotEditedByAdmin` audit row after the save; an Inspector's do not. **Every building write now also carries `expectedVersion`** (the `version` from the last `GET`), checked after ownership and before the Domain call; a stale one is 409 and nothing is saved.
+
 ```mermaid
 sequenceDiagram
     actor INS as Inspector
@@ -238,7 +240,9 @@ sequenceDiagram
 ---
 
 ## 5. Internal Review Loop (Submit → Review → Approve / Changes Requested)
-**Covers:** FR-5.1–FR-5.4
+**Covers:** FR-5.1–FR-5.5
+
+> **D115 additions.** Submit, approve, request changes and the new "return for correction" each carry `expectedVersion` (omitted from the arrows below for readability), so a reviewer acts only on the version they read. **An Admin may submit too**; the audit row then names the Admin and **no review email is sent** (FR-9.2's trigger is an Inspector's submission). The third `alt` branch below is new: the Admin takes the Angebot back to `Draft` to correct it themselves, then submits and approves it again — with no comment and no email to the Inspector.
 
 ```mermaid
 sequenceDiagram
@@ -283,6 +287,17 @@ sequenceDiagram
         Note over INS,DASH: Inspector edits (see Diagram 4), then submits again
         INS->>DASH: Edit items, click "Submit for Review" again
         Note over INS,AD: Loop repeats until Admin approves
+    else Admin returns it for correction (D115)
+        AD->>DASH: Click "Zur Korrektur zurückholen", confirms (dialog names the author)
+        DASH->>API: POST /api/v1/angebote/{id}/return-for-correction { expectedVersion }
+        API->>APP: Send(ReturnAngebotForCorrectionCommand)
+        APP->>REPO: Angebot.ReturnForCorrection() — InReview → Draft
+        REPO->>DB: UPDATE Angebote ... WHERE Version = @expected
+        APP->>AUD: LogAsync(AngebotReturnedForCorrection, by=Admin)
+        APP-->>API: OK (no comment, no email)
+        API-->>DASH: 200 OK
+        AD->>DASH: Corrects items (Diagram 4, audited as AngebotEditedByAdmin)
+        AD->>DASH: Submits (no review email), then approves — self-approval allowed
     else Admin approves
         AD->>DASH: Click "Approve & Send to Customer"
         DASH->>API: POST /api/v1/angebote/{id}/approve

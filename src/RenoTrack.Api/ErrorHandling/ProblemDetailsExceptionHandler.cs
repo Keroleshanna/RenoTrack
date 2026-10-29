@@ -50,6 +50,21 @@ internal sealed class ProblemDetailsExceptionHandler(
     {
         var problemDetails = Map(exception);
 
+        // D115: on an endpoint marked for a generic 409, every conflict publishes one detail that
+        // names nothing — a stale version, an Angebot no longer editable (the Domain's own message
+        // names its id and state), and a lost race are indistinguishable to the caller. The
+        // `instance` becomes the route template too, so the response carries no id at all. The log
+        // line below still records the original exception in full; only the published body changes.
+        if (problemDetails.Status == StatusCodes.Status409Conflict
+            && GenericConflictResponseAttribute.AppliesTo(httpContext))
+        {
+            problemDetails.Detail = GenericConflictResponseAttribute.Detail;
+            if (RouteDiagnostics.Template(httpContext) is { } template)
+            {
+                problemDetails.Instance = $"/{template}";
+            }
+        }
+
         if (problemDetails.Status == StatusCodes.Status500InternalServerError)
         {
             logger.LogError(

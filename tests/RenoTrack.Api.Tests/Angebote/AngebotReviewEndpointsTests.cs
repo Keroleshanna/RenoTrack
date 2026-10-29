@@ -29,7 +29,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftWithItemAsync();
 
-        var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var response = await client.PostVersionedAsync(angebotId, "submit-for-review");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -43,7 +43,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftAngebotAsync();
 
-        var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var response = await client.PostVersionedAsync(angebotId, "submit-for-review");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -51,23 +51,32 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
     [Fact]
     public async Task An_inspector_cannot_submit_another_inspectors_angebot()
     {
-        var (_, angebotId) = await DraftWithItemAsync();
+        var (owner, angebotId) = await DraftWithItemAsync();
         using var intruder = await SecondInspectorClientAsync();
 
-        var response = await intruder.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        // The owner's real current version, so the refusal cannot be a stale-version 409 in disguise.
+        var response = await intruder.PostVersionedAsync(angebotId, "submit-for-review", await owner.CurrentVersionAsync(angebotId));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        // An ownership 403 carries ProblemDetails; a role-gate 403 has an empty body. Since D115 the
+        // role gate admits both roles here, so only the ownership check can produce this refusal.
+        Assert.NotEmpty(await response.Content.ReadAsByteArrayAsync());
     }
 
     [Fact]
-    public async Task Admin_cannot_submit_an_angebot()
+    public async Task Admin_can_submit_an_inspectors_draft()
     {
+        // Inverted by D115: this test pinned "Admin is refused" while PermissionMatrix.md §3 gave the
+        // Admin no submit. The Product Owner granted it, so the same endpoint is now pinned the other way.
         var (_, angebotId) = await DraftWithItemAsync();
         using var admin = await AdminClientAsync();
 
-        var response = await admin.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var response = await admin.PostVersionedAsync(angebotId, "submit-for-review");
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("InReview", body.GetProperty("status").GetString());
     }
 
     // ---- Approve -----------------------------------------------------------
@@ -78,7 +87,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
         var angebotId = await SubmittedAngebotAsync();
         using var admin = await AdminClientAsync();
 
-        var response = await admin.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        var response = await admin.PostVersionedAsync(angebotId, "approve");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -100,7 +109,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
         var angebotId = await SubmittedAngebotAsync();
         using var inspector = await InspectorClientAsync();
 
-        var response = await inspector.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        var response = await inspector.PostVersionedAsync(angebotId, "approve");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -111,7 +120,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
         var (_, angebotId) = await DraftWithItemAsync();
         using var admin = await AdminClientAsync();
 
-        var response = await admin.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        var response = await admin.PostVersionedAsync(angebotId, "approve");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -124,8 +133,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
         var angebotId = await SubmittedAngebotAsync();
         using var admin = await AdminClientAsync();
 
-        var response = await admin.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/request-changes",
+        var response = await admin.PostVersionedAsync(angebotId, "request-changes",
             new { comment = "Bitte Position 2 neu kalkulieren." });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -144,8 +152,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
         var angebotId = await SubmittedAngebotAsync();
         using var admin = await AdminClientAsync();
 
-        var response = await admin.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/request-changes", new { comment = "" });
+        var response = await admin.PostVersionedAsync(angebotId, "request-changes", new { comment = "" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -159,23 +166,22 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
     public async Task The_review_loop_can_repeat_editing_reopens_the_draft_without_an_endpoint()
     {
         var (client, angebotId) = await DraftWithItemAsync();
-        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        await client.PostVersionedAsync(angebotId, "submit-for-review");
 
         using var admin = await AdminClientAsync();
-        await admin.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/request-changes", new { comment = "Rework." });
+        await admin.PostVersionedAsync(angebotId, "request-changes", new { comment = "Rework." });
 
         // Editing resumes — no "reopen" call anywhere.
-        var added = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 2", sortOrder = 2 });
+        var added = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 2", sortOrder = 2 });
         Assert.Equal(HttpStatusCode.Created, added.StatusCode);
 
         var detail = await client.GetFromJsonAsync<JsonElement>($"/api/v1/angebote/{angebotId}");
         Assert.Equal("Draft", detail.GetProperty("status").GetString());
 
-        var resubmitted = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var resubmitted = await client.PostVersionedAsync(angebotId, "submit-for-review");
         Assert.Equal(HttpStatusCode.OK, resubmitted.StatusCode);
 
-        var approved = await admin.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        var approved = await admin.PostVersionedAsync(angebotId, "approve");
         Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
     }
 
@@ -186,7 +192,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
     {
         var angebotId = await SubmittedAngebotAsync();
         using var admin = await AdminClientAsync();
-        await admin.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/request-changes", new { comment = "First round." });
+        await admin.PostVersionedAsync(angebotId, "request-changes", new { comment = "First round." });
 
         using var inspector = await InspectorClientAsync();
         var comments = await ReadCommentsAsync(inspector, angebotId);
@@ -274,11 +280,10 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftAngebotAsync();
 
-        var section = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1", sortOrder = 1 });
+        var section = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1", sortOrder = 1 });
         var sectionId = (await section.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        await client.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        await client.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,
@@ -299,7 +304,7 @@ public sealed class AngebotReviewEndpointsTests(RenoTrackApiFactory factory)
 
         using (client)
         {
-            var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+            var response = await client.PostVersionedAsync(angebotId, "submit-for-review");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 

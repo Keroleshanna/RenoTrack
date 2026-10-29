@@ -216,4 +216,32 @@ public enum AuditAction
     /// </para>
     /// </summary>
     CustomerAddressCorrected,
+
+    /// <summary>
+    /// An Admin changed an Angebot's sections or lines (<b>D115</b>) — one row per mutation, logged
+    /// against the <c>Angebot</c>, with the Admin as the actor.
+    ///
+    /// <para>
+    /// <b>A refinement of CLAUDE.md §10, not a reversal of it.</b> An Inspector's own edits stay
+    /// unaudited: building a draft is in-progress work, exactly as <c>AddAngebotSectionCommand</c>
+    /// has always been classified. An Admin editing a document someone else wrote is a different
+    /// event — it is what replaced <c>PermissionMatrix.md</c> §3's old reason for keeping the Admin
+    /// read-only ("keeps authorship and accountability clean"). Authorship stays with
+    /// <c>CreatedByInspectorId</c>; this row is the record of who else touched the document.
+    /// </para>
+    /// <para>
+    /// <c>details</c> names the operation and the section/item association only
+    /// (<c>AngebotAdminEditAudit</c>) — no amounts, no text, no customer data. Best-effort like
+    /// every audit write (D50), so this record can be lost silently.
+    /// </para>
+    /// </summary>
+    AngebotEditedByAdmin,
+
+    /// <summary>
+    /// An Admin took an Angebot out of review to correct it themselves ("Zur Korrektur zurückholen",
+    /// <c>InReview → Draft</c>, <b>D115</b>, SRS FR-5.5). Logged against the <c>Angebot</c>: like the
+    /// other internal review actions it never moves the Lead (StateMachine.md §1.3). No
+    /// <c>details</c> — the event is the whole fact.
+    /// </summary>
+    AngebotReturnedForCorrection,
 }

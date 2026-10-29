@@ -20,16 +20,18 @@ namespace RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
 /// own copy of the money (D81).
 /// </para>
 /// <para>
-/// No audit entry, matching every other line-level edit: CLAUDE.md §10 reserves audit for business
-/// milestones, and correcting a draft line is in-progress editing — the same classification
-/// <c>AddAngebotSectionCommand</c> already carries.
+/// Owning Inspector or any Admin (D115). Audited only when an Admin edits, matching every other
+/// line-level edit: an Inspector correcting their own draft line is in-progress editing (CLAUDE.md
+/// §10), while an Admin changing someone else's document is recorded as
+/// <c>AngebotEditedByAdmin</c>.
 /// </para>
 /// </remarks>
 public sealed class UpdateAngebotItemCommandHandler(
     IValidator<UpdateAngebotItemCommand> validator,
     IAngebotRepository angebotRepository,
     IOwnershipValidator ownershipValidator,
-    IUnitOfWork unitOfWork) : ICommandHandler<UpdateAngebotItemCommand, AngebotSummaryDto>
+    IUnitOfWork unitOfWork,
+    IAuditService auditService) : ICommandHandler<UpdateAngebotItemCommand, AngebotSummaryDto>
 {
     public async Task<AngebotSummaryDto> HandleAsync(
         UpdateAngebotItemCommand command,
@@ -40,7 +42,12 @@ public sealed class UpdateAngebotItemCommandHandler(
         var angebot = await angebotRepository.GetByIdAsync(command.AngebotId, cancellationToken)
             ?? throw new NotFoundException(nameof(Angebot), command.AngebotId);
 
-        ownershipValidator.EnsureAngebotOwnership(angebot, command.InspectorId);
+        if (command.RequestingInspectorId is { } inspectorId)
+        {
+            ownershipValidator.EnsureAngebotOwnership(angebot, inspectorId);
+        }
+
+        AngebotFreshness.EnsureExpectedVersion(angebot, command.ExpectedVersion);
 
         // Found by asking which section holds the item, rather than trusting a caller-supplied
         // section id that could name a different section of the same Angebot.
@@ -62,6 +69,17 @@ public sealed class UpdateAngebotItemCommandHandler(
             command.Specification);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        if (command.RequestingInspectorId is null)
+        {
+            await auditService.LogAsync(
+                entityType: nameof(Angebot),
+                entityId: angebot.Id,
+                action: AuditAction.AngebotEditedByAdmin,
+                performedByUserId: command.PerformedByUserId,
+                details: AngebotAdminEditAudit.Details(AngebotEditOperation.ItemUpdated, section.Id, item.Id),
+                cancellationToken);
+        }
 
         return angebot.ToSummaryDto();
     }

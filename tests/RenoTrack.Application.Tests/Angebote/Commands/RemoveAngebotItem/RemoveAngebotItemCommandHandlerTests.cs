@@ -13,10 +13,12 @@ public class RemoveAngebotItemCommandHandlerTests
 {
     private const int OwningInspectorId = 5;
     private const int OtherInspectorId = 6;
+    private const int AdminId = 2;
 
     private readonly FakeAngebotRepository _angebotRepository = new();
     private readonly OwnershipValidator _ownershipValidator = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
+    private readonly FakeAuditService _auditService = new();
     private readonly RemoveAngebotItemCommandHandler _handler;
 
     public RemoveAngebotItemCommandHandlerTests()
@@ -25,7 +27,8 @@ public class RemoveAngebotItemCommandHandlerTests
             new RemoveAngebotItemCommandValidator(),
             _angebotRepository,
             _ownershipValidator,
-            _unitOfWork);
+            _unitOfWork,
+            _auditService);
     }
 
     /// <summary>Two sections, one item each, so "resolved the owning section" is a real assertion.</summary>
@@ -44,21 +47,26 @@ public class RemoveAngebotItemCommandHandlerTests
         return angebot;
     }
 
+    private static RemoveAngebotItemCommand AsInspector(Angebot angebot, int itemId, int inspectorId = OwningInspectorId) =>
+        new(angebot.Id, itemId, angebot.Version, inspectorId, inspectorId);
+
+    private static RemoveAngebotItemCommand AsAdmin(Angebot angebot, int itemId) =>
+        new(angebot.Id, itemId, angebot.Version, RequestingInspectorId: null, PerformedByUserId: AdminId);
+
     [Fact]
     public async Task HandleAsync_RemovesOnlyThatItemAndReturnsRefreshedTotals()
     {
         var angebot = SeedAngebotWithTwoSections();
         var doomed = angebot.Sections[1].Items[0].Id;
 
-        var summary = await _handler.HandleAsync(
-            new RemoveAngebotItemCommand(angebot.Id, doomed, OwningInspectorId),
-            CancellationToken.None);
+        var summary = await _handler.HandleAsync(AsInspector(angebot, doomed), CancellationToken.None);
 
         Assert.Equal(2, angebot.Sections.Count);
         Assert.Single(angebot.Sections[0].Items);
         Assert.Empty(angebot.Sections[1].Items);
         Assert.Equal(10.00m, summary.NetTotal);
         Assert.Equal(1, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls); // an Inspector's own edit is not audited
     }
 
     [Fact]
@@ -66,8 +74,7 @@ public class RemoveAngebotItemCommandHandlerTests
     {
         var angebot = SeedAngebotWithTwoSections();
 
-        await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(
-            new RemoveAngebotItemCommand(angebot.Id, 9999, OwningInspectorId), CancellationToken.None));
+        await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(AsInspector(angebot, 9999), CancellationToken.None));
 
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
     }
@@ -78,7 +85,7 @@ public class RemoveAngebotItemCommandHandlerTests
         var angebot = SeedAngebotWithTwoSections();
 
         await Assert.ThrowsAsync<ForbiddenException>(() => _handler.HandleAsync(
-            new RemoveAngebotItemCommand(angebot.Id, angebot.Sections[0].Items[0].Id, OtherInspectorId),
+            AsInspector(angebot, angebot.Sections[0].Items[0].Id, OtherInspectorId),
             CancellationToken.None));
 
         Assert.Single(angebot.Sections[0].Items);
@@ -91,7 +98,7 @@ public class RemoveAngebotItemCommandHandlerTests
         angebot.SubmitForReview();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(
-            new RemoveAngebotItemCommand(angebot.Id, angebot.Sections[0].Items[0].Id, OwningInspectorId),
+            AsInspector(angebot, angebot.Sections[0].Items[0].Id),
             CancellationToken.None));
 
         Assert.Single(angebot.Sections[0].Items);
@@ -102,6 +109,38 @@ public class RemoveAngebotItemCommandHandlerTests
     public async Task HandleAsync_InvalidCommand_ThrowsValidationException()
     {
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(
-            new RemoveAngebotItemCommand(0, 0, 0), CancellationToken.None));
+            new RemoveAngebotItemCommand(0, 0, -1, 0, 0), CancellationToken.None));
+    }
+
+    // ---- Admin editing and freshness (D115) --------------------------------
+
+    [Fact]
+    public async Task HandleAsync_Admin_RemovesALineFromAnInspectorsDraft_AndIsAudited()
+    {
+        var angebot = SeedAngebotWithTwoSections(createdByInspectorId: 77);
+        var section = angebot.Sections[1];
+        var doomed = section.Items[0].Id;
+
+        await _handler.HandleAsync(AsAdmin(angebot, doomed), CancellationToken.None);
+
+        Assert.Empty(angebot.Sections[1].Items);
+        var call = Assert.Single(_auditService.Calls);
+        Assert.Equal(AuditAction.AngebotEditedByAdmin, call.Action);
+        Assert.Equal(AdminId, call.PerformedByUserId);
+        Assert.Equal(angebot.Id, call.EntityId);
+        Assert.Equal($"operation=ItemRemoved; sectionId={section.Id}; itemId={doomed}", call.Details);
+    }
+
+    [Fact]
+    public async Task HandleAsync_StaleExpectedVersion_ThrowsConflict_AndChangesNothing()
+    {
+        var angebot = SeedAngebotWithTwoSections();
+        var stale = AsAdmin(angebot, angebot.Sections[1].Items[0].Id) with { ExpectedVersion = 0 };
+
+        await Assert.ThrowsAsync<ConflictException>(() => _handler.HandleAsync(stale, CancellationToken.None));
+
+        Assert.Single(angebot.Sections[1].Items);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
     }
 }

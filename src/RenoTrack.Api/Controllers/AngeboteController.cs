@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using RenoTrack.Api.Angebote.Dtos;
+using RenoTrack.Api.ErrorHandling;
 using RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 using RenoTrack.Application.Angebote.Commands.AddAngebotSection;
 using RenoTrack.Application.Angebote.Commands.ApproveAngebot;
@@ -12,6 +14,7 @@ using RenoTrack.Application.Angebote.Commands.UpdateAngebotItem;
 using RenoTrack.Application.Angebote.Commands.RemoveAngebotSection;
 using RenoTrack.Application.Angebote.Commands.RequestAngebotChanges;
 using RenoTrack.Application.Angebote.Commands.ResendAngebot;
+using RenoTrack.Application.Angebote.Commands.ReturnAngebotForCorrection;
 using RenoTrack.Application.Angebote.Commands.SendAngebot;
 using RenoTrack.Application.Angebote.Commands.SubmitAngebotForReview;
 using RenoTrack.Application.Angebote.Dtos;
@@ -35,18 +38,27 @@ namespace RenoTrack.Api.Controllers;
 /// onto <c>LeadsController</c> would give that controller a dependency it has no other use for.
 /// </para>
 /// <para>
-/// <b>Building is Inspector-only and ownership-scoped; reviewing is Admin-only and unscoped.</b>
-/// <c>PermissionMatrix.md</c> §3 marks Admin as "R" for a draft in progress — they may view one but
-/// never edit it, which keeps authorship and accountability clean; if an Admin wants a change they
-/// use Request Changes during review. §4 then marks approve and request-changes "F", so those carry
-/// no ownership check at all: any Admin may act on any Angebot, which is the point of the review
-/// gate (BR-1). That asymmetry is deliberate — see CLAUDE.md §16.
+/// <b>Building and submitting: owning Inspector "S", any Admin "F" (D115).</b>
+/// <c>PermissionMatrix.md</c> §3 originally gave the Admin "R" on a draft, to keep authorship clean.
+/// The Product Owner replaced that: an Admin has the Inspector's full operational capability on an
+/// editable Angebot. Authorship still never moves — <c>CreatedByInspectorId</c> is untouched — and
+/// every Admin builder mutation is audited instead. The Inspector stays ownership-checked in the
+/// handler; the Admin, being "F", is not (CLAUDE.md §16). Creating and duplicating stay
+/// Inspector-only by decision. §4 marks approve, request changes and return-for-correction "F" too.
+/// </para>
+/// <para>
+/// <b>Every write that can change content or move the Angebot through review carries
+/// <c>expectedVersion</c></b> — in the body, or as a query parameter on a <c>DELETE</c> — and a stale
+/// one is a 409 (D115). Send, resend and convert do not: the content is frozen by then. Those same
+/// writes carry <c>[GenericConflictResponse]</c>, so every 409 they produce — stale version, no
+/// longer editable, lost race — publishes one detail that names no id or state.
 /// </para>
 /// <para>
 /// There is deliberately <b>no endpoint returning a <c>ChangesRequested</c> Angebot to
 /// <c>Draft</c></b>. StateMachine.md §2.3 states that transition happens "the moment editing
-/// resumes", and <c>Angebot.EnsureEditable()</c> already implements exactly that — adding a
-/// "reopen" action would invent a transition the documents do not have.
+/// resumes", and <c>Angebot.EnsureEditable()</c> already implements exactly that. The one explicit
+/// return to <c>Draft</c> is from <c>InReview</c> — <c>return-for-correction</c>, Admin only — which
+/// the documents now define (StateMachine.md §2.3, D115).
 /// </para>
 /// <para>
 /// <b>Submitting for review is nevertheless available directly from <c>ChangesRequested</c></b>
@@ -75,7 +87,8 @@ public sealed class AngeboteController(
     IQueryHandler<GetAngebotReviewCommentsQuery, IReadOnlyList<AngebotReviewCommentDto>> getReviewCommentsHandler,
     ICommandHandler<DuplicateAngebotCommand, AngebotDto> duplicateHandler,
     ICommandHandler<SendAngebotCommand, AngebotDto> sendHandler,
-    ICommandHandler<ResendAngebotCommand, AngebotDto> resendHandler) : ControllerBase
+    ICommandHandler<ResendAngebotCommand, AngebotDto> resendHandler,
+    ICommandHandler<ReturnAngebotForCorrectionCommand, AngebotDto> returnForCorrectionHandler) : ControllerBase
 {
     /// <summary>
     /// Creates a Draft Angebot for a Lead (SRS FR-4.1). Owning Inspector only.
@@ -170,9 +183,10 @@ public sealed class AngeboteController(
         return Ok(result);
     }
 
-    /// <summary>Adds a section to an editable Angebot. Owning Inspector only.</summary>
+    /// <summary>Adds a section to an editable Angebot. Owning Inspector or any Admin (D115).</summary>
     [HttpPost("{id:int}/sections")]
-    [Authorize(Roles = Roles.Inspector)]
+    [GenericConflictResponse]
+    [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
     [ProducesResponseType<SectionDto>(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -184,21 +198,29 @@ public sealed class AngeboteController(
         CancellationToken cancellationToken)
     {
         var section = await addSectionHandler.HandleAsync(
-            new AddAngebotSectionCommand(id, request.Title, request.SortOrder, InspectorId: CurrentUserId()),
+            new AddAngebotSectionCommand(
+                id,
+                request.Title,
+                request.SortOrder,
+                request.ExpectedVersion,
+                RequestingInspectorId: RequestingInspectorId(),
+                PerformedByUserId: CurrentUserId()),
             cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, section);
     }
 
     /// <summary>
-    /// Adds a line item, from the Catalog or fully custom (SRS FR-4.9). Owning Inspector only.
+    /// Adds a line item, from the Catalog or fully custom (SRS FR-4.9). Owning Inspector or any
+    /// Admin (D115).
     /// </summary>
     /// <remarks>
     /// Returns the item together with the Angebot's refreshed totals, because adding a line changes
     /// NetTotal/GrossTotal and a caller would otherwise have to re-read the Angebot to render them.
     /// </remarks>
     [HttpPost("{id:int}/items")]
-    [Authorize(Roles = Roles.Inspector)]
+    [GenericConflictResponse]
+    [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
     [ProducesResponseType<AddAngebotItemResult>(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -220,7 +242,9 @@ public sealed class AngeboteController(
                 request.Quantity,
                 request.UnitPrice,
                 request.VatRate,
-                InspectorId: CurrentUserId()),
+                request.ExpectedVersion,
+                RequestingInspectorId: RequestingInspectorId(),
+                PerformedByUserId: CurrentUserId()),
             cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, result);
@@ -228,14 +252,17 @@ public sealed class AngeboteController(
 
     /// <summary>
     /// Removes a section and its items while the Angebot is editable (PermissionMatrix.md §3).
+    /// Owning Inspector or any Admin (D115).
     /// </summary>
     /// <remarks>
     /// Returns 200 with the refreshed totals rather than 204, for the same reason item creation
     /// returns them: removing a section changes NetTotal/GrossTotal, and a bodiless response would
-    /// force an extra read to render the result of the caller's own action.
+    /// force an extra read to render the result of the caller's own action. <c>expectedVersion</c> is
+    /// a required query parameter, because a <c>DELETE</c> carries no body.
     /// </remarks>
     [HttpDelete("{id:int}/sections/{sectionId:int}")]
-    [Authorize(Roles = Roles.Inspector)]
+    [GenericConflictResponse]
+    [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
     [ProducesResponseType<AngebotSummaryDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -244,19 +271,24 @@ public sealed class AngeboteController(
     public async Task<IActionResult> RemoveSection(
         int id,
         int sectionId,
+        [FromQuery, BindRequired] int expectedVersion,
         CancellationToken cancellationToken)
     {
         var summary = await removeSectionHandler.HandleAsync(
-            new RemoveAngebotSectionCommand(id, sectionId, InspectorId: CurrentUserId()),
+            new RemoveAngebotSectionCommand(
+                id,
+                sectionId,
+                expectedVersion,
+                RequestingInspectorId: RequestingInspectorId(),
+                PerformedByUserId: CurrentUserId()),
             cancellationToken);
 
         return Ok(summary);
     }
 
-    /// <summary>Removes a single line item, leaving its section in place.</summary>
     /// <summary>
-    /// Corrects an existing line (`PermissionMatrix.md` §3, Phase 10). Owning Inspector only,
-    /// while the Angebot is editable.
+    /// Corrects an existing line (`PermissionMatrix.md` §3, Phase 10). Owning Inspector or any
+    /// Admin (D115), while the Angebot is editable.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -277,7 +309,8 @@ public sealed class AngeboteController(
     /// </para>
     /// </remarks>
     [HttpPut("{id:int}/items/{itemId:int}")]
-    [Authorize(Roles = Roles.Inspector)]
+    [GenericConflictResponse]
+    [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
     [ProducesResponseType<AngebotSummaryDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -299,14 +332,21 @@ public sealed class AngeboteController(
                 request.Quantity,
                 request.UnitPrice,
                 request.VatRate,
-                InspectorId: CurrentUserId()),
+                request.ExpectedVersion,
+                RequestingInspectorId: RequestingInspectorId(),
+                PerformedByUserId: CurrentUserId()),
             cancellationToken);
 
         return Ok(summary);
     }
 
+    /// <summary>
+    /// Removes a single line item, leaving its section in place. Owning Inspector or any Admin
+    /// (D115); <c>expectedVersion</c> is a required query parameter.
+    /// </summary>
     [HttpDelete("{id:int}/items/{itemId:int}")]
-    [Authorize(Roles = Roles.Inspector)]
+    [GenericConflictResponse]
+    [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
     [ProducesResponseType<AngebotSummaryDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -315,10 +355,16 @@ public sealed class AngeboteController(
     public async Task<IActionResult> RemoveItem(
         int id,
         int itemId,
+        [FromQuery, BindRequired] int expectedVersion,
         CancellationToken cancellationToken)
     {
         var summary = await removeItemHandler.HandleAsync(
-            new RemoveAngebotItemCommand(id, itemId, InspectorId: CurrentUserId()),
+            new RemoveAngebotItemCommand(
+                id,
+                itemId,
+                expectedVersion,
+                RequestingInspectorId: RequestingInspectorId(),
+                PerformedByUserId: CurrentUserId()),
             cancellationToken);
 
         return Ok(summary);
@@ -362,24 +408,69 @@ public sealed class AngeboteController(
     // ---- Internal review loop (SRS FR-5.1–5.4, StateMachine.md §2.3) --------
 
     /// <summary>
-    /// Submits a draft for Admin review (SRS FR-5.1). Owning Inspector only.
+    /// Submits an editable Angebot for Admin review (SRS FR-5.1). Owning Inspector or any Admin
+    /// (D115) — an Admin typically after correcting it.
     /// </summary>
     /// <remarks>
     /// The "at least one section with at least one item" guard is the aggregate's own and surfaces
-    /// as 409 — the controller checks nothing. Submitting from any state other than <c>Draft</c>
-    /// fails the same way.
+    /// as 409 — the controller checks nothing. Submitting from any state other than <c>Draft</c> or
+    /// <c>ChangesRequested</c> (D94) fails the same way. The review email goes out only when an
+    /// Inspector submits (SRS FR-9.2).
     /// </remarks>
     [HttpPost("{id:int}/submit-for-review")]
-    [Authorize(Roles = Roles.Inspector)]
+    [GenericConflictResponse]
+    [Authorize(Roles = $"{Roles.Admin},{Roles.Inspector}")]
     [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> SubmitForReview(int id, CancellationToken cancellationToken)
+    public async Task<IActionResult> SubmitForReview(
+        int id,
+        ExpectedVersionRequest request,
+        CancellationToken cancellationToken)
     {
         var angebot = await submitForReviewHandler.HandleAsync(
-            new SubmitAngebotForReviewCommand(id, InspectorId: CurrentUserId()),
+            new SubmitAngebotForReviewCommand(
+                id,
+                request.ExpectedVersion,
+                RequestingInspectorId: RequestingInspectorId(),
+                PerformedByUserId: CurrentUserId()),
+            cancellationToken);
+
+        return Ok(angebot);
+    }
+
+    /// <summary>
+    /// "Zur Korrektur zurückholen": takes an Angebot out of review so an Admin can correct it
+    /// (<c>InReview → Draft</c>, SRS FR-5.5, <b>D115</b>). Admin only, "F".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// No comment and no email, unlike Request Changes — that is the point of it. The corrected
+    /// Angebot must then be submitted and approved again, so the review gate (BR-1) still applies.
+    /// </para>
+    /// <para>
+    /// <b>No ownership check</b> (CLAUDE.md §16). An Inspector is refused by the role gate with an
+    /// empty 403. <b>409</b> when the Angebot is not <c>InReview</c>, or <c>expectedVersion</c> is
+    /// stale.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/return-for-correction")]
+    [GenericConflictResponse]
+    [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReturnForCorrection(
+        int id,
+        ExpectedVersionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var angebot = await returnForCorrectionHandler.HandleAsync(
+            new ReturnAngebotForCorrectionCommand(id, request.ExpectedVersion, PerformedByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(angebot);
@@ -396,16 +487,20 @@ public sealed class AngeboteController(
     /// send/token-link work starts from.
     /// </remarks>
     [HttpPost("{id:int}/approve")]
+    [GenericConflictResponse]
     [Authorize(Roles = Roles.Admin)]
     [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Approve(
+        int id,
+        ExpectedVersionRequest request,
+        CancellationToken cancellationToken)
     {
         var angebot = await approveHandler.HandleAsync(
-            new ApproveAngebotCommand(id, ReviewedByAdminId: CurrentUserId()),
+            new ApproveAngebotCommand(id, request.ExpectedVersion, ReviewedByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(angebot);
@@ -489,6 +584,7 @@ public sealed class AngeboteController(
     /// by itself the moment the Inspector edits it again — FR-5.3's loop, with no extra endpoint.
     /// </remarks>
     [HttpPost("{id:int}/request-changes")]
+    [GenericConflictResponse]
     [Authorize(Roles = Roles.Admin)]
     [ProducesResponseType<AngebotDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -501,7 +597,7 @@ public sealed class AngeboteController(
         CancellationToken cancellationToken)
     {
         var angebot = await requestChangesHandler.HandleAsync(
-            new RequestAngebotChangesCommand(id, request.Comment, ReviewedByAdminId: CurrentUserId()),
+            new RequestAngebotChangesCommand(id, request.Comment, request.ExpectedVersion, ReviewedByAdminId: CurrentUserId()),
             cancellationToken);
 
         return Ok(angebot);

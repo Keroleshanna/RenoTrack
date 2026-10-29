@@ -7,6 +7,7 @@ public sealed class ApproveAngebotCommandValidator : AbstractValidator<ApproveAn
     public ApproveAngebotCommandValidator()
     {
         RuleFor(c => c.AngebotId).GreaterThan(0);
+        RuleFor(c => c.ExpectedVersion).GreaterThanOrEqualTo(0);
         RuleFor(c => c.ReviewedByAdminId).GreaterThan(0);
     }
 }

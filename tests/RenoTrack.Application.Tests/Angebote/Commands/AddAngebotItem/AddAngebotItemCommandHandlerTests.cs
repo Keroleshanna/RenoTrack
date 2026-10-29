@@ -17,6 +17,7 @@ public class AddAngebotItemCommandHandlerTests
     private readonly FakeCatalogItemRepository _catalogItemRepository = new();
     private readonly OwnershipValidator _ownershipValidator = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
+    private readonly FakeAuditService _auditService = new();
     private readonly AddAngebotItemCommandHandler _handler;
 
     public AddAngebotItemCommandHandlerTests()
@@ -26,7 +27,8 @@ public class AddAngebotItemCommandHandlerTests
             _angebotRepository,
             _catalogItemRepository,
             _ownershipValidator,
-            _unitOfWork);
+            _unitOfWork,
+            _auditService);
     }
 
     private (Angebot Angebot, AngebotSection Section) SeedDraftAngebotWithSection(int createdByInspectorId = OwningInspectorId)
@@ -63,7 +65,7 @@ public class AddAngebotItemCommandHandlerTests
         var command = new AddAngebotItemCommand(
             angebot.Id, section.Id, CatalogItemId: null,
             "Baustelleneinrichtung", "Gerüst und Absperrung", "pauschal",
-            Quantity: 1m, UnitPrice: 450.00m, VatRate.Standard, OwningInspectorId);
+            Quantity: 1m, UnitPrice: 450.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -81,7 +83,7 @@ public class AddAngebotItemCommandHandlerTests
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
         var command = new AddAngebotItemCommand(
-            angebot.Id, section.Id, null, "Item", null, "Stk", 2m, 100.00m, VatRate.Standard, OwningInspectorId);
+            angebot.Id, section.Id, null, "Item", null, "Stk", 2m, 100.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -97,7 +99,7 @@ public class AddAngebotItemCommandHandlerTests
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
         var command = new AddAngebotItemCommand(
-            angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+            angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -110,7 +112,7 @@ public class AddAngebotItemCommandHandlerTests
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
         var command = new AddAngebotItemCommand(
-            angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+            angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -127,7 +129,7 @@ public class AddAngebotItemCommandHandlerTests
         var catalogItem = SeedCatalogItem();
         var command = new AddAngebotItemCommand(
             angebot.Id, section.Id, catalogItem.Id, Description: null, Specification: null, UnitCode: null,
-            Quantity: 13.77m, UnitPrice: 18.56m, VatRate.Standard, OwningInspectorId);
+            Quantity: 13.77m, UnitPrice: 18.56m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -145,7 +147,7 @@ public class AddAngebotItemCommandHandlerTests
         var catalogItem = SeedCatalogItem(); // SuggestedUnitPrice = 82.25
         var command = new AddAngebotItemCommand(
             angebot.Id, section.Id, catalogItem.Id, null, null, null,
-            Quantity: 1m, UnitPrice: 99.99m, VatRate.Standard, OwningInspectorId); // Inspector adjusted the price
+            Quantity: 1m, UnitPrice: 99.99m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId); // Inspector adjusted the price
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -162,7 +164,7 @@ public class AddAngebotItemCommandHandlerTests
         AssignSectionId(section, 1);
         var catalogItem = SeedCatalogItem();
         var command = new AddAngebotItemCommand(
-            angebot.Id, section.Id, catalogItem.Id, null, null, null, 10m, 82.25m, VatRate.Standard, OwningInspectorId);
+            angebot.Id, section.Id, catalogItem.Id, null, null, null, 10m, 82.25m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -183,7 +185,7 @@ public class AddAngebotItemCommandHandlerTests
         var catalogItem = SeedCatalogItem();
         catalogItem.Retire();
         var command = new AddAngebotItemCommand(
-            angebot.Id, section.Id, catalogItem.Id, null, null, null, 1m, 82.25m, VatRate.Standard, OwningInspectorId);
+            angebot.Id, section.Id, catalogItem.Id, null, null, null, 1m, 82.25m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -201,7 +203,7 @@ public class AddAngebotItemCommandHandlerTests
         AssignSectionId(firstSection, 1);
         AssignSectionId(secondSection, 2);
         var command = new AddAngebotItemCommand(
-            angebot.Id, secondSection.Id, null, "Item for Pos. 2", null, "Stk", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+            angebot.Id, secondSection.Id, null, "Item for Pos. 2", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -214,7 +216,7 @@ public class AddAngebotItemCommandHandlerTests
     [Fact]
     public async Task HandleAsync_AngebotDoesNotExist_ThrowsNotFoundException()
     {
-        var command = new AddAngebotItemCommand(999, 1, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(999, 1, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, 0, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -224,7 +226,7 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, SectionId: 999, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, SectionId: 999, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -234,7 +236,7 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, CatalogItemId: 999, null, null, null, 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, CatalogItemId: 999, null, null, null, 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -244,7 +246,7 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, InspectorId: 999);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, RequestingInspectorId: 999, PerformedByUserId: 999);
 
         await Assert.ThrowsAsync<ForbiddenException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -256,7 +258,7 @@ public class AddAngebotItemCommandHandlerTests
         AssignSectionId(section, 1);
         angebot.AddItemToSection(section, "Seed item", 1m, ItemUnit.Piece(), Money.FromExact(1.00m), VatRate.Standard);
         angebot.SubmitForReview(); // now InReview — locked from editing
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Too late", null, "Stk", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Too late", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -268,7 +270,7 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "", null, "", 1m, 10.00m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "", null, "", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
 
@@ -283,7 +285,7 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", quantity, 10.00m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", quantity, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -293,7 +295,7 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, -1m, VatRate.Standard, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, -1m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -303,8 +305,88 @@ public class AddAngebotItemCommandHandlerTests
     {
         var (angebot, section) = SeedDraftAngebotWithSection();
         AssignSectionId(section, 1);
-        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, (VatRate)999, OwningInspectorId);
+        var command = new AddAngebotItemCommand(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, (VatRate)999, angebot.Version, OwningInspectorId, OwningInspectorId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+    }
+
+    // ---- Admin editing (D115) ----------------------------------------------
+
+    private const int AdminId = 2;
+
+    private static AddAngebotItemCommand AdminCustomItem(Angebot angebot, AngebotSection section) =>
+        new(angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard,
+            angebot.Version, RequestingInspectorId: null, PerformedByUserId: AdminId);
+
+    [Fact]
+    public async Task HandleAsync_Admin_AddsALineToAnInspectorsDraft_AndIsAudited()
+    {
+        var (angebot, section) = SeedDraftAngebotWithSection(createdByInspectorId: 77);
+        AssignSectionId(section, 1);
+
+        var result = await _handler.HandleAsync(AdminCustomItem(angebot, section), CancellationToken.None);
+
+        Assert.Single(section.Items);
+        Assert.Equal(77, angebot.CreatedByInspectorId);
+        var call = Assert.Single(_auditService.Calls);
+        Assert.Equal(nameof(Angebot), call.EntityType);
+        Assert.Equal(angebot.Id, call.EntityId);
+        Assert.Equal(AuditAction.AngebotEditedByAdmin, call.Action);
+        Assert.Equal(AdminId, call.PerformedByUserId);
+        Assert.Equal($"operation=ItemAdded; sectionId=1; itemId={result.Item.Id}", call.Details);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Admin_CanUseTheCatalogWhileEditing()
+    {
+        var (angebot, section) = SeedDraftAngebotWithSection();
+        AssignSectionId(section, 1);
+        var catalogItem = SeedCatalogItem();
+        var command = new AddAngebotItemCommand(
+            angebot.Id, section.Id, catalogItem.Id, null, null, null, 2m, 80.00m, VatRate.Standard,
+            angebot.Version, RequestingInspectorId: null, PerformedByUserId: AdminId);
+
+        var result = await _handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.Equal(catalogItem.Id, result.Item.CatalogItemId);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Inspector_IsNotAudited()
+    {
+        var (angebot, section) = SeedDraftAngebotWithSection();
+        AssignSectionId(section, 1);
+        var command = new AddAngebotItemCommand(
+            angebot.Id, section.Id, null, "Item", null, "Stk", 1m, 10.00m, VatRate.Standard, angebot.Version, OwningInspectorId, OwningInspectorId);
+
+        await _handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.Empty(_auditService.Calls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_StaleExpectedVersion_ThrowsConflict_AndChangesNothing()
+    {
+        var (angebot, section) = SeedDraftAngebotWithSection();
+        AssignSectionId(section, 1);
+        var stale = AdminCustomItem(angebot, section) with { ExpectedVersion = angebot.Version - 1 };
+
+        await Assert.ThrowsAsync<ConflictException>(() => _handler.HandleAsync(stale, CancellationToken.None));
+
+        Assert.Empty(section.Items);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_ReturnsTheVersionAfterTheWrite()
+    {
+        var (angebot, section) = SeedDraftAngebotWithSection();
+        AssignSectionId(section, 1);
+        var before = angebot.Version;
+
+        var result = await _handler.HandleAsync(AdminCustomItem(angebot, section), CancellationToken.None);
+
+        Assert.Equal(before + 1, result.Summary.Version);
     }
 }
