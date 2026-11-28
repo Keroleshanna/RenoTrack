@@ -141,6 +141,8 @@ Each feature below is written as: **Description**, **Actors**, **Requirements** 
 **Description:** Digital construction of the Angebot, structurally matching the company's real paper document.
 **Actors:** Inspector (drafts), Admin (reviews/edits).
 
+> **Admin editing (`ARCHITECTURE_DECISIONS.md` D115).** "Admin (reviews/edits)" is the intended requirement: an Admin has the Inspector's full operational capability on an Angebot while it is `Draft` or `ChangesRequested` — sections, line items, the Catalog picker — under the same edit lock as the Inspector. The Angebot keeps its author (`CreatedByInspectorId` never changes), every Admin edit is recorded in the audit trail, and two people editing the same Angebot can never overwrite each other silently: every write carries the version the editor last read, and a stale one is refused. Creating and duplicating an Angebot remain Inspector-only. `PermissionMatrix.md` §3 previously gave the Admin read-only access and was corrected to match this section.
+
 - FR-4.1: The Inspector shall be able to create a new Angebot draft linked to a Lead and (optionally) its Inspection.
 - FR-4.2: An Angebot shall be organized into one or more **Sections** (e.g. "Pos. 1 Baustelleneinrichtung", "Pos. 2 Abriss…"), each with a name and a sort order.
 - FR-4.3: Each Section shall contain one or more **Line Items**, each with: description/title, optional long-form specification text (matching the detailed spec fields seen in the sample document, e.g. material, thickness, execution notes), quantity, unit of measure (m², Stk, lfm, pauschal, m, etc.), unit price, and VAT rate.
@@ -160,12 +162,13 @@ Each feature below is written as: **Description**, **Actors**, **Requirements** 
 **Description:** The internal quality-control loop before anything reaches the customer.
 **Actors:** Inspector, Admin.
 
-- FR-5.1: The Inspector shall be able to submit a completed Angebot draft to the Admin for review, changing its status to "In Review".
+- FR-5.1: The Inspector shall be able to submit a completed Angebot draft to the Admin for review, changing its status to "In Review". An Admin may submit an Angebot in `Draft` or `ChangesRequested` too, typically after correcting it (D115).
 - FR-5.2: The Admin shall be able to review the Angebot, and either:
   - (a) Approve it and send it to the Lead, or
   - (b) Return it to the Inspector with comments/requested changes (status → "Changes Requested").
 - FR-5.3: If returned, the Inspector shall be able to edit and resubmit; this loop may repeat as many times as needed.
 - FR-5.4: All review comments and status transitions shall be recorded in the Angebot's history.
+- FR-5.5: The Admin shall be able to take an Angebot that is In Review back for correction ("Zur Korrektur zurückholen"), returning it to Draft without a comment and without notifying the Inspector, so that a small mistake can be fixed without the round trip of FR-5.2(b). The corrected Angebot must then be submitted and approved again; the Admin who corrected it may approve it. *(Added by `ARCHITECTURE_DECISIONS.md` D115, on an approved Product-Owner requirement.)*
 
 ### 3.6 Sending & Customer Decision (Token Link)
 **Description:** Delivering the Angebot to the Lead and capturing their decision, with no customer account required.
@@ -205,7 +208,7 @@ Each feature below is written as: **Description**, **Actors**, **Requirements** 
 **Actors:** System (automated), Admin (some manual sends).
 
 - FR-9.1: The system shall automatically email the Lead the token link when an Angebot or Invoice is sent. *(For an Invoice, since Phase 14 Slice 3a, the email also carries the archived PDF as an attachment — the same bytes on a retry, never a second rendering; D113.)*
-- FR-9.2: The system shall automatically notify the Admin when: a new Lead is created via the website, an Inspector submits an Angebot for review, or a Lead approves/rejects an Angebot.
+- FR-9.2: The system shall automatically notify the Admin when: a new Lead is created via the website, an Inspector submits an Angebot for review, or a Lead approves/rejects an Angebot. *(D115: an Admin's own submission — typically after a correction under FR-5.5 — triggers no notification. The trigger is an Inspector's submission, and the Admins are the people this email exists to inform.)*
 - FR-9.3: Email templates shall be in German, matching the tone of a professional trade company.
 
 ### 3.10 Dashboard Access & Authentication

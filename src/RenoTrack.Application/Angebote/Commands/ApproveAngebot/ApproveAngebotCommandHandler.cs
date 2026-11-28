@@ -15,6 +15,10 @@ namespace RenoTrack.Application.Angebote.Commands.ApproveAngebot;
 /// invariant. Angebot.Approve(reviewedByAdminId) self-guards Status == InReview and records
 /// ReviewedByAdminId itself. No notification — internal approval isn't customer-facing; that
 /// happens in the later Send Angebot workflow.
+///
+/// The Admin who corrected an Angebot (D115) may approve it too — there is no four-eyes rule, by
+/// Product Owner decision. Approval does check the request's freshness, so an Admin can only approve
+/// the version of the document they actually looked at.
 /// </summary>
 public sealed class ApproveAngebotCommandHandler(
     IValidator<ApproveAngebotCommand> validator,
@@ -28,6 +32,8 @@ public sealed class ApproveAngebotCommandHandler(
 
         var angebot = await angebotRepository.GetByIdAsync(command.AngebotId, cancellationToken)
             ?? throw new NotFoundException(nameof(Angebot), command.AngebotId);
+
+        AngebotFreshness.EnsureExpectedVersion(angebot, command.ExpectedVersion);
 
         angebot.Approve(command.ReviewedByAdminId);
 

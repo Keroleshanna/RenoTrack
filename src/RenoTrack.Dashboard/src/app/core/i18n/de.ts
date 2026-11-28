@@ -365,6 +365,13 @@ export const DE = {
     changesRequested: 'Änderungen wurden angefordert.',
     converted: 'Projekt wurde angelegt.',
 
+    returnForCorrection: 'Zur Korrektur zurückholen',
+    returnedForCorrection:
+      'Das Angebot ist wieder ein Entwurf. Nach der Korrektur bitte erneut einreichen und freigeben.',
+    conflictReloaded:
+      'Das Angebot wurde inzwischen geändert oder ist nicht mehr bearbeitbar. Die aktuelle Fassung wurde neu geladen — bitte prüfen und erneut versuchen.',
+    authorFallback: 'der zuständigen Bauleitung',
+
     duplicate: 'Als Vorlage verwenden',
     duplicateTitle: 'Angebot für eine andere Anfrage übernehmen',
     duplicateHint:
@@ -379,6 +386,11 @@ export const DE = {
       submitTitle: 'Angebot einreichen?',
       submitBody:
         'Das Angebot geht zur Prüfung an die Verwaltung und kann bis zur Rückmeldung nicht mehr bearbeitet werden.',
+      submitByAdminBody:
+        'Das Angebot von {0} geht zur Prüfung und kann bis zur Freigabe oder Rückgabe nicht mehr bearbeitet werden. Es wird keine Benachrichtigung versendet.',
+      returnForCorrectionTitle: 'Zur Korrektur zurückholen?',
+      returnForCorrectionBody:
+        'Das Angebot von {0} wird wieder zum Entwurf, damit Sie es selbst korrigieren können. Anschließend muss es erneut eingereicht und freigegeben werden. Es wird kein Kommentar gespeichert und keine E-Mail versendet.',
       approveTitle: 'Angebot freigeben?',
       approveBody: 'Nach der Freigabe kann das Angebot an den Kunden gesendet werden.',
       sendTitle: 'Angebot an Kunden senden?',

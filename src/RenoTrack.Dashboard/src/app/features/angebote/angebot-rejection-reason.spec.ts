@@ -51,6 +51,7 @@ function detail(status: AngebotStatusDto, decisionReason: string | null): Angebo
     grossTotal: 119,
     vatBreakdown: [],
     sections: [],
+    version: 0,
   };
 }
 

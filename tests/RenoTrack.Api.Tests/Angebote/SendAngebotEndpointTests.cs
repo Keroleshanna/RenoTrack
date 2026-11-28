@@ -176,11 +176,10 @@ public sealed class SendAngebotEndpointTests(RenoTrackApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var angebotId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var section = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1", sortOrder = 1 });
+        var section = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1", sortOrder = 1 });
         var sectionId = (await section.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        await client.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        await client.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,
@@ -192,7 +191,7 @@ public sealed class SendAngebotEndpointTests(RenoTrackApiFactory factory)
             vatRate = "Standard",
         });
 
-        var submitted = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var submitted = await client.PostVersionedAsync(angebotId, "submit-for-review");
         Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
 
         return (angebotId, leadId);
@@ -205,7 +204,7 @@ public sealed class SendAngebotEndpointTests(RenoTrackApiFactory factory)
         var (angebotId, leadId) = await SubmittedAngebotWithLeadAsync();
 
         using var admin = await AdminClientAsync();
-        var approved = await admin.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        var approved = await admin.PostVersionedAsync(angebotId, "approve");
         Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
 
         return (angebotId, leadId);

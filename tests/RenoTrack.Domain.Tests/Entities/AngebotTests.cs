@@ -395,6 +395,68 @@ public class AngebotTests
     public void RecordCustomerRejection_OnlyAllowedFromSent() =>
         AssertTransitionOnlyAllowedFrom(AngebotStatus.Sent, a => a.RecordCustomerRejection(), nameof(Angebot.RecordCustomerRejection));
 
+    // ---- ReturnForCorrection: InReview → Draft (D115) -----------------------
+
+    [Fact]
+    public void ReturnForCorrection_IsOnlyAllowedFromInReview() =>
+        AssertTransitionOnlyAllowedFrom(AngebotStatus.InReview, a => a.ReturnForCorrection(), nameof(Angebot.ReturnForCorrection));
+
+    [Fact]
+    public void ReturnForCorrection_ReturnsToDraft_KeepsAuthorship_AndSetsNoReviewer()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.InReview);
+
+        angebot.ReturnForCorrection();
+
+        Assert.Equal(AngebotStatus.Draft, angebot.Status);
+        Assert.Equal(9, angebot.CreatedByInspectorId);
+        Assert.Null(angebot.ReviewedByAdminId);
+    }
+
+    /// <summary>A reviewer's earlier decision on a previous cycle is not erased or overwritten.</summary>
+    [Fact]
+    public void ReturnForCorrection_LeavesAnEarlierReviewerUntouched()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.ChangesRequested); // reviewed by Admin 2
+        angebot.SubmitForReview();
+
+        angebot.ReturnForCorrection();
+
+        Assert.Equal(2, angebot.ReviewedByAdminId);
+    }
+
+    /// <summary>
+    /// The edit lock is unchanged: the corrected Angebot is editable only because it is a Draft
+    /// again, and it must go through review once more before it can be approved (BR-1).
+    /// </summary>
+    [Fact]
+    public void ReturnForCorrection_MakesTheAngebotEditable_AndRequiresAFreshReview()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.InReview);
+        var section = angebot.Sections[0];
+
+        angebot.ReturnForCorrection();
+        angebot.UpdateItem(section, section.Items[0], "Korrigiert", 2m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard);
+
+        Assert.Throws<InvalidOperationException>(() => angebot.Approve(2));
+        angebot.SubmitForReview();
+        angebot.Approve(2);
+        Assert.Equal(AngebotStatus.ApprovedInternally, angebot.Status);
+        Assert.Equal(20.00m, angebot.NetTotal.Amount);
+    }
+
+    /// <summary>
+    /// No Domain method knows who is calling (CLAUDE.md §2): the method takes no parameters at all,
+    /// so a role cannot have crept into its signature.
+    /// </summary>
+    [Fact]
+    public void ReturnForCorrection_TakesNoParameters()
+    {
+        var method = typeof(Angebot).GetMethod(nameof(Angebot.ReturnForCorrection), BindingFlags.Public | BindingFlags.Instance)!;
+
+        Assert.Empty(method.GetParameters());
+    }
+
     // ---- Side effects of successful transitions ---------------------------
 
     [Fact]
@@ -581,6 +643,203 @@ public class AngebotTests
             .ToList();
 
         Assert.Empty(mutators);
+    }
+
+    // ---- Version: the concurrency counter (D115) ----------------------------
+
+    /// <summary>
+    /// <b>The inventory.</b> Every public, non-accessor instance method of <see cref="Angebot"/> that
+    /// is not a read must increment <c>Version</c>. This list names them all, and the reflection
+    /// below fails the moment a method is added that is not on it — so a new mutator cannot silently
+    /// escape the concurrency token by forgetting <c>IncrementVersion()</c>.
+    /// </summary>
+    private static readonly string[] VersionedMutators =
+    [
+        nameof(Angebot.AddSection),
+        nameof(Angebot.AddItemToSection),
+        nameof(Angebot.UpdateItem),
+        nameof(Angebot.RemoveItem),
+        nameof(Angebot.RemoveSection),
+        nameof(Angebot.SubmitForReview),
+        nameof(Angebot.Approve),
+        nameof(Angebot.RequestChanges),
+        nameof(Angebot.ReturnForCorrection),
+        nameof(Angebot.Send),
+        nameof(Angebot.RecordCustomerApproval),
+        nameof(Angebot.RecordCustomerRejection),
+    ];
+
+    [Fact]
+    public void Version_TheInventoryCoversEveryPublicMethod()
+    {
+        var publicMethods = typeof(Angebot)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(method => !method.IsSpecialName)
+            .Select(method => method.Name)
+            .Distinct()
+            .Order()
+            .ToList();
+
+        Assert.Equal(VersionedMutators.Order().ToList(), publicMethods);
+    }
+
+    [Fact]
+    public void Version_HasNoPublicSetter()
+    {
+        var setter = typeof(Angebot).GetProperty(nameof(Angebot.Version))!.SetMethod;
+
+        Assert.NotNull(setter);
+        Assert.False(setter.IsPublic);
+    }
+
+    [Fact]
+    public void Version_StartsAtZero()
+    {
+        Assert.Equal(0, Angebot.Create(1, null, ValidNumber, 9).Version);
+    }
+
+    /// <summary>One case per inventoried mutator, each from a state where it succeeds.</summary>
+    public static TheoryData<string> SuccessfulMutations() => new(VersionedMutators);
+
+    [Theory]
+    [MemberData(nameof(SuccessfulMutations))]
+    public void Version_EachMutatorIncrementsItExactlyOnce(string mutator)
+    {
+        var (angebot, act) = ArrangeSuccessful(mutator);
+        var before = angebot.Version;
+
+        act();
+
+        Assert.Equal(before + 1, angebot.Version);
+    }
+
+    /// <summary>A refused call leaves the version untouched — the increment runs only after the guards.</summary>
+    [Theory]
+    [MemberData(nameof(SuccessfulMutations))]
+    public void Version_ARefusedMutatorLeavesItUnchanged(string mutator)
+    {
+        var (angebot, act) = ArrangeRefused(mutator);
+        var before = angebot.Version;
+
+        Assert.ThrowsAny<Exception>(act);
+
+        Assert.Equal(before, angebot.Version);
+    }
+
+    /// <summary>
+    /// An edit that moves no money still increments, which is the whole point: it writes no total,
+    /// so without the counter it would write nothing to the Angebot row at all.
+    /// </summary>
+    [Fact]
+    public void Version_ADescriptionOnlyEditStillIncrements()
+    {
+        var angebot = CreateAngebotInStatus(AngebotStatus.Draft);
+        var section = angebot.Sections[0];
+        var item = section.Items[0];
+        var (net, gross, before) = (angebot.NetTotal, angebot.GrossTotal, angebot.Version);
+
+        angebot.UpdateItem(section, item, "Nur der Text", item.Quantity, item.Unit, item.UnitPrice, item.VatRate);
+
+        Assert.Equal(net, angebot.NetTotal);
+        Assert.Equal(gross, angebot.GrossTotal);
+        Assert.Equal(before + 1, angebot.Version);
+    }
+
+    private static (Angebot Angebot, Action Act) ArrangeSuccessful(string mutator)
+    {
+        switch (mutator)
+        {
+            case nameof(Angebot.AddSection):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Draft);
+                return (a, () => a.AddSection("Pos. 2", 2));
+            }
+            case nameof(Angebot.AddItemToSection):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Draft);
+                return (a, () => a.AddItemToSection(a.Sections[0], "Zweite", 1m, ItemUnit.Piece(), Money.FromExact(5.00m), VatRate.Standard));
+            }
+            case nameof(Angebot.UpdateItem):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Draft);
+                var s = a.Sections[0];
+                return (a, () => a.UpdateItem(s, s.Items[0], "Neu", 3m, ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard));
+            }
+            case nameof(Angebot.RemoveItem):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Draft);
+                var s = a.Sections[0];
+                return (a, () => a.RemoveItem(s, s.Items[0]));
+            }
+            case nameof(Angebot.RemoveSection):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Draft);
+                return (a, () => a.RemoveSection(a.Sections[0]));
+            }
+            case nameof(Angebot.SubmitForReview):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Draft);
+                return (a, a.SubmitForReview);
+            }
+            case nameof(Angebot.Approve):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.InReview);
+                return (a, () => a.Approve(2));
+            }
+            case nameof(Angebot.RequestChanges):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.InReview);
+                return (a, () => a.RequestChanges(2));
+            }
+            case nameof(Angebot.ReturnForCorrection):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.InReview);
+                return (a, a.ReturnForCorrection);
+            }
+            case nameof(Angebot.Send):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.ApprovedInternally);
+                return (a, a.Send);
+            }
+            case nameof(Angebot.RecordCustomerApproval):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Sent);
+                return (a, a.RecordCustomerApproval);
+            }
+            case nameof(Angebot.RecordCustomerRejection):
+            {
+                var a = CreateAngebotInStatus(AngebotStatus.Sent);
+                return (a, () => a.RecordCustomerRejection("zu teuer"));
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mutator), mutator, "Not in the inventory.");
+        }
+    }
+
+    /// <summary>The same mutators, each from <c>CustomerApproved</c> — a terminal state that refuses all of them.</summary>
+    private static (Angebot Angebot, Action Act) ArrangeRefused(string mutator)
+    {
+        var a = CreateAngebotInStatus(AngebotStatus.CustomerApproved);
+        var s = a.Sections[0];
+
+        Action act = mutator switch
+        {
+            nameof(Angebot.AddSection) => () => a.AddSection("Pos. 2", 2),
+            nameof(Angebot.AddItemToSection) => () => a.AddItemToSection(s, "X", 1m, ItemUnit.Piece(), Money.FromExact(1.00m), VatRate.Standard),
+            nameof(Angebot.UpdateItem) => () => a.UpdateItem(s, s.Items[0], "X", 1m, ItemUnit.Piece(), Money.FromExact(1.00m), VatRate.Standard),
+            nameof(Angebot.RemoveItem) => () => a.RemoveItem(s, s.Items[0]),
+            nameof(Angebot.RemoveSection) => () => a.RemoveSection(s),
+            nameof(Angebot.SubmitForReview) => a.SubmitForReview,
+            nameof(Angebot.Approve) => () => a.Approve(2),
+            nameof(Angebot.RequestChanges) => () => a.RequestChanges(2),
+            nameof(Angebot.ReturnForCorrection) => a.ReturnForCorrection,
+            nameof(Angebot.Send) => a.Send,
+            nameof(Angebot.RecordCustomerApproval) => a.RecordCustomerApproval,
+            nameof(Angebot.RecordCustomerRejection) => () => a.RecordCustomerRejection(),
+            _ => throw new ArgumentOutOfRangeException(nameof(mutator), mutator, "Not in the inventory."),
+        };
+
+        return (a, act);
     }
 
     // ---- Test helpers ------------------------------------------------

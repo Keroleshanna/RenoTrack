@@ -8,6 +8,7 @@ public sealed class RequestAngebotChangesCommandValidator : AbstractValidator<Re
     {
         RuleFor(c => c.AngebotId).GreaterThan(0);
         RuleFor(c => c.Comment).NotEmpty();
+        RuleFor(c => c.ExpectedVersion).GreaterThanOrEqualTo(0);
         RuleFor(c => c.ReviewedByAdminId).GreaterThan(0);
     }
 }

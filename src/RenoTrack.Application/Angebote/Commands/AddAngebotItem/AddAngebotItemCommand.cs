@@ -10,6 +10,10 @@ namespace RenoTrack.Application.Angebote.Commands.AddAngebotItem;
 /// caller-supplied for both paths (Sequence Diagram §4 line 210: the Catalog-path wire request
 /// is `{ catalogItemId, qty, unitPrice, vatRate }` — UnitPrice is a confirmed/adjusted value,
 /// never silently taken from CatalogItem.SuggestedUnitPrice).
+///
+/// Owning Inspector or any Admin (D115): <c>RequestingInspectorId</c> is the scope (<c>null</c> for
+/// an Admin) and <c>PerformedByUserId</c> the actor (D88); <c>ExpectedVersion</c> is the
+/// <c>Version</c> the caller last read.
 /// </summary>
 public sealed record AddAngebotItemCommand(
     int AngebotId,
@@ -21,4 +25,6 @@ public sealed record AddAngebotItemCommand(
     decimal Quantity,
     decimal UnitPrice,
     VatRate VatRate,
-    int InspectorId);
+    int ExpectedVersion,
+    int? RequestingInspectorId,
+    int PerformedByUserId);

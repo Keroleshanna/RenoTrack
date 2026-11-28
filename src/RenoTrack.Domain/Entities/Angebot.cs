@@ -63,6 +63,32 @@ public sealed class Angebot
     public IReadOnlyList<AngebotSection> Sections => _sections;
 
     /// <summary>
+    /// A counter that every public state-changing method of this aggregate increments exactly once,
+    /// after its guards pass (<b>D115</b>). It carries no business meaning: it is opaque, its only
+    /// legal comparison is equality, and a freshly duplicated Angebot starts above zero because
+    /// <c>DuplicateAngebotCommand</c> rebuilds the tree through the ordinary mutators.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It exists so that two writers can never both commit against the same original state.</b>
+    /// It is the Angebot's optimistic-concurrency token, and it has to be a column that <i>every</i>
+    /// mutation writes: an edit that moves no money writes no total (<see cref="Money"/> is a
+    /// record, so an unchanged total is not marked modified), and an edit of a line writes no
+    /// <c>Status</c>. Without it, two concurrent line edits each stored totals computed from their
+    /// own view, and an edit staged on a Draft could land after the Angebot was approved — both
+    /// reproduced against real SQL Server before this property existed
+    /// (<c>AngebotConcurrencyTests</c>).
+    /// </para>
+    /// <para>
+    /// It is also what the Dashboard echoes back as <c>expectedVersion</c>, so a write prepared
+    /// against an older view of the document is refused rather than silently overwriting newer
+    /// content. Assigned only by <see cref="IncrementVersion"/>, never by the constructor, which
+    /// EF Core calls on every read (CLAUDE.md §2).
+    /// </para>
+    /// </remarks>
+    public int Version { get; private set; }
+
+    /// <summary>
     /// Stored and kept current by <see cref="RecalculateTotals"/>, deliberately not a computed
     /// property — see that method's remarks for why this differs from
     /// <see cref="VatBreakdown"/>.
@@ -126,6 +152,7 @@ public sealed class Angebot
         var section = new AngebotSection(title, sortOrder);
         _sections.Add(section);
         RecalculateTotals();
+        IncrementVersion();
         return section;
     }
 
@@ -155,6 +182,7 @@ public sealed class Angebot
 
         var item = section.AddItem(description, quantity, unit, unitPrice, vatRate, specification, catalogItemId);
         RecalculateTotals();
+        IncrementVersion();
         return item;
     }
 
@@ -180,6 +208,7 @@ public sealed class Angebot
             throw new InvalidOperationException($"The given section does not belong to Angebot {Id}.");
 
         RecalculateTotals();
+        IncrementVersion();
     }
 
     /// <summary>
@@ -200,6 +229,7 @@ public sealed class Angebot
             throw new InvalidOperationException($"The given item does not belong to section {section.Id}.");
 
         RecalculateTotals();
+        IncrementVersion();
     }
 
     /// <summary>
@@ -251,6 +281,7 @@ public sealed class Angebot
         // Non-negotiable: a price or quantity change moves the document's money, and the totals are
         // stored fields. Skipping this is how a quote starts disagreeing with itself.
         RecalculateTotals();
+        IncrementVersion();
     }
 
     /// <summary>
@@ -291,6 +322,7 @@ public sealed class Angebot
         }
 
         Status = AngebotStatus.InReview;
+        IncrementVersion();
     }
 
     /// <summary>StateMachine.md §2.3: <c>InReview → ApprovedInternally</c> (Admin, internal approval — see <see cref="RecordCustomerApproval"/> for the customer's decision).</summary>
@@ -299,6 +331,7 @@ public sealed class Angebot
         EnsureStatus(AngebotStatus.InReview, nameof(Approve));
         Status = AngebotStatus.ApprovedInternally;
         ReviewedByAdminId = reviewedByAdminId;
+        IncrementVersion();
     }
 
     /// <summary>
@@ -310,6 +343,34 @@ public sealed class Angebot
         EnsureStatus(AngebotStatus.InReview, nameof(RequestChanges));
         Status = AngebotStatus.ChangesRequested;
         ReviewedByAdminId = reviewedByAdminId;
+        IncrementVersion();
+    }
+
+    /// <summary>
+    /// StateMachine.md §2.3: <c>InReview → Draft</c> — "Zur Korrektur zurückholen" (<b>D115</b>,
+    /// SRS FR-5.5). Takes the Angebot out of review so it can be corrected under the ordinary edit
+    /// lock, after which it must be submitted and approved again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Not <see cref="RequestChanges"/>.</b> That event returns the document to its author with a
+    /// comment and an email; this one is for a reviewer who would rather make a small correction
+    /// themselves. It records no comment and sets no <see cref="ReviewedByAdminId"/>, because no
+    /// review decision was taken.
+    /// </para>
+    /// <para>
+    /// <b>No role parameter, deliberately.</b> This aggregate never validates who is calling
+    /// (CLAUDE.md §2); that only an Admin may take this action is the API's rule
+    /// (<c>PermissionMatrix.md</c> §4). The edit lock itself is unchanged: nothing here makes
+    /// <c>InReview</c> editable, and <c>ApprovedInternally</c> and every later state stay immutable.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The Angebot is not <c>InReview</c>.</exception>
+    public void ReturnForCorrection()
+    {
+        EnsureStatus(AngebotStatus.InReview, nameof(ReturnForCorrection));
+        Status = AngebotStatus.Draft;
+        IncrementVersion();
     }
 
     /// <summary>
@@ -322,6 +383,7 @@ public sealed class Angebot
         EnsureStatus(AngebotStatus.ApprovedInternally, nameof(Send));
         Status = AngebotStatus.Sent;
         SentAt = DateTime.UtcNow;
+        IncrementVersion();
     }
 
     /// <summary>StateMachine.md §2.3: <c>Sent → CustomerApproved</c> (terminal). Application validates the TokenLink (BR-4) before calling this.</summary>
@@ -330,6 +392,7 @@ public sealed class Angebot
         EnsureStatus(AngebotStatus.Sent, nameof(RecordCustomerApproval));
         Status = AngebotStatus.CustomerApproved;
         DecisionAt = DateTime.UtcNow;
+        IncrementVersion();
     }
 
     /// <summary>
@@ -378,6 +441,7 @@ public sealed class Angebot
         Status = AngebotStatus.CustomerRejected;
         DecisionAt = DateTime.UtcNow;
         DecisionReason = trimmed;
+        IncrementVersion();
     }
 
     /// <summary>
@@ -391,6 +455,15 @@ public sealed class Angebot
         NetTotal = Money.Sum(_sections.Select(s => s.Subtotal));
         GrossTotal = NetTotal + Money.Sum(VatBreakdown.Select(line => line.VatAmount));
     }
+
+    /// <summary>
+    /// The one place <see cref="Version"/> changes. Called last by every public method that changes
+    /// this aggregate, and only once its guards have passed, so a refused call leaves the version
+    /// untouched. <c>AngebotVersionTests</c> pins the full list of such methods by reflection, so a
+    /// new mutator that forgets this call fails a test rather than silently escaping the
+    /// concurrency token.
+    /// </summary>
+    private void IncrementVersion() => Version++;
 
     /// <summary>
     /// StateMachine.md §2.4 invariant: editable only while Draft or ChangesRequested. Per

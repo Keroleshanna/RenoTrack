@@ -359,6 +359,13 @@ export const EN: Strings = {
     changesRequested: 'Changes were requested.',
     converted: 'Project created.',
 
+    returnForCorrection: 'Take back for correction',
+    returnedForCorrection:
+      'The quote is a draft again. After correcting it, submit and approve it once more.',
+    conflictReloaded:
+      'The quote has changed in the meantime or can no longer be edited. The current version has been reloaded — please check it and try again.',
+    authorFallback: 'the responsible site manager',
+
     duplicate: 'Use as a template',
     duplicateTitle: 'Reuse this quote for another enquiry',
     duplicateHint:
@@ -373,6 +380,11 @@ export const EN: Strings = {
       submitTitle: 'Submit this quote?',
       submitBody:
         'The quote goes to the office for review and cannot be edited until they respond.',
+      submitByAdminBody:
+        'The quote by {0} goes to review and cannot be edited until it is approved or returned. No notification is sent.',
+      returnForCorrectionTitle: 'Take back for correction?',
+      returnForCorrectionBody:
+        'The quote by {0} becomes a draft again so that you can correct it yourself. It must then be submitted and approved once more. No comment is stored and no email is sent.',
       approveTitle: 'Approve this quote?',
       approveBody: 'Once approved, the quote can be sent to the customer.',
       sendTitle: 'Send this quote to the customer?',

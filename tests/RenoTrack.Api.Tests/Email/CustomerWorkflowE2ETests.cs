@@ -1,3 +1,4 @@
+using RenoTrack.Api.Tests.Angebote;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -349,11 +350,10 @@ public sealed partial class CustomerWorkflowE2ETests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var angebotId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var section = await inspector.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1", sortOrder = 1 });
+        var section = await inspector.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1", sortOrder = 1 });
         var sectionId = (await section.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        await inspector.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        await inspector.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,
@@ -365,13 +365,13 @@ public sealed partial class CustomerWorkflowE2ETests : IAsyncLifetime
             vatRate = "Standard",
         });
 
-        var submitted = await inspector.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var submitted = await inspector.PostVersionedAsync(angebotId, "submit-for-review");
         Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
 
         // Submitting notifies the Admin, over the same real transport. Cleared so each test's
         // assertions are about the customer mails it is actually driving.
         using var admin = await AdminClientAsync();
-        var approved = await admin.PostAsync($"/api/v1/angebote/{angebotId}/approve", content: null);
+        var approved = await admin.PostVersionedAsync(angebotId, "approve");
         Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
 
         _smtp.Reset();

@@ -152,10 +152,12 @@ app.UseRouting();
 // Records the matched route template while it still exists. ASP.NET's exception middleware clears
 // the endpoint and route values before any IExceptionHandler runs, so a token-bearing path cannot
 // be recognised as such later — and would be echoed verbatim into logs and ProblemDetails
-// `instance`. See RouteDiagnostics for the full reasoning and how it was found.
+// `instance`. See RouteDiagnostics for the full reasoning and how it was found. The same constraint
+// applies to an endpoint's generic-409 marker (D115), so it is captured here too.
 app.Use(async (context, next) =>
 {
     RouteDiagnostics.Capture(context);
+    GenericConflictResponseAttribute.Capture(context);
     await next(context);
 });
 

@@ -94,13 +94,12 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftAngebotAsync();
 
-        var sectionResponse = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1 Abbruch", sortOrder = 1 });
+        var sectionResponse = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1 Abbruch", sortOrder = 1 });
 
         Assert.Equal(HttpStatusCode.Created, sectionResponse.StatusCode);
         var sectionId = (await sectionResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var itemResponse = await client.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        var itemResponse = await client.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,
@@ -123,26 +122,32 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
     [Fact]
     public async Task An_inspector_cannot_add_a_section_to_another_inspectors_angebot()
     {
-        var (_, angebotId) = await DraftAngebotAsync();
+        var (owner, angebotId) = await DraftAngebotAsync();
         using var intruder = await SecondInspectorClientAsync();
 
-        var response = await intruder.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Not mine", sortOrder = 1 });
+        var response = await intruder.PostVersionedAsync(
+            angebotId, "sections", await owner.CurrentVersionAsync(angebotId), new { title = "Not mine", sortOrder = 1 });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        // An ownership 403 carries ProblemDetails; a role-gate 403 has an empty body. Since D115 the
+        // role gate admits both roles here, so only the ownership check can produce this refusal.
+        Assert.NotEmpty(await response.Content.ReadAsByteArrayAsync());
     }
 
-    /// <summary>PermissionMatrix.md §3 marks Admin "R" for a draft — they may read it, never edit it.</summary>
+    /// <summary>
+    /// Inverted by D115. This test pinned PermissionMatrix.md §3's old Admin "R" on a draft; the
+    /// Product Owner replaced it with Admin "F", so the same endpoint is now pinned the other way.
+    /// </summary>
     [Fact]
-    public async Task Admin_cannot_add_a_section_to_a_draft()
+    public async Task Admin_can_add_a_section_to_an_inspectors_draft()
     {
         var (_, angebotId) = await DraftAngebotAsync();
         using var admin = await AdminClientAsync();
 
-        var response = await admin.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Admin edit", sortOrder = 1 });
+        var response = await admin.PostVersionedAsync(angebotId, "sections", new { title = "Admin edit", sortOrder = 1 });
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     // ---- Removal (PermissionMatrix.md §3, "Add/remove Sections & Items") ----
@@ -153,7 +158,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (client, angebotId) = await DraftAngebotAsync();
         var (sectionId, itemId) = await AddSectionWithItemAsync(client, angebotId);
 
-        var response = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/items/{itemId}");
+        var response = await client.DeleteVersionedAsync(angebotId, $"items/{itemId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -171,7 +176,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (client, angebotId) = await DraftAngebotAsync();
         var (sectionId, _) = await AddSectionWithItemAsync(client, angebotId);
 
-        var response = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/sections/{sectionId}");
+        var response = await client.DeleteVersionedAsync(angebotId, $"sections/{sectionId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -185,7 +190,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftAngebotAsync();
 
-        var response = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/items/999999");
+        var response = await client.DeleteVersionedAsync(angebotId, $"items/999999");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -197,9 +202,13 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (sectionId, _) = await AddSectionWithItemAsync(client, angebotId);
         using var intruder = await SecondInspectorClientAsync();
 
-        var response = await intruder.DeleteAsync($"/api/v1/angebote/{angebotId}/sections/{sectionId}");
+        var response = await intruder.DeleteVersionedAsync(angebotId, $"sections/{sectionId}", await client.CurrentVersionAsync(angebotId));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        // An ownership 403 carries ProblemDetails; a role-gate 403 has an empty body. Since D115 the
+        // role gate admits both roles here, so only the ownership check can produce this refusal.
+        Assert.NotEmpty(await response.Content.ReadAsByteArrayAsync());
     }
 
     /// <summary>
@@ -214,10 +223,9 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (sectionId, itemId) = await AddSectionWithItemAsync(client, angebotId);
         await SubmitDirectlyAsync(angebotId);
 
-        var addSection = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Too late", sortOrder = 2 });
-        var removeSection = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/sections/{sectionId}");
-        var removeItem = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/items/{itemId}");
+        var addSection = await client.PostVersionedAsync(angebotId, "sections", new { title = "Too late", sortOrder = 2 });
+        var removeSection = await client.DeleteVersionedAsync(angebotId, $"sections/{sectionId}");
+        var removeItem = await client.DeleteVersionedAsync(angebotId, $"items/{itemId}");
 
         Assert.Equal(HttpStatusCode.Conflict, addSection.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, removeSection.StatusCode);
@@ -323,7 +331,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (client, angebotId) = await DraftAngebotAsync();
         var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
 
-        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        var response = await client.PutVersionedAsync(angebotId, $"items/{itemId}", new
         {
             description = "Wände abbrechen und entsorgen",
             specification = "inkl. Containergestellung",
@@ -352,9 +360,9 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (client, angebotId) = await DraftAngebotAsync();
         var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
 
-        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        await client.PostVersionedAsync(angebotId, "submit-for-review");
 
-        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        var response = await client.PutVersionedAsync(angebotId, $"items/{itemId}", new
         {
             description = "Zu spät",
             specification = (string?)null,
@@ -376,7 +384,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
 
         using var other = await SecondInspectorClientAsync();
 
-        var response = await other.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        var response = await other.PutVersionedAsync(angebotId, $"items/{itemId}", await client.CurrentVersionAsync(angebotId), new
         {
             description = "Fremd",
             specification = (string?)null,
@@ -395,7 +403,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (client, angebotId) = await DraftAngebotAsync();
         var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
 
-        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        var response = await client.PutVersionedAsync(angebotId, $"items/{itemId}", new
         {
             description = "Sonderposition",
             specification = (string?)null,
@@ -422,7 +430,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
         var (client, angebotId) = await DraftAngebotAsync();
         var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
 
-        var response = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        var response = await client.PutVersionedAsync(angebotId, $"items/{itemId}", new
         {
             description = "Ohne Einheit",
             specification = (string?)null,
@@ -490,7 +498,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
 
         await client.PostAsync($"/api/v1/angebot-items/{itemId}/save-as-catalog-item", content: null);
 
-        var response = await client.DeleteAsync($"/api/v1/angebote/{angebotId}/items/{itemId}");
+        var response = await client.DeleteVersionedAsync(angebotId, $"items/{itemId}");
 
         // Under the old Restrict foreign key this was a DbUpdateException surfacing as a 500.
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -503,16 +511,15 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftAngebotAsync();
         await AddSectionWithItemAsync(client, angebotId);
-        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        await client.PostVersionedAsync(angebotId, "submit-for-review");
 
         using var admin = await AdminClientAsync();
-        await admin.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/request-changes", new { comment = "Bitte Preise prüfen." });
+        await admin.PostVersionedAsync(angebotId, "request-changes", new { comment = "Bitte Preise prüfen." });
 
         // No edit in between. Previously the Inspector had to change something — anything — before
         // the aggregate would accept a resubmission, which is a state change made purely to satisfy
         // a guard.
-        var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var response = await client.PostVersionedAsync(angebotId, "submit-for-review");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("InReview", (await response.Content.ReadFromJsonAsync<JsonElement>())
@@ -524,13 +531,12 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
     {
         var (client, angebotId) = await DraftAngebotAsync();
         var (_, itemId) = await AddSectionWithItemAsync(client, angebotId);
-        await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        await client.PostVersionedAsync(angebotId, "submit-for-review");
 
         using var admin = await AdminClientAsync();
-        await admin.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/request-changes", new { comment = "Menge zu hoch." });
+        await admin.PostVersionedAsync(angebotId, "request-changes", new { comment = "Menge zu hoch." });
 
-        var edit = await client.PutAsJsonAsync($"/api/v1/angebote/{angebotId}/items/{itemId}", new
+        var edit = await client.PutVersionedAsync(angebotId, $"items/{itemId}", new
         {
             description = "Wände abbrechen",
             specification = (string?)null,
@@ -542,7 +548,7 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
 
-        var response = await client.PostAsync($"/api/v1/angebote/{angebotId}/submit-for-review", content: null);
+        var response = await client.PostVersionedAsync(angebotId, "submit-for-review");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
@@ -610,13 +616,12 @@ public sealed class AngebotBuilderEndpointsTests(RenoTrackApiFactory factory)
 
     private static async Task<(int SectionId, int ItemId)> AddSectionWithItemAsync(HttpClient client, int angebotId)
     {
-        var sectionResponse = await client.PostAsJsonAsync(
-            $"/api/v1/angebote/{angebotId}/sections", new { title = "Pos. 1 Abbruch", sortOrder = 1 });
+        var sectionResponse = await client.PostVersionedAsync(angebotId, "sections", new { title = "Pos. 1 Abbruch", sortOrder = 1 });
         Assert.Equal(HttpStatusCode.Created, sectionResponse.StatusCode);
 
         var sectionId = (await sectionResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        var itemResponse = await client.PostAsJsonAsync($"/api/v1/angebote/{angebotId}/items", new
+        var itemResponse = await client.PostVersionedAsync(angebotId, "items", new
         {
             sectionId,
             catalogItemId = (int?)null,

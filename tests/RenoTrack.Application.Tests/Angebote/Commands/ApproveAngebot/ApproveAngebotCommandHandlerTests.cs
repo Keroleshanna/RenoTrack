@@ -44,7 +44,7 @@ public class ApproveAngebotCommandHandlerTests
     public async Task HandleAsync_TransitionsAngebotToApprovedInternally()
     {
         var angebot = SeedAngebotInReview();
-        var command = new ApproveAngebotCommand(angebot.Id, AdminId);
+        var command = new ApproveAngebotCommand(angebot.Id, angebot.Version, AdminId);
 
         var result = await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -55,7 +55,7 @@ public class ApproveAngebotCommandHandlerTests
     public async Task HandleAsync_RecordsReviewedByAdminId()
     {
         var angebot = SeedAngebotInReview();
-        var command = new ApproveAngebotCommand(angebot.Id, AdminId);
+        var command = new ApproveAngebotCommand(angebot.Id, angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -66,7 +66,7 @@ public class ApproveAngebotCommandHandlerTests
     public async Task HandleAsync_SavesChangesExactlyOnce()
     {
         var angebot = SeedAngebotInReview();
-        var command = new ApproveAngebotCommand(angebot.Id, AdminId);
+        var command = new ApproveAngebotCommand(angebot.Id, angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -77,7 +77,7 @@ public class ApproveAngebotCommandHandlerTests
     public async Task HandleAsync_LogsAuditAgainstTheAngebot()
     {
         var angebot = SeedAngebotInReview();
-        var command = new ApproveAngebotCommand(angebot.Id, AdminId);
+        var command = new ApproveAngebotCommand(angebot.Id, angebot.Version, AdminId);
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
@@ -95,7 +95,7 @@ public class ApproveAngebotCommandHandlerTests
     [Fact]
     public async Task HandleAsync_AngebotDoesNotExist_ThrowsNotFoundException()
     {
-        var command = new ApproveAngebotCommand(AngebotId: 999, AdminId);
+        var command = new ApproveAngebotCommand(AngebotId: 999, 0, AdminId);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -104,7 +104,7 @@ public class ApproveAngebotCommandHandlerTests
     public async Task HandleAsync_AngebotStillDraft_PropagatesDomainGuardFailure()
     {
         var angebot = _angebotRepository.Seed(Angebot.Create(1, null, "ANG-2026-00001", OwningInspectorId));
-        var command = new ApproveAngebotCommand(angebot.Id, AdminId);
+        var command = new ApproveAngebotCommand(angebot.Id, angebot.Version, AdminId);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.HandleAsync(command, CancellationToken.None));
     }
@@ -116,11 +116,54 @@ public class ApproveAngebotCommandHandlerTests
     [InlineData(1, 0)]
     public async Task HandleAsync_InvalidCommand_ThrowsAndPerformsNoSideEffects(int angebotId, int reviewedByAdminId)
     {
-        var command = new ApproveAngebotCommand(angebotId, reviewedByAdminId);
+        var command = new ApproveAngebotCommand(angebotId, 0, reviewedByAdminId);
 
         await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
 
         Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
         Assert.Empty(_auditService.Calls);
+    }
+
+    // ---- Freshness (D115) ------------------------------------------------
+
+    /// <summary>
+    /// A stale approval must not approve a document the Admin never saw — for example one another
+    /// Admin returned for correction, changed and resubmitted meanwhile.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_StaleExpectedVersion_ThrowsConflict_AndApprovesNothing()
+    {
+        var angebot = SeedAngebotInReview();
+        var command = new ApproveAngebotCommand(angebot.Id, angebot.Version - 1, AdminId);
+
+        await Assert.ThrowsAsync<ConflictException>(() => _handler.HandleAsync(command, CancellationToken.None));
+
+        Assert.Equal(AngebotStatus.InReview, angebot.Status);
+        Assert.Equal(0, _unitOfWork.SaveChangesCallCount);
+        Assert.Empty(_auditService.Calls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_NegativeExpectedVersion_ThrowsValidationException()
+    {
+        var command = new ApproveAngebotCommand(1, -1, AdminId);
+
+        await Assert.ThrowsAsync<ValidationException>(() => _handler.HandleAsync(command, CancellationToken.None));
+    }
+
+    /// <summary>No four-eyes rule (D115): the Admin who corrected an Angebot may approve it.</summary>
+    [Fact]
+    public async Task HandleAsync_TheAdminWhoCorrectedTheAngebot_MayApproveIt()
+    {
+        var angebot = SeedAngebotInReview();
+        angebot.ReturnForCorrection();
+        angebot.UpdateItem(angebot.Sections[0], angebot.Sections[0].Items[0], "Korrigiert", 2m,
+            ItemUnit.Piece(), Money.FromExact(10.00m), VatRate.Standard);
+        angebot.SubmitForReview();
+
+        var result = await _handler.HandleAsync(new ApproveAngebotCommand(angebot.Id, angebot.Version, AdminId), CancellationToken.None);
+
+        Assert.Equal(AngebotStatus.ApprovedInternally, result.Status);
+        Assert.Equal(AdminId, angebot.ReviewedByAdminId);
     }
 }

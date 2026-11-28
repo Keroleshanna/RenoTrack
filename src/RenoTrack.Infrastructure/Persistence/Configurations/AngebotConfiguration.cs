@@ -73,6 +73,15 @@ public sealed class AngebotConfiguration : IEntityTypeConfiguration<Angebot>
 
         builder.Ignore(a => a.VatBreakdown);
 
+        // The Angebot's optimistic-concurrency token (D115, migration #16). Every public mutator of
+        // the aggregate increments it, so every write to an Angebot — a line edit that moves no
+        // money included — issues `UPDATE Angebote … WHERE Version = @original`. A writer that read
+        // an older state matches no row, EF rolls its whole batch back (child rows included), and
+        // UnitOfWork translates the loss into a 409 (D96). A plain int rather than `rowversion`:
+        // the token has to change on child-only edits too, which a rowversion on this row would not
+        // see, and the same value doubles as the Dashboard's `expectedVersion`.
+        builder.Property(a => a.Version).IsRequired().IsConcurrencyToken();
+
         // Angebot.Sections is IReadOnlyList<AngebotSection> over a private List<T> field.
         builder.HasMany(a => a.Sections)
             .WithOne()

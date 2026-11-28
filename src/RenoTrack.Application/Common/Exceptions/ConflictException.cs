@@ -9,6 +9,21 @@ namespace RenoTrack.Application.Common.Exceptions;
 public sealed class ConflictException : Exception
 {
     /// <summary>
+    /// The one message for "someone else changed this record first" — whether that was detected
+    /// by the database (<c>UnitOfWork</c>'s optimistic-concurrency translation, D96) or by a
+    /// handler comparing a request's <c>expectedVersion</c> with the loaded aggregate (D115).
+    /// </summary>
+    /// <remarks>
+    /// One constant so the two detections cannot drift into two wordings. It names nothing — no
+    /// row, table, id, timestamp or version — because a mapped exception's message becomes the
+    /// ProblemDetails <c>detail</c> (D59), and the first caller ever to reach this path was the
+    /// anonymous public decision endpoint.
+    /// </remarks>
+    public const string ConcurrentChangeMessage =
+        "This request could not be completed because the same record was changed at the same " +
+        "time by someone else. Nothing was saved. Please reload and try again.";
+
+    /// <summary>
     /// The normal case: a business-state conflict this layer detected and phrased itself.
     /// </summary>
     public ConflictException(string message)

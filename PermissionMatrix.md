@@ -42,14 +42,14 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 
 | Action | Admin | Inspector | Notes |
 |---|---|---|---|
-| Create Angebot draft | — | S | Only for a Lead assigned to that Inspector, and only once `InspectionDone` (FR-4.1 guard) |
-| Edit Angebot while `Draft` or `ChangesRequested` | R | S | Admin can view a draft in progress but cannot edit it directly — keeps authorship/accountability clean; if Admin wants a change, they use "Request Changes" during review instead |
-| Add/remove Sections & Items | — | S | Only the owning Inspector, only while editable (StateMachine.md §2.4) |
-| Edit an existing Item | — | S | Owning Inspector, while editable. *Built in Phase 10 QA as `PUT /api/v1/angebote/{id}/items/{itemId}`.* **This row is new, and it corrects a mistake in reasoning rather than a change of policy.** `CLAUDE.md` §2 had recorded that no item update existed because "add+remove already covers correction" — which did not survive real use: recreating a line loses its identity, and with it any Catalog entry contributed from it (FR-4.10). Added on an explicit Product-Owner requirement. Catalog-sourced lines are editable too and keep their `CatalogItemId`, because BR-8 makes the copy independent of its source the instant it exists |
-| Use Catalog picker | R | S | Both roles can browse the Catalog (R for Admin, S/F for Inspector — Inspector isn't "scoped" here since Catalog is shared, not per-Lead) |
-| Save item as new Catalog entry | — | F | Any Inspector can contribute (FR-4.10); not Lead-scoped since the Catalog is shared company-wide |
-| Duplicate a past Angebot/Section | — | S | Only from Angebote the Inspector has access to (their own past drafts, or any `Sent`/decided Angebot they're shown for reference — exact reference-library scope is an implementation detail, default to "their own" for v1) |
-| Submit Angebot for review | — | S | Owning Inspector only |
+| Create Angebot draft | — | S | Only for a Lead assigned to that Inspector, and only once `InspectionDone` (FR-4.1 guard). **Admin stays `—` — a D115 non-goal**: an Admin creating a draft would put an Admin into `CreatedByInspectorId` and change who owns the quote and who is told about review comments; authorship on someone else's behalf is not designed |
+| Edit Angebot while `Draft` or `ChangesRequested` | F | S | **Admin `F` since D115** (previously `R`, "to keep authorship/accountability clean"). The Product Owner gave the Admin the Inspector's full operational capability on an editable Angebot, resolving SRS §3.4's "Admin (reviews/edits)" in its favour. **Authorship never moves** — `CreatedByInspectorId` stays the creating Inspector — and **every Admin builder mutation is audited** (`AngebotEditedByAdmin`), which is what replaced the old accountability reason. Same edit lock for both roles: never in `InReview` or later (StateMachine.md §2.4). Every write carries the caller's `expectedVersion`; a stale one is refused with 409 |
+| Add/remove Sections & Items | F | S | The owning Inspector, or any Admin (D115), only while editable (StateMachine.md §2.4). Role-based for the Admin, so no ownership check |
+| Edit an existing Item | F | S | Owning Inspector or any Admin (D115), while editable. *Built in Phase 10 QA as `PUT /api/v1/angebote/{id}/items/{itemId}`.* **This row is new, and it corrects a mistake in reasoning rather than a change of policy.** `CLAUDE.md` §2 had recorded that no item update existed because "add+remove already covers correction" — which did not survive real use: recreating a line loses its identity, and with it any Catalog entry contributed from it (FR-4.10). Added on an explicit Product-Owner requirement. Catalog-sourced lines are editable too and keep their `CatalogItemId`, because BR-8 makes the copy independent of its source the instant it exists |
+| Use Catalog picker | F | S | Both roles browse the Catalog. **Admin `F` while editing since D115** (previously `R`): adding a Catalog line requires the picker. Inspector isn't "scoped" here in the per-Lead sense, since the Catalog is shared |
+| Save item as new Catalog entry | — | F | Any Inspector can contribute (FR-4.10); not Lead-scoped since the Catalog is shared company-wide. Unchanged by D115 — the Admin curates the Catalog directly (§6) |
+| Duplicate a past Angebot/Section | — | S | Only from Angebote the Inspector has access to (their own past drafts, or any `Sent`/decided Angebot they're shown for reference — exact reference-library scope is an implementation detail, default to "their own" for v1). **Admin remains `—`** — a D115 non-goal |
+| Submit Angebot for review | F | S | Owning Inspector, or **any Admin since D115** — on any Angebot in `Draft` or `ChangesRequested`, typically after correcting it. The Dashboard confirms an Admin submission naming the original author. **No review email is sent when an Admin submits** (SRS FR-9.2 names an Inspector's submission as the trigger) |
 
 ---
 
@@ -57,9 +57,10 @@ There are two internal roles (Admin, Inspector). Public Visitors and Leads/Custo
 
 | Action | Admin | Inspector | Notes |
 |---|---|---|---|
-| View Angebot in `InReview` | F | R | Inspector can see their own submission's status, read-only once submitted |
-| Approve Angebot | F | — | Admin-only — this is the entire point of the internal review gate (BR-1) |
-| Request changes (with comment) | F | — | Admin-only |
+| View Angebot in `InReview` | F | R | Inspector can see their own submission's status, read-only once submitted. Nobody edits an `InReview` Angebot — an Admin who wants to correct it returns it for correction first (row below) |
+| Approve Angebot | F | — | Admin-only — this is the entire point of the internal review gate (BR-1). Any Admin, **including the one who corrected the Angebot** (no four-eyes rule, D115). Carries `expectedVersion`, so an Admin can approve only the version they looked at |
+| Request changes (with comment) | F | — | Admin-only. Carries `expectedVersion` (D115) |
+| Return Angebot for correction ("Zur Korrektur zurückholen") | F | — | Admin-only, **only while `InReview`** (SRS FR-5.5, **D115**). `InReview → Draft` with no comment and no email, so an Admin can fix a small mistake themselves instead of the Request Changes round trip. The corrected Angebot must then be submitted and approved again. Role-based only, so no ownership check; an Inspector gets the role gate's empty 403. Audited as `AngebotReturnedForCorrection` |
 | Send Angebot to Lead (generate token link) | F | — | Admin-only (FR-6.1) |
 | Resend Angebot link (re-issue token) | F | — | Admin-only (FR-6.1a, added Phase 11 Slice 6, **D99**). Only while the Angebot is `Sent`. Re-issuing **supersedes** the previous link by expiring it in the same transaction, so there is never more than one usable credential for an Angebot. No state transition and no change to `SentAt` — each re-issue is recorded in the audit trail |
 | View review comment history | F | R | Both can read; only Admin writes new review comments |

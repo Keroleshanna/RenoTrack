@@ -33,6 +33,8 @@ public sealed class RequestAngebotChangesCommandHandler(
         var angebot = await angebotRepository.GetByIdAsync(command.AngebotId, cancellationToken)
             ?? throw new NotFoundException(nameof(Angebot), command.AngebotId);
 
+        AngebotFreshness.EnsureExpectedVersion(angebot, command.ExpectedVersion);
+
         angebot.RequestChanges(command.ReviewedByAdminId); // Domain self-guard (Status == InReview)
 
         var reviewComment = AngebotReviewComment.Create(angebot.Id, command.ReviewedByAdminId, command.Comment);
