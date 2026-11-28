@@ -3527,3 +3527,41 @@ A second human editor met D96's revisit trigger: *a second, independent path tha
   - on the Dashboard: offering A3 to an Inspector, sending a fixed version on approve, and removing the 409 handling;
   - removing the boundary's 409 rewrite, and removing the marker from the line-correction endpoint.
 - **Not changed:** Lead (no token, no transition), the public token pages and DTOs, invoices, revisions (finding B / OQ-4), the audit UI (Phase 15), and BusinessRules.md (BR-1 still holds).
+
+---
+
+## D116 — `System.Security.Cryptography.Pkcs` Pinned to 10.0.15 (Security Fix, Not Suppression)
+
+**Repository health, independent of any phase.** It is its own branch from `main` at `97cff8d`, and shares no commit with the open Finding A pull request (#39). D115 is the number #39 uses, so this entry takes the next one and the two never collide.
+
+**Problem:** On 2026-10-13 GitHub published two advisories against `System.Security.Cryptography.Pkcs`. For the 10.x line, both affect `>= 10.0.0, <= 10.0.12`, and both are patched in **10.0.13**:
+- **GHSA-2fmv-rv2c-59x7** (CVE-2026-70162, moderate) — .NET denial of service;
+- **GHSA-846f-f764-76mx** (CVE-2026-84008, high) — .NET denial of service.
+
+No project references the package directly. For `net10.0`, `RenoTrack.Infrastructure` resolved it transitively at **10.0.0**, the highest of the minimums its dependencies declare:
+- `MailKit` 4.17.0 → `MimeKit` 4.17.0 requires `>= 10.0.0` — the floor that wins;
+- `Microsoft.EntityFrameworkCore.SqlServer` 10.0.10 → `Microsoft.Data.SqlClient` 6.1.1 requires `>= 9.0.4`;
+- `PDFsharp-MigraDoc` 6.2.4, directly and through `PDFsharp` 6.2.4, requires `>= 8.0.1`.
+
+Through project references the same version reached `RenoTrack.Api`, `RenoTrack.Api.Tests`, `RenoTrack.Infrastructure.Tests` and `RenoTrack.Documents.Tests`. NuGet audit then broke restore there: NU1902 (moderate) is an error under D3's `TreatWarningsAsErrors`. NU1903 (high) stays a warning, because D3 lists it in `WarningsNotAsErrors`. The defect predates its discovery: `main` at `97cff8d` resolved the same version and passed CI only because its last run preceded the advisories. It surfaced when PR #39's CI run failed in `build-and-test`.
+
+**Alternatives considered:**
+- (a) Suppress NU1902 (`NoWarn` or `WarningsNotAsErrors`) and move on.
+- (b) Upgrade `MailKit`, `Microsoft.EntityFrameworkCore.SqlServer` and `PDFsharp-MigraDoc` until each pulls a patched version.
+- (c) Central package management with transitive pinning.
+- (d) Pin the transitive package directly, in the one project that introduces it.
+
+**Final decision:** (d). One explicit `<PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />` in `RenoTrack.Infrastructure.csproj`, with a comment naming both advisories. A direct reference outranks the transitive minimums, and it flows through project references to every project that resolved the vulnerable version. No other package, warning setting or project changes.
+
+**Why 10.0.15:** 10.0.13 is the advisories' minimum patched version. 10.0.15 is the current stable 10.x release: published on nuget.org on 2026-11-10, listed, with no listed vulnerability and no dependencies declared for `net10.0`, so it adds nothing else to the graph. Every declared minimum above (10.0.0, 9.0.4, 8.0.1) is below it, so no downgrade arises. No prerelease and no 11.x version was considered.
+
+**Why chosen:**
+- (a) hides a confirmed vulnerability rather than closing it. That is D4's rule: suppressing a real advisory is never the default, and D3's escape hatch exists for triage time, not for this.
+- (b) is three unrelated dependency upgrades, each with its own behaviour to verify, to fix one package that one line fixes.
+- (c) is a repository-wide restructure the problem does not need.
+- (d) is one line, exactly the shape D4 established for `Microsoft.OpenApi`, and it removes the vulnerable version.
+
+**Consequences:**
+- Restore no longer reports NU1902 or NU1903 for this package, and every affected project resolves 10.0.15.
+- The pin is a floor the three upstream packages do not know about. When one of them later requires a newer `Pkcs`, NuGet raises a downgrade error (NU1605) rather than silently resolving lower, so the pin cannot go stale in the unsafe direction. It is raised or removed then.
+- D3's `NU1903` exemption is unchanged. It let the **high**-severity advisory through as a warning, and only the moderate one stopped the build. Revisiting that exemption is a separate decision, not made here.
